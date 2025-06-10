@@ -4,13 +4,38 @@ import * as admin from 'firebase-admin';
 // Initialize Firebase Admin
 if (!admin.apps.length) {
   try {
+    // Check for required environment variables
+    const requiredEnvVars = {
+      FIREBASE_PROJECT_ID: process.env.FIREBASE_PROJECT_ID,
+      FIREBASE_CLIENT_EMAIL: process.env.FIREBASE_CLIENT_EMAIL,
+      FIREBASE_PRIVATE_KEY: process.env.FIREBASE_PRIVATE_KEY,
+      FIREBASE_STORAGE_BUCKET: process.env.FIREBASE_STORAGE_BUCKET
+    };
+
+    // Check if any required variables are missing
+    const missingVars = Object.entries(requiredEnvVars)
+      .filter(([_, value]) => !value)
+      .map(([key]) => key);
+
+    if (missingVars.length > 0) {
+      throw new Error(`Missing required environment variables: ${missingVars.join(', ')}`);
+    }
+
+    // At this point, we know all values are defined
+    const { FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY, FIREBASE_STORAGE_BUCKET } = requiredEnvVars as {
+      FIREBASE_PROJECT_ID: string;
+      FIREBASE_CLIENT_EMAIL: string;
+      FIREBASE_PRIVATE_KEY: string;
+      FIREBASE_STORAGE_BUCKET: string;
+    };
+
     admin.initializeApp({
       credential: admin.credential.cert({
-        projectId: process.env.FIREBASE_PROJECT_ID!,
-        clientEmail: process.env.FIREBASE_CLIENT_EMAIL!,
-        privateKey: process.env.FIREBASE_PRIVATE_KEY!.replace(/\\n/g, '\n'),
+        projectId: FIREBASE_PROJECT_ID,
+        clientEmail: FIREBASE_CLIENT_EMAIL,
+        privateKey: FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
       }),
-      storageBucket: process.env.FIREBASE_STORAGE_BUCKET
+      storageBucket: FIREBASE_STORAGE_BUCKET
     });
     console.log('Firebase Admin initialized successfully');
   } catch (error) {
