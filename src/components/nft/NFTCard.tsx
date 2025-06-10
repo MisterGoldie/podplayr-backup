@@ -5,6 +5,8 @@ import { useNFTLikeState } from '~/hooks/useNFTLikeState';
 import { useNFTPlayCount } from '~/hooks/useNFTPlayCount';
 import { useNFTPreloader } from '~/hooks/useNFTPreloader';
 import { formatPlayCount } from '~/utils/format';
+import { useNFTLike } from '~/hooks/useNFTLike';
+import { toggleLikeNFT } from '~/lib/firebase';
 
 interface NFTCardProps {
   nft: NFT;
@@ -12,7 +14,7 @@ interface NFTCardProps {
   isPlaying?: boolean;
   currentlyPlaying?: string | null;
   handlePlayPause?: () => void;
-  onLikeToggle?: () => Promise<void>;
+  onLikeToggle?: (nft: NFT) => Promise<void>;
   userFid?: string;
   isNFTLiked?: () => boolean;
   playCountBadge?: string;
@@ -36,14 +38,20 @@ export const NFTCard: React.FC<NFTCardProps> = ({
   const { playCount, loading: playCountLoading } = useNFTPlayCount(nft);
   const { getPreloadedImage } = useNFTPreloader([nft]);
 
-  const handleLike = async () => {
-    if (!fid) return;
-    if (onLikeToggle) {
-      await onLikeToggle();
-    } else {
+  // Use the NFT like hook
+  const { handleLike, handleUnlike } = useNFTLike({
+    onLikeToggle: onLikeToggle || (async () => {
+      // If no onLikeToggle is provided, use the default behavior
+      if (!fid) return;
       await toggleLike();
+    }),
+    setIsLiked: (liked) => {
+      // Update the local state if needed
+      if (isNFTLiked) {
+        isNFTLiked();
+      }
     }
-  };
+  });
 
   const handlePlay = () => {
     if (onPlay) {
@@ -77,7 +85,7 @@ export const NFTCard: React.FC<NFTCardProps> = ({
 
         {fid && (
           <button 
-            onClick={handleLike}
+            onClick={() => isLiked ? handleUnlike(nft) : handleLike(nft)}
             className="absolute top-2 right-2 w-10 h-10 flex items-center justify-center text-red-500 transition-all duration-300 hover:scale-125 z-10"
           >
             {isLiked ? (

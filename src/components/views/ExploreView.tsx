@@ -9,20 +9,21 @@ import Image from 'next/image';
 import { NFT, FarcasterUser, SearchedUser } from '../../types/user';
 import { getDoc, doc } from 'firebase/firestore';
 import { db, trackUserSearch, isUserFollowed, toggleFollowUser, getFollowersCount, getFollowingCount } from '../../lib/firebase';
-
-// Hardcoded list of FIDs for users who should have "thepod" badge
-const POD_MEMBER_FIDS = [15019, 7472, 14871, 414859, 235025, 892616, 323867, 892130];
-
-// PODPLAYR official account FID
-const PODPLAYR_OFFICIAL_FID = 1014485;
 import { useContext } from 'react';
-import { FarcasterContext } from '../../app/providers';
+import { FarcasterContext, UserFidContext } from '../../app/providers';
 import NotificationHeader from '../NotificationHeader';
 import { useNFTNotification } from '../../context/NFTNotificationContext';
 import NFTNotification from '../NFTNotification';
 import LocalConnectionNotification from '../LocalConnectionNotification';
 import ConnectionHeader from '../ConnectionHeader';
 import { useConnection } from '../../context/ConnectionContext';
+import { useNFTLike } from '../../hooks/useNFTLike';
+
+// Hardcoded list of FIDs for users who should have "thepod" badge
+const POD_MEMBER_FIDS = [15019, 7472, 14871, 414859, 235025, 892616, 323867, 892130];
+
+// PODPLAYR official account FID
+const PODPLAYR_OFFICIAL_FID = 1014485;
 
 interface ExploreViewProps {
   onSearch: (query: string) => void;
@@ -54,10 +55,11 @@ interface ExploreViewProps {
 
 const ExploreView: React.FC<ExploreViewProps> = (props) => {
   // Get FID from context, but prioritize the one passed in props if available
-  const contextFid = useContext(FarcasterContext);
+  const { isFarcaster } = useContext(FarcasterContext);
+  const { fid: contextFid } = useContext(UserFidContext);
   
   // Use the FID from props if available, otherwise use the one from context
-  const effectiveUserFid = props.userFid || contextFid.fid || 0;
+  const effectiveUserFid = props.userFid || contextFid || 0;
 
   // Get NFT notification context
   const nftNotification = useNFTNotification();
@@ -259,6 +261,19 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
     onSearch(""); // Clear the search query
   };
 
+  // Use the NFT like hook
+  const { handleLike, handleUnlike } = useNFTLike({
+    onLikeToggle: onLikeToggle || (async () => {
+      // If no onLikeToggle is provided, use the default behavior
+      if (!effectiveUserFid) return;
+      // You can add default like behavior here if needed
+    }),
+    setIsLiked: (liked) => {
+      // Force a refresh of the grid when like status changes
+      setRefreshTrigger(prev => prev + 1);
+    }
+  });
+
   if (isSearching) {
     return (
       <div className="flex flex-col items-center justify-center py-16 space-y-6">
@@ -271,44 +286,14 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
     );
   }
 
-  // Wrapper for like toggle that updates UI state and shows notifications IMMEDIATELY
+  // Update the handleLikeToggle function to use the hook
   const handleLikeToggle = async (nft: NFT) => {
-    console.log('ExploreView: handleLikeToggle called for:', nft.name);
+    if (!effectiveUserFid) return;
     
-    // Determine current like state before toggling
-    const wasLiked = isNFTLiked ? isNFTLiked(nft) : false;
-    
-    // IMPORTANT: Show notification IMMEDIATELY before any Firebase operations
-    // This ensures smooth animation regardless of backend delays
-    try {
-      // Get the notification type based on the current state
-      const notificationType = wasLiked ? 'unlike' : 'like';
-      console.log('🔔 ExploreView: Triggering IMMEDIATE notification:', notificationType, 'for', nft.name);
-      
-      // Add a small delay to sync with the heart icon animation (150ms)
-      // This ensures the notification appears after the heart turns red
-      setTimeout(() => {
-        // Show notification using the global context
-        if (nftNotification && typeof nftNotification.showNotification === 'function') {
-          nftNotification.showNotification(notificationType, nft);
-        }
-      }, 150); // Timing synchronized with heart icon animation
-    } catch (error) {
-      console.error('Error showing notification in ExploreView:', error);
-    }
-    
-    // Perform Firebase operations in the background
-    if (onLikeToggle) {
-      // Don't await this - let it happen in the background
-      onLikeToggle(nft).then(() => {
-        // Update UI state after background operation completes
-        setRefreshTrigger(prev => prev + 1);
-        console.log('ExploreView: Like toggled in background, triggering refresh');
-      }).catch(error => {
-        console.error('Error toggling like in ExploreView:', error);
-      });
+    if (isNFTLiked && isNFTLiked(nft)) {
+      await handleUnlike(nft);
     } else {
-      console.warn('onLikeToggle not available in ExploreView');
+      await handleLike(nft);
     }
   };
 

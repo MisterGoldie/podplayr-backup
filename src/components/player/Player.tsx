@@ -3,9 +3,10 @@ import React, { useContext, useRef, useEffect, useState } from 'react';
 import { MinimizedPlayer } from './MinimizedPlayer';
 import { MaximizedPlayer } from './MaximizedPlayer';
 import type { NFT } from '../../types/user';
-import { FarcasterContext } from '../../app/providers';
+import { UserFidContext } from '../../app/providers';
 import { useNFTLikeState } from '../../hooks/useNFTLikeState';
 import { setPlaybackActive } from '../../utils/media';
+import { useNFTQueue } from './hooks/useNFTQueue';
 
 // Keep all the existing interfaces exactly as they are
 interface PlayerProps {
@@ -22,22 +23,22 @@ interface PlayerProps {
   onLikeToggle?: (nft: NFT) => void;
   isLiked?: boolean;
   onPictureInPicture?: () => void;
+  onPlayNFT: (nft: NFT) => Promise<void>;
 }
 
 export const Player: React.FC<PlayerProps> = (props) => {
   const {
-  nft,
-  isPlaying,
-  onPlayPause,
-  onNext,
-  onPrevious,
-  isMinimized,
-  onMinimizeToggle,
-  progress,
-  duration,
-  onSeek,
-  onLikeToggle,
-  onPictureInPicture
+    nft,
+    isPlaying,
+    onPlayPause,
+    isMinimized,
+    onMinimizeToggle,
+    progress,
+    duration,
+    onSeek,
+    onLikeToggle,
+    onPictureInPicture,
+    onPlayNFT
   } = props;
 
   // Video reference for syncing video playback
@@ -45,10 +46,13 @@ export const Player: React.FC<PlayerProps> = (props) => {
   const prevPlayingRef = useRef(isPlaying);
 
   // Get user's FID from context
-  const { fid: userFid = 0 } = useContext(FarcasterContext);
+  const { fid: userFid = 0 } = useContext(UserFidContext);
   
   // Use the hook to get real-time like state
   const { isLiked } = useNFTLikeState(nft || null, userFid);
+
+  // Use the NFT queue hook
+  const { handlePlayNext, handlePlayPrevious } = useNFTQueue({ onPlayNFT });
 
   // Add a ref to track the current video position
   const lastPositionRef = useRef<number>(0);
@@ -345,13 +349,13 @@ export const Player: React.FC<PlayerProps> = (props) => {
           nft={nft}
           isPlaying={isPlaying}
           onPlayPause={onPlayPause}
-          onNext={onNext}
-          onPrevious={onPrevious}
+          onNext={() => handlePlayNext(nft)}
+          onPrevious={() => handlePlayPrevious(nft)}
           onMinimizeToggle={handleAnimatedMinimizeToggle}
           progress={progress}
           duration={duration}
           onSeek={onSeek}
-          onLikeToggle={onLikeToggle ? (nft) => onLikeToggle(nft) : undefined}
+          onLikeToggle={onLikeToggle}
           isLiked={isLiked}
           onPictureInPicture={onPictureInPicture}
           lastPosition={lastPositionRef.current}
@@ -367,13 +371,13 @@ export const Player: React.FC<PlayerProps> = (props) => {
             isAnimating={isAnimating}
             isPlaying={isPlaying}
             onPlayPause={onPlayPause}
-            onNext={onNext}
-            onPrevious={onPrevious}
+            onNext={() => handlePlayNext(nft)}
+            onPrevious={() => handlePlayPrevious(nft)}
             onMinimizeToggle={onMinimizeToggle}
             progress={progress}
             duration={duration}
             onSeek={onSeek}
-            onLikeToggle={onLikeToggle ? (nft) => onLikeToggle(nft) : undefined}
+            onLikeToggle={onLikeToggle}
             isLiked={isLiked}
             onPictureInPicture={onPictureInPicture}
             lastPosition={lastPositionRef.current}
