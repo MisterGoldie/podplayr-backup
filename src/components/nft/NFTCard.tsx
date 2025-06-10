@@ -1,17 +1,20 @@
 import { useState, useEffect, useRef, useContext, useMemo } from 'react';
-import { usePrivy } from '@privy-io/react-auth';
 import { NFT } from '../../types/user';
 import { NFTImage } from '../media/NFTImage';
 import { processMediaUrl, getMediaKey } from '../../utils/media';
 import { useNFTLikeState } from '../../hooks/useNFTLikeState';
 import { useNFTPlayCount } from '../../hooks/useNFTPlayCount';
-import { FarcasterContext } from '../../app/providers';
+import { useNFTPreloader } from '../../hooks/useNFTPreloader';
+import { FarcasterContext, UserFidContext } from '../../app/providers';
 import { DirectVideoPlayer } from '../media/DirectVideoPlayer';
 import { UltraDirectPlayer } from '../media/UltraDirectPlayer';
 import { NFTGifImage } from '../media/NFTGifImage';
 import { useSessionImageCache } from '../../hooks/useSessionImageCache';
 import { useNFTNotification } from '../../context/NFTNotificationContext';
 import { logger } from '../../utils/logger';
+import { useRouter } from 'next/router';
+import { formatPlayCount } from '../../utils/format';
+import { isPlaybackActive } from '../../utils/media';
 // Removed the import for 'react-intersection-observer' due to the error
 
 interface NFTCardProps {
@@ -36,6 +39,13 @@ interface NFTCardProps {
   isNFTLiked?: (nft: NFT) => boolean;
   animationDelay?: number;
   smallCard?: boolean; // If true, adjusts styling for smaller cards in the recently played section
+
+  showPlayCount?: boolean;
+  showLikeCount?: boolean;
+  showLikeButton?: boolean;
+  showPlayButton?: boolean;
+  showDetails?: boolean;
+  className?: string;
 }
 
 // Add keyframes for the animation
@@ -75,8 +85,38 @@ export const NFTCard: React.FC<NFTCardProps> = ({
   userFid = 0,
   isNFTLiked,
   animationDelay = 0.2,
-  isAuthenticated = false
+  isAuthenticated = false,
+  showPlayCount = true,
+  showLikeCount = true,
+  showLikeButton = true,
+  showPlayButton = true,
+  showDetails = true,
+  className = ''
 }) => {
+  const router = useRouter();
+  const { isFarcaster } = useContext(FarcasterContext);
+  const { fid } = useContext(UserFidContext);
+  const { isLiked, likesCount, toggleLike } = useNFTLikeState(nft, fid || 0);
+  const { playCount, loading: playCountLoading } = useNFTPlayCount(nft);
+  const { preloadImage } = useNFTPreloader([nft]);
+  const { getPreloadedImage } = useSessionImageCache([nft]);
+  const [imageUrl, setImageUrl] = useState<string>('');
+
+  // Get cached image if available
+  const cachedImage = getPreloadedImage(nft);
+  const rawImageUrl = nft.image || nft.metadata?.image || '';
+  useEffect(() => {
+    if (cachedImage) {
+      setImageUrl(cachedImage.src);
+    } else if (validateImageUrl(rawImageUrl)) {
+      setImageUrl(processMediaUrl(rawImageUrl));
+    } else {
+      setImageUrl('/default-nft.png');
+    }
+  }, [cachedImage, rawImageUrl]);
+
+  const isUserAuthenticated = isFarcaster !== undefined;
+
   // Get the NFT notification context at the component level
   // NEW: Add validation for NFT data to prevent crashes from broken NFTs
   const isValidNFT = useMemo(() => {
@@ -158,7 +198,7 @@ export const NFTCard: React.FC<NFTCardProps> = ({
   
   // Memoize the nft object to prevent infinite updates
   const memoizedNft = useMemo(() => [nft], [nft.contract, nft.tokenId]);
-  const { getPreloadedImage, preloadImage } = useSessionImageCache(memoizedNft);
+  const { getPreloadedImage: memoizedGetPreloadedImage, preloadImage: memoizedPreloadImage } = useSessionImageCache(memoizedNft);
   
   // Validate image URL to prevent loading errors
   const validateImageUrl = (url: string | undefined): boolean => {
@@ -182,144 +222,8 @@ export const NFTCard: React.FC<NFTCardProps> = ({
   // Get mediaKey for content-based tracking
   const mediaKey = getMediaKey(nft);
   
-  // Get like state based on context - if we're in library view, NFT is always liked
-  const { isLiked: likeStateFromHook, likesCount: globalLikesCount } = useNFTLikeState(nft, userFid || 0);
-
-  // Get authentication state directly from contexts
-  const farcasterContext = useContext(FarcasterContext);
-  const { authenticated: privyAuthenticated } = usePrivy();
-  
-  // User is authenticated if they have a Farcaster FID, are logged in with Privy,
-  // or the parent explicitly passed isAuthenticated=true
-  const isUserAuthenticated = Boolean(
-    isAuthenticated || 
-    userFid > 0 || 
-    (farcasterContext?.fid ?? 0) > 0 || 
-    privyAuthenticated
-  );
-  
-  // Debug authentication state
-  useEffect(() => {
-    if (isUserAuthenticated) {
-      nftCardLogger.debug(`User authenticated for NFT: ${nft.name}`, {
-        fromProp: Boolean(isAuthenticated),
-        fromUserFid: userFid > 0,
-        fromFarcasterContext: (farcasterContext?.fid ?? 0) > 0,
-        fromPrivy: privyAuthenticated
-      });
-    }
-  }, [isUserAuthenticated, nft.name, isAuthenticated, userFid, farcasterContext?.fid, privyAuthenticated]);
-
-  
-  // ENHANCED: Check multiple sources for like status to ensure consistency
-  // 1. First check if the NFT has isLiked property directly set
-  // 2. Then check if isNFTLiked function is provided and use that
-  // 3. Finally fall back to the hook's state
-  const isLiked = nft.isLiked === true ? true : 
-                 (typeof isNFTLiked === 'function' ? isNFTLiked(nft) : likeStateFromHook);
-  
-  // Log to debug like status
-  useEffect(() => {
-    nftCardLogger.debug(`NFT "${nft.name}" (mediaKey: ${mediaKey}) liked status:`, {
-      fromDirectProperty: nft.isLiked === true,
-      fromPropFunction: typeof isNFTLiked === 'function' ? isNFTLiked(nft) : 'N/A',
-      fromHook: likeStateFromHook,
-      finalValue: isLiked
-    });
-  }, [nft, mediaKey, isNFTLiked, likeStateFromHook, isLiked]);
-  
-  // Add data attributes for DOM-based synchronization
-  useEffect(() => {
-    if (cardRef.current && mediaKey) {
-      // Set data attributes for DOM-based synchronization
-      cardRef.current.setAttribute('data-media-key', mediaKey);
-      cardRef.current.setAttribute('data-liked', isLiked ? 'true' : 'false');
-      cardRef.current.setAttribute('data-is-liked', isLiked ? 'true' : 'false');
-      
-      // Also set data-nft-id for contract-tokenId based targeting
-      if (nft.contract && nft.tokenId) {
-        cardRef.current.setAttribute('data-nft-id', `${nft.contract}-${nft.tokenId}`);
-      }
-    }
-  }, [mediaKey, isLiked, nft.contract, nft.tokenId]);
-  
-  // Listen for custom like state change events
-  useEffect(() => {
-    // Skip if we don't have a valid mediaKey
-    if (!mediaKey) return;
-    
-    const handleLikeStateChange = (event: Event) => {
-      const customEvent = event as CustomEvent;
-      const detail = customEvent.detail;
-      
-      // Only process events for this NFT
-      if (detail.mediaKey === mediaKey || 
-          (detail.contract === nft.contract && detail.tokenId === nft.tokenId)) {
-        nftCardLogger.debug('Received like state change event:', {
-          mediaKey,
-          isLiked: detail.isLiked,
-          nftName: nft.name
-        });
-        
-        // Update the card's DOM attributes
-        if (cardRef.current) {
-          cardRef.current.setAttribute('data-liked', detail.isLiked ? 'true' : 'false');
-          cardRef.current.setAttribute('data-is-liked', detail.isLiked ? 'true' : 'false');
-        }
-      }
-    };
-    
-    // Handle global like state refresh events
-    const handleGlobalLikeStateRefresh = (event: Event) => {
-      const customEvent = event as CustomEvent;
-      const detail = customEvent.detail;
-      
-      if (detail && Array.isArray(detail.likedMediaKeys)) {
-        // Check if this NFT's mediaKey is in the list of liked mediaKeys
-        const isNFTLiked = detail.likedMediaKeys.includes(mediaKey);
-        
-        nftCardLogger.debug('Received global like state refresh event:', {
-          mediaKey,
-          isLiked: isNFTLiked,
-          nftName: nft.name,
-          source: detail.source
-        });
-        
-        // Update the card's DOM attributes
-        if (cardRef.current) {
-          cardRef.current.setAttribute('data-liked', isNFTLiked ? 'true' : 'false');
-          cardRef.current.setAttribute('data-is-liked', isNFTLiked ? 'true' : 'false');
-        }
-        
-        // Force update the NFT object if needed
-        if (nft.isLiked !== isNFTLiked) {
-          // This is a hack to update the NFT object without modifying the original
-          // We can't directly modify nft since it's a prop
-          Object.defineProperty(nft, 'isLiked', {
-            value: isNFTLiked,
-            writable: true,
-            configurable: true
-          });
-        }
-      }
-    };
-    
-    // Add event listeners
-    document.addEventListener('nftLikeStateChange', handleLikeStateChange);
-    document.addEventListener('globalLikeStateRefresh', handleGlobalLikeStateRefresh);
-    
-    // Clean up
-    return () => {
-      document.removeEventListener('nftLikeStateChange', handleLikeStateChange);
-      document.removeEventListener('globalLikeStateRefresh', handleGlobalLikeStateRefresh);
-    };
-  }, [mediaKey, nft.contract, nft.tokenId, nft.name]);
-  
-  // In library view, ensure at least 1 like
-  const likesCount = isLibraryView ? Math.max(1, globalLikesCount) : globalLikesCount;
-  
   // Get real-time play count with real increase tracking
-  const { playCount, realCountIncrease } = useNFTPlayCount(nft);
+  const { realCountIncrease } = useNFTPlayCount(nft);
   
   // Use realCountIncrease flag to control animation
   const [isAnimating, setIsAnimating] = useState(false);
@@ -359,7 +263,7 @@ export const NFTCard: React.FC<NFTCardProps> = ({
         setIsVisible(entry.isIntersecting);
         if (entry.isIntersecting) {
           // Preload image when card becomes visible
-          preloadImage(nft);
+          memoizedPreloadImage(nft);
         }
       },
       { threshold: 0.1 }
@@ -370,16 +274,10 @@ export const NFTCard: React.FC<NFTCardProps> = ({
     }
 
     return () => observer.disconnect();
-  }, [nft, preloadImage]);
+  }, [nft, memoizedPreloadImage]);
 
   // Only load animated content when card is visible
   const shouldLoadAnimated = isVisible;
-
-  // Get cached image if available
-  const cachedImage = getPreloadedImage(nft);
-  const rawImageUrl = nft.image || nft.metadata?.image || '';
-  const imageUrl = cachedImage ? cachedImage.src : 
-    validateImageUrl(rawImageUrl) ? processMediaUrl(rawImageUrl) : '/default-nft.png';
 
   const startOverlayTimer = (e: React.MouseEvent | React.TouchEvent) => {
     // Clear any existing timeout
@@ -561,7 +459,7 @@ export const NFTCard: React.FC<NFTCardProps> = ({
       <style>{animationKeyframes}</style>
       <div 
         ref={cardRef}
-        className="group relative bg-gradient-to-br from-gray-800/30 to-gray-800/10 rounded-lg overflow-hidden hover:bg-gray-800/40 active:bg-gray-800/60 transition-all duration-500 ease-in-out touch-manipulation shadow-xl shadow-purple-900/30 border border-purple-400/10"
+        className={`group relative bg-gradient-to-br from-gray-800/30 to-gray-800/10 rounded-lg overflow-hidden hover:bg-gray-800/40 active:bg-gray-800/60 transition-all duration-500 ease-in-out touch-manipulation shadow-xl shadow-purple-900/30 border border-purple-400/10 ${className}`}
         onMouseEnter={(e) => {
           if (useCenteredPlay && e) startOverlayTimer(e);
         }}

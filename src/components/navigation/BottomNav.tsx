@@ -1,243 +1,66 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { PageState } from '../../types/user';
-import { PrivyLoginButton } from '../auth/PrivyLoginButton';
-import { usePrivy } from '@privy-io/react-auth';
-import { useOnClickOutside } from '../../hooks/useOnClickOutside';
+import { useContext } from 'react';
+import { FarcasterContext } from '../../app/providers';
+import UserDropdownMenu from '../auth/UserDropdownMenu';
+
+type View = 'home' | 'explore' | 'library' | 'profile';
 
 interface BottomNavProps {
-  currentPage: PageState;
-  onNavigate: (page: keyof PageState) => void;
-  onReset?: () => void;
-  className?: string;
+  currentView: View;
+  onViewChange: (view: View) => void;
 }
 
-export const BottomNav: React.FC<BottomNavProps> = ({ currentPage, onNavigate, onReset, className = '' }) => {
-  const { authenticated, user } = usePrivy();
-  const [showProfileMenu, setShowProfileMenu] = useState(false);
-  const profileMenuRef = useRef<HTMLDivElement>(null);
-  
-  // Close menu when clicking outside
-  useOnClickOutside(profileMenuRef as React.RefObject<HTMLElement>, () => setShowProfileMenu(false));
-  
-  // Track double-click on profile button
-  const [lastClickTime, setLastClickTime] = useState(0);
-  const DOUBLE_CLICK_THRESHOLD = 500; // ms
-  
-  // Handle profile button click - detect double clicks and navigate
-  const handleProfileClick = (e: React.MouseEvent) => {
-    // Prevent event bubbling
-    e.stopPropagation();
-    
-    const now = Date.now();
-    console.log('👆 Profile button clicked', { currentView: currentPage, isProfilePage: currentPage.isProfile });
-    
-    if (currentPage.isProfile) {
-      // Check if this is a double-click
-      if (now - lastClickTime < DOUBLE_CLICK_THRESHOLD) {
-        console.log('🔄 Double-click detected, showing login modal');
-        // Set timeout to ensure other click events are processed first
-        setTimeout(() => {
-          setShowProfileMenu(true);
-        }, 50);
-      }
-      setLastClickTime(now);
-    } else {
-      console.log('📱 Navigating to profile page');
-      onNavigate('isProfile');
-      setShowProfileMenu(false);
-      setLastClickTime(0);
-    }
-  };
-  
-  // Close menu when page changes
-  useEffect(() => {
-    console.log('🔄 Page changed, closing menu if open', { currentPage, wasMenuOpen: showProfileMenu });
-    setShowProfileMenu(false);
-  }, [currentPage]);
-  
-  // Debug menu state changes
-  useEffect(() => {
-    console.log('🔍 Profile menu state changed:', { showProfileMenu, currentPage });
-  }, [showProfileMenu, currentPage]);
-  
-  // Handle login/logout callback
-  const handleLoginUpdate = (userData: any) => {
-    console.log('Login status updated:', userData ? 'Logged in' : 'Logged out');
-    
-    // If userData is null, it means user has logged out - close the modal
-    if (userData === null) {
-      console.log('User logged out, closing modal');
-      setShowProfileMenu(false);
-    }
-    
-    // Always reset the app state when needed
-    if (onReset) onReset();
-  };
-  
+export const BottomNav: React.FC<BottomNavProps> = ({ currentView, onViewChange }) => {
+  const { isFarcaster } = useContext(FarcasterContext);
+
   return (
-    <nav className={`fixed bottom-0 left-0 right-0 h-20 pb-4 bg-black border-t border-purple-400/30 flex items-center justify-around z-50 ${className}`}>
-      <button
-        onClick={() => onNavigate('isHome')}
-        className={`flex flex-col items-center justify-center w-16 h-16 ${
-          currentPage.isHome ? 'text-purple-400' : 'text-gray-400'
-        }`}
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          className="h-6 w-6"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"
-          />
-        </svg>
-        <span className="text-xs mt-1">Home</span>
-      </button>
-
-      <button
-        onClick={() => onNavigate('isExplore')}
-        className={`flex flex-col items-center justify-center w-16 h-16 ${
-          currentPage.isExplore ? 'text-purple-400' : 'text-gray-400'
-        }`}
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          className="h-6 w-6"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-          />
-        </svg>
-        <span className="text-xs mt-1">Explore</span>
-      </button>
-
-      <button
-        onClick={() => onNavigate('isLibrary')}
-        className={`flex flex-col items-center justify-center w-16 h-16 ${
-          currentPage.isLibrary ? 'text-purple-400' : 'text-gray-400'
-        }`}
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          className="h-6 w-6"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"
-          />
-        </svg>
-        <span className="text-xs mt-1">Library</span>
-      </button>
-
-      <div className="relative">
+    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-black/80 backdrop-blur-md border-t border-green-400/30">
+      <div className="flex items-center justify-around p-4">
         <button
-          onClick={handleProfileClick}
-          className={`flex flex-col items-center justify-center w-16 h-16 ${
-            currentPage.isProfile ? 'text-purple-400' : 'text-gray-400'
+          onClick={() => onViewChange('home')}
+          className={`flex flex-col items-center p-2 ${
+            currentView === 'home' ? 'text-green-400' : 'text-gray-400'
           }`}
         >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            className="h-6 w-6"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
-            />
+          <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24" fill="currentColor">
+            <path d="M240-200h120v-240h240v240h120v-360L480-740 240-560v360Zm-80 80v-480l320-240 320 240v480H520v-240h-80v240H160Zm320-350Z"/>
           </svg>
-          <span className="text-xs mt-1">Profile</span>
+          <span className="text-sm mt-1">Home</span>
         </button>
-        
-        {/* Modal Login Overlay */}
-        {(() => { console.log('🧩 Rendering check for menu:', { showProfileMenu, currentPage, shouldShow: showProfileMenu && currentPage.isProfile }); return null; })()}
-        {showProfileMenu && currentPage.isProfile && (
-          <div 
-            className="fixed inset-0 bg-black/80 flex items-center justify-center z-50"
-            onClick={(e: React.MouseEvent) => {
-              // Ensure this event doesn't overlap with button clicks
-              if (e.target === e.currentTarget) {
-                setShowProfileMenu(false);
-              }
-            }}
+
+        <button
+          onClick={() => onViewChange('explore')}
+          className={`flex flex-col items-center p-2 ${
+            currentView === 'explore' ? 'text-green-400' : 'text-gray-400'
+          }`}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24" fill="currentColor">
+            <path d="M784-160 532-412q-30 24-69 38t-83 14q-109 0-184.5-75.5T120-620q0-109 75.5-184.5T380-880q109 0 184.5 75.5T640-620q0 44-14 83t-38 69l252 252-56 56ZM380-400q92 0 156-64t64-156q0-92-64-156t-156-64q-92 0-156 64t-64 156q0 92 64 156t156 64Z"/>
+          </svg>
+          <span className="text-sm mt-1">Explore</span>
+        </button>
+
+        <button
+          onClick={() => onViewChange('library')}
+          className={`flex flex-col items-center p-2 ${
+            currentView === 'library' ? 'text-green-400' : 'text-gray-400'
+          }`}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24" fill="currentColor">
+            <path d="m480-240 160-160-160-160v320ZM320-280v-400l240 200-240 200Zm160-120Z"/>
+          </svg>
+          <span className="text-sm mt-1">Library</span>
+        </button>
+
+        {!isFarcaster && (
+          <button
+            onClick={() => onViewChange('profile')}
+            className={`flex flex-col items-center p-2 ${
+              currentView === 'profile' ? 'text-green-400' : 'text-gray-400'
+            }`}
           >
-            <div 
-              ref={profileMenuRef}
-              className="bg-gray-900 rounded-lg shadow-2xl overflow-hidden border border-purple-400/30 w-80 max-w-sm animate-fadeIn" 
-              onClick={(e) => {
-                // Prevent any click events from propagating through this container
-                e.stopPropagation();
-                e.preventDefault();
-              }}
-            >
-              <div className="p-6 text-center">
-                <h3 className="text-xl font-bold text-white mb-4">
-                  {authenticated ? 'Profile Account' : 'Sign In'}
-                </h3>
-                
-                {authenticated && user ? (
-                  <div className="text-white mb-4">
-                    <p className="opacity-70 mb-1">Signed in as:</p>
-                    <p className="font-semibold text-lg">
-                      {(() => {
-                        // Safely extract user identifier
-                        if (typeof user.email === 'string') return user.email;
-                        if (user.google?.email && typeof user.google.email === 'string') return user.google.email;
-                        
-                        // For Farcaster users, prioritize display name or username
-                        if (user.farcaster) {
-                          if (user.farcaster.username) return user.farcaster.username;
-                          if (user.farcaster.displayName) return user.farcaster.displayName;
-                          if (user.farcaster.fid) return `Farcaster #${user.farcaster.fid}`;
-                        }
-                        if (user.wallet?.address) return `${user.wallet.address.slice(0, 6)}...${user.wallet.address.slice(-4)}`;
-                        return 'User';
-                      })()}
-                    </p>
-                  </div>
-                ) : (
-                  <div className="text-white mb-4">
-                    <p>Sign in to access your profile</p>
-                  </div>
-                )}
-                
-                <div className="mt-6">
-                  <PrivyLoginButton 
-                    onLogin={handleLoginUpdate}
-                    customButtonClass="w-full bg-purple-500 hover:bg-purple-600 text-white font-semibold py-3 px-4 rounded-lg transition-colors duration-200"
-                    customButtonText={authenticated ? "Sign Out" : "Sign In with Privy"}
-                  />
-                </div>
-                
-                <button
-                  onClick={() => setShowProfileMenu(false)}
-                  className="mt-4 text-purple-400 hover:text-purple-300 text-sm"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          </div>
+            <UserDropdownMenu />
+            <span className="text-sm mt-1">Profile</span>
+          </button>
         )}
       </div>
     </nav>
