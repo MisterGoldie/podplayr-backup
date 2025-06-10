@@ -13,7 +13,7 @@ import NotificationHeader from '../NotificationHeader';
 import NFTNotification from '../NFTNotification';
 import { useNFTNotification } from '../../context/NFTNotificationContext';
 import { logger } from '~/utils/logger';
-import { useRouter } from 'next/router';
+import { useRouter } from 'next/navigation';
 
 // Create a dedicated logger for the HomeView
 const homeLogger = logger.getModuleLogger('homeView');
