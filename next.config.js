@@ -9,10 +9,6 @@ const nextConfig = {
       },
     ],
   },
-  // Optimize font loading (moved to root level as it's a standard option)
-  fontLoaders: [
-    { loader: '@next/font/google', options: { subsets: ['latin'] } },
-  ],
   experimental: {
     scrollRestoration: true,
     // Optimize resource loading

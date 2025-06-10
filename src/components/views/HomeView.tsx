@@ -1,22 +1,19 @@
 'use client';
 
-import React, { useMemo, useContext, useState, useEffect } from 'react';
+import React, { useMemo, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { NFTCard } from '../nft/NFTCard';
-import type { NFT } from '../../types/user';
+import type { NFT } from '~/types/nft';
 import Image from 'next/image';
 import { useNFTPreloader } from '../../hooks/useNFTPreloader';
 import FeaturedSection from '../sections/FeaturedSection';
 import RecentlyPlayed from '../RecentlyPlayed';
 import { getMediaKey } from '../../utils/media';
-import { FarcasterContext } from '../../app/providers';
+import { useFarcasterContext } from '~/contexts/FarcasterContext';
 import NotificationHeader from '../NotificationHeader';
 import NFTNotification from '../NFTNotification';
 import { useNFTNotification } from '../../context/NFTNotificationContext';
-import { logger } from '../../utils/logger';
-// UserDropdownMenu moved to Navigation component - but we still import Privy for initialization
-import { usePrivy } from '@privy-io/react-auth';
-import { useRouter } from 'next/navigation';
-import { isFarcasterMiniApp, isDesktopWeb } from '../../utils/platform';
+import { logger } from '~/utils/logger';
+import { useRouter } from 'next/router';
 
 // Create a dedicated logger for the HomeView
 const homeLogger = logger.getModuleLogger('homeView');
@@ -24,7 +21,7 @@ const homeLogger = logger.getModuleLogger('homeView');
 interface HomeViewProps {
   recentlyPlayedNFTs: NFT[];
   topPlayedNFTs: { nft: NFT; count: number }[];
-  onPlayNFT: (nft: NFT, context?: { queue?: NFT[], queueType?: string }) => void;
+  onPlayNFT: (nft: NFT, context?: { queue?: NFT[], queueType?: string }) => Promise<void>;
   currentlyPlaying: string | null;
   isPlaying: boolean;
   handlePlayPause: () => void;
@@ -35,6 +32,7 @@ interface HomeViewProps {
   hasActivePlayer: boolean;
   currentPlayingNFT?: NFT | null; // Add currentPlayingNFT prop
   recentlyAddedNFT?: React.MutableRefObject<string | null>; // Add recentlyAddedNFT ref
+  featuredNfts: NFT[];
 }
 
 const HomeView: React.FC<HomeViewProps> = ({
@@ -51,6 +49,7 @@ const HomeView: React.FC<HomeViewProps> = ({
   hasActivePlayer = false,
   currentPlayingNFT,
   recentlyAddedNFT,
+  featuredNfts,
 }) => {
   // Get NFT notification context (use directly for instant notifications)
   const { showNotification } = useNFTNotification();
@@ -86,15 +85,9 @@ const HomeView: React.FC<HomeViewProps> = ({
   // Preload all NFT images
   useNFTPreloader(allNFTs);
 
-    // Initialize Privy early to prevent loading delays
-  // This is important even though we don't show the login button here anymore
-  const { ready, authenticated, user } = usePrivy();
-  
-  // Log Privy initialization status
-  useEffect(() => {
-    homeLogger.info('Privy initialization status:', { ready, authenticated, hasUser: !!user });
-  }, [ready, authenticated, user]);
-  
+  // Get user's FID from context
+  const { fid } = useFarcasterContext();
+
   // Directly check if an NFT is liked by comparing against likedNFTs prop
   // This is more reliable than depending on context or hooks
   const checkDirectlyLiked = (nftToCheck: NFT): boolean => {
@@ -125,9 +118,6 @@ const HomeView: React.FC<HomeViewProps> = ({
     
     return false;
   };
-
-  // Get user's FID from context
-  const { fid: userFid = 0 } = useContext(FarcasterContext);
 
   // Create a wrapper for the existing like function that shows notification IMMEDIATELY
   const handleNFTLike = async (nft: NFT): Promise<void> => {
@@ -252,7 +242,7 @@ const HomeView: React.FC<HomeViewProps> = ({
 
         {/* Recently Played Section - Now using dedicated component */}
         <RecentlyPlayed
-          userFid={userFid}
+          userFid={fid ?? 0}
           onPlayNFT={onPlayNFT}
           currentlyPlaying={currentlyPlaying}
           isPlaying={isPlaying}
@@ -280,6 +270,7 @@ const HomeView: React.FC<HomeViewProps> = ({
                       return (
                         <div key={uniqueKey} className="flex-shrink-0 w-[200px]">
                           <NFTCard
+                            key={nft.contract + '-' + nft.tokenId}
                             nft={nft}
                             onPlay={async (nft) => {
                               homeLogger.debug(`Play button clicked for NFT in Top Played: ${nft.name}`);
@@ -293,14 +284,14 @@ const HomeView: React.FC<HomeViewProps> = ({
                                 homeLogger.error('Error playing NFT from Top Played:', error);
                               }
                             }}
-                            isPlaying={isPlaying && currentlyPlaying === getMediaKey(nft)}
+                            isPlaying={currentlyPlaying === nft.contract + '-' + nft.tokenId}
                             currentlyPlaying={currentlyPlaying}
                             handlePlayPause={handlePlayPause}
                             onLikeToggle={() => handleNFTLike(nft)}
-                            userFid={userFid}
+                            userFid={(fid ?? 0).toString()}
                             isNFTLiked={() => checkDirectlyLiked(nft)}
                             playCountBadge={`${count} plays`}
-                            animationDelay={0.2 + (index * 0.05)}
+                            animationDelay={index * 0.1}
                           />
                           <h3 className="font-mono text-white text-sm truncate mt-3">{nft.name}</h3>
                         </div>
@@ -322,7 +313,7 @@ const HomeView: React.FC<HomeViewProps> = ({
             isPlaying={isPlaying}
             onLikeToggle={handleNFTLike}
             isNFTLiked={checkDirectlyLiked}
-            userFid={String(userFid)}
+            userFid={(fid ?? 0).toString()}
           />
         </section>
       </div>

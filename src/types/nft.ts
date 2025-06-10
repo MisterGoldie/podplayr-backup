@@ -7,6 +7,10 @@ export interface NFTMetadata {
     files?: NFTFile[];
     category?: string;
   };
+  attributes?: Array<{
+    trait_type: string;
+    value: string | number;
+  }>;
 }
 
 export interface NFTFile {
@@ -18,11 +22,12 @@ export interface NFTFile {
 }
 
 export interface NFT {
+  [x: string]: any;
   contract: string;
   tokenId: string;
   name: string;
   description?: string;
-  image?: string;
+  image: string;
   animationUrl?: string;
   audio?: string;
   hasValidAudio?: boolean;
@@ -35,4 +40,11 @@ export interface NFT {
   metadata?: NFTMetadata;
   network?: 'ethereum' | 'base';
   playTracked?: boolean;
+  quantity?: number;
+  lastPlayed?: any; // Firestore Timestamp
+  mediaKey?: string; // Added: Composite key based on media URLs for deduplication
+  
+  // Local state properties (not persisted to Firebase)
+  addedToRecentlyPlayed?: boolean; // Whether this NFT was added to locally tracked recently played
+  addedToRecentlyPlayedAt?: number; // Timestamp when the NFT was added to locally tracked recently played
 } 

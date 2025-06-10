@@ -28,7 +28,7 @@ const generateMediaKey = (nft: NFT): string => {
   return uuidv4();
 };
 
-export const useNFTLikeState = (nft: NFT | null, fid: number) => {
+export const useNFTLikeState = (nft: NFT | null, fid: number | null) => {
   const [isLiked, setIsLiked] = useState<boolean>(false);
   const [likesCount, setLikesCount] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -145,7 +145,7 @@ export const useNFTLikeState = (nft: NFT | null, fid: number) => {
       await setDoc(userLikeRef, {
         likedMediaKeys: newIsLiked
           ? [...likedMediaKeys, mediaKeyRef.current]
-          : likedMediaKeys.filter(key => key !== mediaKeyRef.current)
+          : likedMediaKeys.filter((key: string) => key !== mediaKeyRef.current)
       });
       
       // Update global likes count

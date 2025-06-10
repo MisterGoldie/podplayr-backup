@@ -14,9 +14,6 @@ function detectFarcasterMiniApp(): boolean {
     return true;
   }
   
-  // No longer forcing Farcaster mode for all ngrok development URLs
-  // This was causing issues with normal web usage in development
-  
   // Check if app is inside an iframe
   const isInIframe = window !== window.parent;
   
@@ -66,15 +63,7 @@ if (typeof window !== 'undefined') {
   }, 100); // Short timeout to ensure this runs after module loading
 }
 
-// NO imports of wallet connectors of any kind
-
-// No shared config - each implementation uses its own config
-
-
-
 // Create wrapper components that use a different approach to avoid module resolution issues
-
-// For Farcaster mode - uses standard wagmi without Privy
 const FarcasterProvider: React.FC<{children: React.ReactNode}> = ({ children }) => {
   // Import components only when this component renders
   const [Provider, setProvider] = React.useState<any>(null);
@@ -116,48 +105,6 @@ const FarcasterProvider: React.FC<{children: React.ReactNode}> = ({ children }) 
   return <Provider>{children}</Provider>;
 };
 
-// For Web mode - uses Privy's wagmi
-const PrivyProvider: React.FC<{children: React.ReactNode}> = ({ children }) => {
-  // Import components only when this component renders
-  const [Provider, setProvider] = React.useState<any>(null);
-  
-  React.useEffect(() => {
-    // Dynamic import with .then() instead of import() syntax
-    import('@privy-io/wagmi').then(privyWagmi => {
-      // Create configuration here instead of importing
-      const config = privyWagmi.createConfig({
-        chains: [base],
-        transports: {
-          [base.id]: http()
-        },
-        connectors: [],
-        syncConnectedChain: false
-      });
-      
-      // Create a component on the fly
-      const PrivyWagmiProvider = ({ children }: {children: React.ReactNode}) => {
-        console.log('🔐 Using Privy-specific WagmiProvider');
-        return (
-          <privyWagmi.WagmiProvider 
-            config={config}
-            reconnectOnMount={false}
-          >
-            {children}
-          </privyWagmi.WagmiProvider>
-        );
-      };
-      
-      setProvider(() => PrivyWagmiProvider);
-    });
-  }, []);
-  
-  if (!Provider) {
-    return <div className="hidden">Loading Privy provider...</div>;
-  }
-  
-  return <Provider>{children}</Provider>;
-};
-
 // Top-level provider that decides which implementation to use
 const Provider = React.memo(function WagmiProviderComponent({ children }: { children: React.ReactNode }) {
   // Direct check for Farcaster mode without external dependencies
@@ -167,22 +114,14 @@ const Provider = React.memo(function WagmiProviderComponent({ children }: { chil
   React.useEffect(() => {
     const isFarcaster = detectFarcasterMiniApp();
     setIsInFarcasterMode(isFarcaster);
-    console.log(`🧩 Using ${isFarcaster ? 'FARCASTER' : 'PRIVY'} WagmiProvider mode`);
+    console.log(`🧩 Using ${isFarcaster ? 'FARCASTER' : 'WEB'} WagmiProvider mode`);
   }, []);
   
   return (
     <React.Suspense fallback={<div className="hidden">Loading wallet provider...</div>}>
-      {isInFarcasterMode ? (
-        // Farcaster mini-app mode - use regular Wagmi
-        <FarcasterProvider>
-          {children}
-        </FarcasterProvider>
-      ) : (
-        // Web mode - use Privy's Wagmi provider
-        <PrivyProvider>
-          {children}
-        </PrivyProvider>
-      )}
+      <FarcasterProvider>
+        {children}
+      </FarcasterProvider>
     </React.Suspense>
   );
 });
