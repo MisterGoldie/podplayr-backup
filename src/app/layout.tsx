@@ -1,30 +1,47 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "~/app/globals.css";
 import "~/styles/mobile.css"; // Import mobile-specific styles
 import { Providers } from "~/app/providers";
 import Script from 'next/script';
 import { Space_Grotesk } from 'next/font/google';
-// Import our client-side protection component
-import { DisableWalletConnectClient } from '~/lib/DisableWalletConnectClient';
 import { MiniKitContextProvider } from '../components/providers/MiniKitProvider';
 
 const appUrl = process.env.NEXT_PUBLIC_URL;
 
-// Use absolute URLs for frame images to ensure they work in Farcaster
-const frame = {
-  version: 'vNext',
-  // Use the icon we know exists, with absolute URL
-  image: `${appUrl || 'https://firmly-organic-kite.ngrok-free.app'}/icons/icon-512x512.png`,
-  title: 'PODPLAYR',
-  description: 'Listen & Watch NFTs on PODPLAYR',
-  buttons: [{
-    label: '▶️ Enter PODPLAYR',
+// Frame configuration following Farcaster Mini App spec
+const frameConfig = {
+  version: "next",
+  imageUrl: `${appUrl}/image.png`,
+  button: {
+    title: "▶️ Enter PODPLAYR",
     action: {
-      type: 'post_redirect',
-      target: appUrl || 'https://firmly-organic-kite.ngrok-free.app',
-    },
-  }],
-  postUrl: `${appUrl || 'https://firmly-organic-kite.ngrok-free.app'}/api/frame`,
+      type: "launch_frame",
+      name: "PODPLAYR",
+      url: appUrl,
+      splashImageUrl: `${appUrl}/splash.png`,
+      splashBackgroundColor: "#000000"
+    }
+  }
+};
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+};
+
+export const metadata: Metadata = {
+  title: "PODPLAYR",
+  description: "Listen & Watch NFTs on PODPLAYR",
+  openGraph: {
+    title: "PODPLAYR",
+    description: "Listen & Watch NFTs on PODPLAYR",
+    images: [`${appUrl}/image.png`],
+  },
+  other: {
+    'fc:frame': JSON.stringify(frameConfig)
+  }
 };
 
 const spaceGrotesk = Space_Grotesk({
@@ -55,52 +72,9 @@ export default function RootLayout({
       </head>
       <body>
         <MiniKitContextProvider>
-          {/* Add our client component that protects against WalletConnect double initialization */}
-          <DisableWalletConnectClient />
           <Providers>{children}</Providers>
         </MiniKitContextProvider>
       </body>
     </html>
   );
-}
-
-export async function generateMetadata(): Promise<Metadata> {
-  return {
-    title: frame.title,
-    description: frame.description,
-    viewport: {
-      width: 'device-width',
-      initialScale: 1,
-      maximumScale: 1,
-      userScalable: false,
-    },
-    openGraph: {
-      title: frame.title,
-      description: frame.description,
-      images: [frame.image],
-    },
-    other: {
-      'fc:frame': frame.version,
-      'fc:frame:image': frame.image,
-      'fc:frame:post_url': frame.postUrl,
-      'fc:frame:button:1': frame.buttons[0].label,
-      'fc:frame:button:1:action': 'post_redirect',
-      'fc:frame:button:1:target': frame.buttons[0].action.target,
-      // Add OnchainKit frame data
-      'onchainkit:frame': JSON.stringify({
-        version: "next",
-        imageUrl: process.env.NEXT_PUBLIC_APP_HERO_IMAGE,
-        button: {
-          title: `Launch ${process.env.NEXT_PUBLIC_ONCHAINKIT_PROJECT_NAME}`,
-          action: {
-            type: "launch_frame",
-            name: process.env.NEXT_PUBLIC_ONCHAINKIT_PROJECT_NAME,
-            url: appUrl,
-            splashImageUrl: process.env.NEXT_PUBLIC_SPLASH_IMAGE,
-            splashBackgroundColor: process.env.NEXT_PUBLIC_SPLASH_BACKGROUND_COLOR,
-          },
-        },
-      }),
-    },
-  };
 }
