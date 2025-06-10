@@ -7,7 +7,6 @@ import { Space_Grotesk } from 'next/font/google';
 // Import our client-side protection component
 import { DisableWalletConnectClient } from '~/lib/DisableWalletConnectClient';
 import { MiniKitContextProvider } from '../components/providers/MiniKitProvider';
-import { ServiceWorkerProvider } from '../components/ServiceWorkerProvider';
 
 const appUrl = process.env.NEXT_PUBLIC_URL;
 
@@ -47,7 +46,6 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={spaceGrotesk.className}>
-      <ServiceWorkerProvider />
       <head>
         {/* Ensure mobile support with proper viewport */}
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
