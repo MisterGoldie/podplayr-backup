@@ -2,7 +2,6 @@ import { useState, useEffect, useRef, useContext, useMemo } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
 import { NFT } from '../../types/user';
 import { NFTImage } from '../media/NFTImage';
-import { MuxPlayer } from '../media/MuxPlayer';
 import { processMediaUrl, getMediaKey } from '../../utils/media';
 import { useNFTLikeState } from '../../hooks/useNFTLikeState';
 import { useNFTPlayCount } from '../../hooks/useNFTPlayCount';
