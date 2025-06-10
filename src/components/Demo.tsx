@@ -1230,9 +1230,8 @@ const DemoBase: React.FC = () => {
   };
 
   const renderCurrentView = () => {
-    if (!hasAcceptedTerms) {
-      return <TermsOfService onAccept={acceptTerms} />;
-    }
+    // Terms of Service will no longer be displayed as the initial screen.
+    // Users will proceed directly to the main app views.
 
     return (
       <>
@@ -1247,10 +1246,10 @@ const DemoBase: React.FC = () => {
               transition={pageTransition}
             >
               <HomeView
-                recentlyPlayedNFTs={[]}
+                recentlyPlayedNFTs={recentlyPlayedNFTs}
                 topPlayedNFTs={topPlayedNFTs}
                 onPlayNFT={handlePlayFromLibrary}
-                currentlyPlaying={currentlyPlaying}
+                currentlyPlaying={currentPlayingNFT ? getMediaKey(currentPlayingNFT) : null}
                 isPlaying={isPlaying}
                 handlePlayPause={handlePlayPause}
                 isLoading={isLoading}
@@ -1269,7 +1268,7 @@ const DemoBase: React.FC = () => {
               onSearch={handleSearch}
               selectedUser={selectedUser}
               onPlayNFT={handlePlayFromLibrary}
-              currentlyPlaying={currentlyPlaying}
+              currentlyPlaying={currentPlayingNFT ? getMediaKey(currentPlayingNFT) : null}
               isPlaying={isPlaying}
               searchResults={searchResults}
               nfts={filteredNFTs}
@@ -1285,22 +1284,16 @@ const DemoBase: React.FC = () => {
                 setSelectedUser(user);
                 setIsLoading(true);
                 try {
-                  // First try to get cached NFTs
                   const cachedNFTs = getCachedNFTs(user.fid);
 
-                  // Check if this is an ENS user
                   if (user.isENS) {
                     console.log('Selected ENS user:', user);
-                    // ENS users are already tracked when they're created, no need to track again
-                    // This prevents duplicate tracking and ensures we maintain the isENS flag
                   } else {
-                    // Only track Farcaster users
                     if (fid !== undefined) {
                       await trackUserSearch(user.username, fid);
                     }
                   }
 
-                  // Immediately refresh recent searches
                   if (fid !== undefined) {
                     const updatedSearches = await getRecentSearches(fid);
                     setRecentSearches(updatedSearches);
@@ -1312,33 +1305,17 @@ const DemoBase: React.FC = () => {
                     return;
                   }
 
-                  // If no cache, fetch NFTs from API
                   const nfts = await fetchUserNFTs(user.fid);
                   if (!nfts) {
                     throw new Error('No NFTs returned');
                   }
 
-                  // Count by media type
-                  const audioNFTs = nfts.filter(nft => nft.hasValidAudio).length;
-                  const videoNFTs = nfts.filter(nft => nft.isVideo).length;
-                  const bothTypes = nfts.filter(nft => nft.hasValidAudio && nft.isVideo).length;
-
-                  const contractCounts: Record<string, number> = {};
-                  nfts.forEach(nft => {
-                    if (nft.contract) {
-                      contractCounts[nft.contract] = (contractCounts[nft.contract] || 0) + 1;
-                    }
-                  });
-
-                  // Cache the NFTs for future use
                   cacheNFTs(user.fid, nfts);
-
-                  // Update state with fetched NFTs
                   setUserNFTs(nfts);
                 } catch (error) {
                   logger.error('Error fetching user NFTs:', error);
                   setError('Failed to fetch user NFTs');
-                  setUserNFTs([]); // Set empty array on error
+                  setUserNFTs([]);
                 } finally {
                   setIsLoading(false);
                 }
@@ -1359,7 +1336,7 @@ const DemoBase: React.FC = () => {
               ref={libraryViewRef}
               likedNFTs={likedNFTs}
               handlePlayAudio={(nft: NFT, context?: { queue?: NFT[], queueType?: string }) => handlePlayFromLibrary(nft, context)}
-              currentlyPlaying={currentlyPlaying}
+              currentlyPlaying={currentPlayingNFT ? getMediaKey(currentPlayingNFT) : null}
               currentPlayingNFT={currentPlayingNFT}
               isPlaying={isPlaying}
               handlePlayPause={handlePlayPause}
@@ -1381,25 +1358,18 @@ const DemoBase: React.FC = () => {
               setIsPlayerMinimized={setIsPlayerMinimized}
               onLikeToggle={async (nft) => {
                 if (currentPage.isLibrary) {
-                  // Prevent re-liking from Library page
                   if (libraryViewRef.current) {
-                    // Check if the NFT exists in likedNFTs array
                     const isCurrentlyLiked = likedNFTs.some(
                       likedNFT => likedNFT.contractAddress === nft.contractAddress && 
                                   likedNFT.tokenId === nft.tokenId
                     );
-
-                    // Only allow unlike action (removing from library)
                     if (isCurrentlyLiked) {
                       libraryViewRef.current.setState({
                         showUnlikeNotification: true
                       });
                       await handleLikeToggle(nft);
                     }
-                    // Ignore the click if it's trying to re-like
                   }
-                } else {
-                  await handleLikeToggle(nft);
                 }
               }}
             />
@@ -1407,78 +1377,42 @@ const DemoBase: React.FC = () => {
           {currentPage.isProfile && (
             <ProfileView
               userContext={{
-                user: {
+                user: userData ? {
                   fid: fid ?? 0,
-                  username: userData?.username ?? '',
-                  displayName: userData?.display_name,
-                  pfpUrl: userData?.pfp_url,
-                  custody_address: userData?.custody_address,
+                  username: userData.username,
+                  displayName: userData.display_name,
+                  pfpUrl: userData.pfp_url,
+                  custody_address: userData.custody_address,
                   verified_addresses: {
-                    eth_addresses: userData?.verified_addresses?.eth_addresses
+                    eth_addresses: userData.verified_addresses?.eth_addresses
                   }
-                }
+                } : undefined
               }}
               nfts={userNFTs}
-              handlePlayAudio={(nft: NFT) => handlePlayFromLibrary(nft)}
+              handlePlayAudio={handlePlayFromLibrary}
+              currentlyPlaying={currentPlayingNFT ? getMediaKey(currentPlayingNFT) : null}
               isPlaying={isPlaying}
-              currentlyPlaying={currentlyPlaying}
               handlePlayPause={handlePlayPause}
               onReset={handleReset}
               onNFTsLoaded={setUserNFTs}
               onLikeToggle={handleLikeToggle}
-              onUserProfileClick={handleDirectUserSelect}
             />
           )}
           {currentPage.isUserProfile && selectedUser && (
             <UserProfileView
               user={selectedUser}
               nfts={userNFTs}
-              handlePlayAudio={(nft: NFT, context?: { queue?: NFT[], queueType?: string }) => handlePlayFromLibrary(nft, context)}
+              handlePlayAudio={handlePlayFromLibrary}
+              currentlyPlaying={currentPlayingNFT ? getMediaKey(currentPlayingNFT) : null}
               isPlaying={isPlaying}
-              currentlyPlaying={currentlyPlaying}
               handlePlayPause={handlePlayPause}
               onReset={handleReset}
-              onUserProfileClick={handleDirectUserSelect}
               onBack={() => {
-                // Log current navigation source for debugging
-                logger.info('Back button pressed, navigation source:', navigationSource);
-                
-                // Use navigation source to determine where to go back to
-                if (navigationSource.fromProfile) {
-                  // If user came from profile page, go back to profile
-                  logger.info('Navigating back to profile page');
-                  setCurrentPage({
-                    isHome: false,
-                    isExplore: false,
-                    isLibrary: false,
-                    isProfile: true,
-                    isUserProfile: false
-                  });
-                } else {
-                  // For all other cases, go back to explore page
-                  // This ensures we go back to recently searched users
-                  logger.info('Navigating back to explore page with recently searched users');
-                  
-                  // First clear the selected user to prevent state conflicts
-                  setSelectedUser(null);
-                  
-                  // Then update the page state
-                  // Only set isExplore to true, not isHome
-                  // This ensures only the Explore icon is highlighted
-                  setCurrentPage({
-                    isHome: false,
-                    isExplore: true,
-                    isLibrary: false,
-                    isProfile: false,
-                    isUserProfile: false
-                  });
+                if (navigationSource.fromExplore) {
+                  switchPage('isExplore');
+                } else if (navigationSource.fromProfile) {
+                  switchPage('isProfile');
                 }
-                
-                // Reset navigation source
-                setNavigationSource({
-                  fromExplore: false,
-                  fromProfile: false
-                });
               }}
               currentUserFid={fid ?? 0}
               onLikeToggle={handleLikeToggle}
