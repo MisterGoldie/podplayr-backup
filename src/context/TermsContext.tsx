@@ -45,3 +45,4 @@ export const TermsProvider: React.FC<TermsProviderProps> = ({ children }) => {
     </TermsContext.Provider>
   );
 };
+//
