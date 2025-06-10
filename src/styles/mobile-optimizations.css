@@ -1,0 +1,34 @@
+/* Mobile-specific optimizations */
+@media (max-width: 768px) {
+  /* Reduce animations to improve performance */
+  * {
+    animation-duration: 0.001s !important;
+    transition-duration: 0.001s !important;
+  }
+  
+  /* Optimize scrolling */
+  body {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    touch-action: manipulation;
+  }
+  
+  /* Reduce box shadow complexity */
+  .shadow, .shadow-md, .shadow-lg {
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2) !important;
+  }
+  
+  /* Make touch targets bigger */
+  button, 
+  [role="button"], 
+  input[type="button"], 
+  input[type="submit"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  
+  /* Remove hover effects that don't work well on mobile */
+  .hover\:scale-105:hover {
+    transform: none !important;
+  }
+} 

@@ -1,0 +1,31 @@
+.marquee-container {
+  width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.marquee-content {
+  display: inline-block;
+  animation: marquee 15s linear infinite;
+}
+
+@keyframes marquee {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(-100%);
+  }
+}
+
+/* Remove all previous animation classes to avoid conflicts */
+.ticker-text, .scrolling-text, .marquee-text {
+  animation: none;
+}
+
+/* Add this to your global CSS */
+button, 
+a, 
+.interactive-element {
+  touch-action: manipulation;
+}

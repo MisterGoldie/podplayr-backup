@@ -1,0 +1,13 @@
+[
+  {
+    "origin": ["*"],
+    "method": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    "responseHeader": [
+      "Content-Type",
+      "Access-Control-Allow-Origin",
+      "X-Goog-Meta-Original-Name",
+      "X-Goog-Meta-User-Id"
+    ],
+    "maxAgeSeconds": 3600
+  }
+]

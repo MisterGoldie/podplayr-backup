@@ -1,0 +1,255 @@
+/* 
+ * Mobile-specific CSS optimizations for PODPLAYR
+ * These styles enhance the mobile experience for video playback
+ */
+
+/* Mobile-specific video player styles */
+@media (max-width: 767px) {
+  /* Improve tap targets for mobile */
+  .player-controls button {
+    min-width: 44px;
+    min-height: 44px;
+    margin: 0 8px;
+  }
+  
+  /* Optimize video container for mobile */
+  .video-container {
+    max-height: 80vh;
+    margin: 0 auto;
+  }
+  
+  /* Better loading indicators for mobile */
+  .loading-spinner {
+    width: 36px;
+    height: 36px;
+    border-width: 3px;
+  }
+  
+  /* Enhance video player UI for mobile */
+  video {
+    object-fit: contain;
+    max-height: 80vh;
+    width: 100%;
+    background-color: #000;
+  }
+  
+  /* Improve scrubber usability on mobile */
+  .player-progress {
+    height: 8px;
+  }
+  
+  .player-progress-handle {
+    width: 20px;
+    height: 20px;
+    margin-top: -10px;
+  }
+  
+  /* Ensure controls are easily tappable */
+  .player-controls {
+    padding: 12px 0;
+  }
+  
+  /* Optimize for portrait orientation */
+  @media (orientation: portrait) {
+    .video-container {
+      max-height: 40vh;
+    }
+  }
+  
+  /* Optimize for landscape orientation */
+  @media (orientation: landscape) {
+    .video-container {
+      max-height: 80vh;
+    }
+  }
+  
+  /* Safe area insets for notched devices */
+  .player-container {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  
+  /* Improve fullscreen experience */
+  .fullscreen .video-container {
+    max-height: 100vh;
+  }
+  
+  /* Hide non-essential UI in minimized state */
+  .minimized .video-container {
+    max-height: none;
+  }
+  
+  /* Optimize error messages for mobile */
+  .error-container {
+    padding: 16px;
+    font-size: 14px;
+  }
+  
+  /* Improve button feedback for touch */
+  button:active {
+    transform: scale(0.95);
+  }
+  
+  /* Enhance accessibility */
+  input[type="range"] {
+    height: 24px;
+  }
+}
+
+/* Enhanced buffering indicators for mobile */
+.buffering-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  background-color: rgba(0, 0, 0, 0.5);
+  z-index: 10;
+}
+
+.buffering-message {
+  color: white;
+  margin-top: 16px;
+  font-size: 14px;
+  text-align: center;
+  padding: 8px 16px;
+  border-radius: 8px;
+  background-color: rgba(0, 0, 0, 0.7);
+}
+
+/* Network quality indicators */
+.network-indicator {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 12px;
+  background-color: rgba(0, 0, 0, 0.5);
+  color: white;
+  z-index: 10;
+}
+
+.network-good {
+  background-color: rgba(0, 128, 0, 0.5);
+}
+
+.network-medium {
+  background-color: rgba(255, 165, 0, 0.5);
+}
+
+.network-poor {
+  background-color: rgba(255, 0, 0, 0.5);
+}
+
+/* Optimized animation for mobile */
+@media (prefers-reduced-motion: no-preference) {
+  .loading-spinner {
+    animation: spin 1s linear infinite;
+  }
+  
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+}
+
+/* Video optimization mode indicator */
+.video-optimization-indicator {
+  position: absolute;
+  bottom: 40px;
+  left: 8px;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 10px;
+  background-color: rgba(0, 0, 0, 0.5);
+  color: rgba(255, 255, 255, 0.8);
+  z-index: 10;
+}
+
+/* Handle notch on iPhone X and newer */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .player-container {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* Cellular connection indicators */
+.network-cellular {
+  background-color: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.network-2g {
+  color: #ffcccc;
+}
+
+.network-3g {
+  color: #ffeeaa;
+}
+
+.network-4g {
+  color: #aaffaa;
+}
+
+.network-5g {
+  color: #aaddff;
+}
+
+/* Preview loading UI */
+.cellular-preview-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  background-color: rgba(0, 0, 0, 0.7);
+  z-index: 10;
+}
+
+.cellular-preview-button {
+  background-color: rgba(255, 255, 255, 0.2);
+  border: 2px solid rgba(255, 255, 255, 0.8);
+  border-radius: 50px;
+  color: white;
+  font-weight: bold;
+  padding: 12px 24px;
+  font-size: 16px;
+  margin-bottom: 20px;
+  transition: all 0.2s;
+}
+
+.cellular-preview-button:active {
+  transform: scale(0.96);
+  background-color: rgba(255, 255, 255, 0.3);
+}
+
+.cellular-preview-info {
+  color: rgba(255, 255, 255, 0.8);
+  text-align: center;
+  font-size: 14px;
+  max-width: 80%;
+  line-height: 1.4;
+}
+
+/* Low-quality indicator */
+.video-preview-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  background-color: rgba(0, 0, 0, 0.6);
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  z-index: 10;
+}

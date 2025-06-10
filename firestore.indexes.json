@@ -1,0 +1,37 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "playHistory",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "fid", "order": "ASCENDING" },
+        { "fieldPath": "timestamp", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "playHistory",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "mediaKey", "order": "ASCENDING" },
+        { "fieldPath": "timestamp", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "recentPlays",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "fid", "order": "ASCENDING" },
+        { "fieldPath": "timestamp", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "likes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "fid", "order": "ASCENDING" },
+        { "fieldPath": "timestamp", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

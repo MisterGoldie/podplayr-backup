@@ -1,0 +1,24 @@
+/* Add hardware acceleration for video elements */
+video {
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  perspective: 1000;
+  -webkit-transform: translateZ(0);
+  -webkit-backface-visibility: hidden;
+  -webkit-perspective: 1000;
+  will-change: transform;
+}
+
+/* Remove any filters/transforms while playing */
+video:not([paused]) {
+  filter: none !important;
+  -webkit-filter: none !important;
+}
+
+/* Optimize video rendering on mobile */
+@media (max-width: 768px) {
+  video {
+    max-height: 80vh; /* Prevent oversized videos */
+    object-fit: contain;
+  }
+} 

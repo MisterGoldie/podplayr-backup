@@ -1,0 +1,19 @@
+/* Add these styles to ensure ads fill the container */
+.adContainer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+.adContent {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start; /* Align to top */
+  align-items: center;
+  width: 100%;
+  height: 100%;
+} 

@@ -1,0 +1,42 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    @apply min-h-screen;
+  }
+  
+  body {
+    @apply min-h-screen bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082] text-white antialiased;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-medium tracking-tight;
+  }
+
+  .font-mono {
+    font-family: inherit !important;
+  }
+}
+
+@layer components {
+  .logo-image {
+    @apply h-[30px] w-auto;
+  }
+}
+
+/* Add styles for logo image */
+.logo-image {
+  width: auto;
+  height: auto;
+}
+
+* {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE and Edge */
+}
+
+*::-webkit-scrollbar {
+  display: none; /* Chrome, Safari, Opera */
+}
