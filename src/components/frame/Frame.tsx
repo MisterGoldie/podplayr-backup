@@ -162,7 +162,7 @@ export const Frame: React.FC<FrameProps> = ({ onContextUpdate }) => {
             console.log(`🧩 Found user FID: ${context.user.fid}`);
             onContextUpdate?.(context);
             
-            // Always send ready signal
+            // Call ready once when interface is ready
             try {
               await sdk.actions.ready();
               console.log('✅ SDK ready signal sent');

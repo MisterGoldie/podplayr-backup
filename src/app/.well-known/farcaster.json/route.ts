@@ -1,22 +1,43 @@
-export async function GET() {
-  const config = {
-    accountAssociation: {
-      header: "eyJmaWQiOjEwMTQ0ODUsInR5cGUiOiJjdXN0b2R5Iiwia2V5IjoiMHhEQkRCNmVCNUQ5MDE0MTY3NUVCNjdENzk3NDUwMzFlNDY2OGYzZkQyIn0",
-      payload: "eyJkb21haW4iOiJwb2RwbGF5ci54eXoifQ",
-      signature: "MHgyYTExYTYzNzMxNDBmYjViZDU3MzUwZTc3YWZjYzc4ZTM2NmE3MTdiMjA2MTMwNGY5NDhlYzY0MTAwNzc3YzRkM2VjN2ExYmUwNzFhM2E3NDE2MmUxNzVlMTBjZWE4ODE4MjY2OGI1YTc2ODBjOGI4YTQwZTEwZjc5Y2NkZWU5MTFj"
-    },
-    frame: {
-      version: "1",
-      name: "PODPLAYR",
-      iconUrl: "https://podplayr.xyz/icon.png",
-      homeUrl: "https://podplayr.xyz",
-      imageUrl: "https://podplayr.xyz/image.png",
-      buttonTitle: "Enter PODPLAYR",
-      splashImageUrl: "https://podplayr.xyz/splash.png",
-      splashBackgroundColor: "#000000",
-      webhookUrl: "https://podplayr.xyz/api/webhook"
-    },
-  };
+function withValidProperties(
+  properties: Record<string, undefined | string | string[]>,
+) {
+  return Object.fromEntries(
+    Object.entries(properties).filter(([key, value]) => {
+      if (Array.isArray(value)) {
+        return value.length > 0;
+      }
+      return !!value;
+    }),
+  );
+}
 
-  return Response.json(config);
+export async function GET() {
+  const URL = process.env.NEXT_PUBLIC_URL;
+
+  return Response.json({
+    accountAssociation: {
+      header: process.env.FARCASTER_HEADER,
+      payload: process.env.FARCASTER_PAYLOAD,
+      signature: process.env.FARCASTER_SIGNATURE,
+    },
+    frame: withValidProperties({
+      version: "1",
+      name: process.env.NEXT_PUBLIC_ONCHAINKIT_PROJECT_NAME,
+      subtitle: process.env.NEXT_PUBLIC_APP_SUBTITLE,
+      description: process.env.NEXT_PUBLIC_APP_DESCRIPTION,
+      screenshotUrls: [],
+      iconUrl: process.env.NEXT_PUBLIC_APP_ICON,
+      splashImageUrl: process.env.NEXT_PUBLIC_APP_SPLASH_IMAGE,
+      splashBackgroundColor: process.env.NEXT_PUBLIC_SPLASH_BACKGROUND_COLOR,
+      homeUrl: URL,
+      webhookUrl: `${URL}/api/webhook`,
+      primaryCategory: process.env.NEXT_PUBLIC_APP_PRIMARY_CATEGORY,
+      tags: [],
+      heroImageUrl: process.env.NEXT_PUBLIC_APP_HERO_IMAGE,
+      tagline: process.env.NEXT_PUBLIC_APP_TAGLINE,
+      ogTitle: process.env.NEXT_PUBLIC_APP_OG_TITLE,
+      ogDescription: process.env.NEXT_PUBLIC_APP_OG_DESCRIPTION,
+      ogImageUrl: process.env.NEXT_PUBLIC_APP_OG_IMAGE,
+    }),
+  });
 }

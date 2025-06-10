@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback, useContext } from 'react';
-import { FarcasterContext } from '~/app/providers';
+import { FarcasterContext, UserFidContext } from '~/app/providers';
 import { PlayerWithAds } from './player/PlayerWithAds';
 import { getMediaKey } from '~/utils/media';
 import { FEATURED_NFTS } from './sections/FeaturedSection';
@@ -95,7 +95,6 @@ const pageVariants = {
 
 const DemoBase: React.FC = () => {
   // CRITICAL: Force ENABLE all logs for debugging
-  // This overrides any previous disabling
   logger.setDebugMode(true);
   logger.enableLevel('debug', true);
   logger.enableLevel('info', true);
@@ -104,10 +103,9 @@ const DemoBase: React.FC = () => {
   logger.enableModule('firebase', true);
   
   // 1. Context Hooks
-  const { fid } = useContext(FarcasterContext);
+  const { isFarcaster } = useContext(FarcasterContext);
+  const { fid } = useContext(UserFidContext);
   const { hasAcceptedTerms, acceptTerms } = useTerms();
-  // Assert fid type for TypeScript
-  const userFid = fid as number;
   
   // Use a ref to track if this is the first render
   const isFirstRender = useRef(true);
@@ -115,10 +113,10 @@ const DemoBase: React.FC = () => {
   // Only log initialization on the first render
   useEffect(() => {
     if (isFirstRender.current) {
-      demoLogger.info('Demo component initialized with userFid:', userFid, typeof userFid);
+      demoLogger.info('Demo component initialized with userFid:', fid, typeof fid);
       isFirstRender.current = false;
     }
-  }, [userFid]);
+  }, [fid]);
   
   // 2. State Hooks
   const [currentPage, setCurrentPage] = useState<PageState>({
@@ -215,11 +213,11 @@ const DemoBase: React.FC = () => {
     let unsubscribeSearches: (() => void) | undefined;
 
     const loadUserData = async () => {
-      if (userFid) {
-        logger.info(`[demo] 🔄 Starting initial liked NFTs load for userFid: ${userFid}`);
+      if (fid) {
+        logger.info(`[demo] 🔄 Starting initial liked NFTs load for userFid: ${fid}`);
         try {
           // Load liked NFTs
-          const freshLikedNFTs = await getLikedNFTs(userFid);
+          const freshLikedNFTs = await getLikedNFTs(fid);
           
           // Filter out permanently removed NFTs
           const filteredLiked = freshLikedNFTs.filter(item => {
@@ -286,11 +284,11 @@ const DemoBase: React.FC = () => {
           }, 500); // Give components time to render
           
           // Load recent searches
-          const searches = await getRecentSearches(userFid);
+          const searches = await getRecentSearches(fid);
           setRecentSearches(searches);
 
           // Subscribe to real-time updates for recent searches
-          unsubscribeSearches = subscribeToRecentSearches(userFid, (searches) => {
+          unsubscribeSearches = subscribeToRecentSearches(fid, (searches) => {
             setRecentSearches(searches);
           });
         } catch (error) {
@@ -306,13 +304,13 @@ const DemoBase: React.FC = () => {
         unsubscribeSearches();
       }
     };
-  }, [userFid]);
+  }, [fid]);
 
   // Add a dedicated effect for force-synchronizing like states after initial load
   // This ensures liked NFTs are properly displayed without requiring navigation
   useEffect(() => {
     // Only run this effect when likedNFTs are loaded and not during loading state
-    if (userFid && likedNFTs.length > 0 && !isLoading) {
+    if (fid && likedNFTs.length > 0 && !isLoading) {
       logger.info(`[demo] 🔄 Force synchronizing like states for ${likedNFTs.length} liked NFTs`);
       
       // Create a set of liked media keys for efficient lookups
@@ -358,7 +356,7 @@ const DemoBase: React.FC = () => {
         timeoutIds.forEach(id => clearTimeout(id));
       };
     }
-  }, [userFid, likedNFTs, isLoading]);
+  }, [fid, likedNFTs, isLoading]);
 
   const {
     isPlaying,
@@ -371,7 +369,7 @@ const DemoBase: React.FC = () => {
     handleSeek,
     audioRef
   } = useAudioPlayer({ 
-    fid: userFid,
+    fid: fid,
     setRecentlyPlayedNFTs,
     recentlyAddedNFT 
   });
@@ -382,33 +380,27 @@ const DemoBase: React.FC = () => {
 
   useEffect(() => {
     const loadInitialData = async () => {
-      setIsLoading(true);
-      setError(null);
+      demoLogger.info('🔄 Starting initial data load with userFid:', fid);
+      
       try {
-        demoLogger.info('🔄 Starting initial data load with userFid:', userFid);
+        // Load recent searches regardless of FID
+        const recentSearches = await getRecentSearches();
+        demoLogger.info('📜 Recent searches loaded:', recentSearches.length);
         
-        // Get recent searches
-        const searches = await getRecentSearches(fid);
-        setRecentSearches(searches || []); // Handle potential undefined
-        demoLogger.info('📜 Recent searches loaded:', searches?.length || 0);
-
-        // We no longer need to subscribe to recently played NFTs here
-        // This is now handled by the RecentlyPlayed component
-        if (!userFid) {
-          demoLogger.warn('⚠️ No userFid available for initial data load');
+        // Only load user-specific data if we have a FID
+        if (fid) {
+          const likedNFTs = await getLikedNFTs(fid);
+          demoLogger.info('❤️ Liked NFTs loaded:', likedNFTs.length);
         } else {
-          demoLogger.info('✅ Initial data load with userFid:', userFid);
+          demoLogger.warn('⚠️ No userFid available for initial data load');
         }
       } catch (error) {
         demoLogger.error('❌ Error loading initial data:', error);
-        setError('Failed to load initial data. Please try again later.');
-      } finally {
-        setIsLoading(false);
       }
     };
 
     loadInitialData();
-  }, [userFid]);
+  }, [fid]);
 
   // User data loading is now handled by UserDataLoader component
 
@@ -596,8 +588,8 @@ const DemoBase: React.FC = () => {
     
     // FOR TESTING: Use a default test FID if none is provided
     // This allows us to test liking functionality in demo mode
-    const effectiveUserFid = userFid || 1234; // Use dummy FID for testing
-    superDebug('USER FID', { fid: effectiveUserFid, isTestFid: !userFid });
+    const effectiveUserFid = fid || 1234; // Use dummy FID for testing
+    superDebug('USER FID', { fid: effectiveUserFid, isTestFid: !fid });
     
     if (!effectiveUserFid || effectiveUserFid <= 0) {
       superDebug('ERROR: INVALID USER FID', { fid: effectiveUserFid });
@@ -1013,11 +1005,11 @@ const DemoBase: React.FC = () => {
     setError(null);
 
     // Always fetch fresh liked NFTs regardless of which page we're navigating to
-    if (userFid) {
+    if (fid) {
       console.log('🔄 REFRESHING LIKED NFTS FOR ALL VIEWS');
       try {
         // Fetch FRESH liked NFTs directly from Firebase
-        const freshLikedNFTs = await getLikedNFTs(userFid);
+        const freshLikedNFTs = await getLikedNFTs(fid);
         
         // Filter out permanently removed NFTs
         const filteredLiked = freshLikedNFTs.filter(item => {
@@ -1238,43 +1230,45 @@ const DemoBase: React.FC = () => {
   };
 
   const renderCurrentView = () => {
-    // This key is important - it must change when the page changes
-    const pageKey = Object.keys(currentPage).find(key => currentPage[key as keyof typeof currentPage] === true);
-    
-    // Return the AnimatePresence wrapper with the current view
+    if (!hasAcceptedTerms) {
+      return <TermsOfService onAccept={acceptTerms} />;
+    }
+
     return (
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={pageKey}
-          initial="initial"
-          animate="animate"
-          exit="exit"
-          variants={pageVariants}
-          transition={pageTransition}
-          className="w-full h-full"
-        >
+      <>
+        <AnimatePresence mode="wait">
           {currentPage.isHome && (
-            <HomeView
-              recentlyPlayedNFTs={[]} // We're now using the dedicated RecentlyPlayed component
-              topPlayedNFTs={topPlayedNFTs}
-              onPlayNFT={(nft: NFT, context?: { queue?: NFT[], queueType?: string }) => handlePlayFromLibrary(nft, context)}
-              currentlyPlaying={currentlyPlaying}
-              isPlaying={isPlaying}
-              handlePlayPause={handlePlayPause}
-              isLoading={isLoading}
-              onReset={handleReset}
-              onLikeToggle={handleLikeToggle}
-              likedNFTs={likedNFTs}
-              hasActivePlayer={Boolean(currentPlayingNFT)}
-              currentPlayingNFT={currentPlayingNFT} // Pass the currentPlayingNFT prop
-              recentlyAddedNFT={recentlyAddedNFT} // Pass the recentlyAddedNFT ref
-            />
+            <motion.div
+              key="home"
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              variants={pageVariants}
+              transition={pageTransition}
+            >
+              <HomeView
+                recentlyPlayedNFTs={[]}
+                topPlayedNFTs={topPlayedNFTs}
+                onPlayNFT={handlePlayFromLibrary}
+                currentlyPlaying={currentlyPlaying}
+                isPlaying={isPlaying}
+                handlePlayPause={handlePlayPause}
+                isLoading={isLoading}
+                onReset={handleReset}
+                onLikeToggle={handleLikeToggle}
+                likedNFTs={likedNFTs}
+                hasActivePlayer={Boolean(currentPlayingNFT)}
+                currentPlayingNFT={currentPlayingNFT}
+                recentlyAddedNFT={recentlyAddedNFT}
+                featuredNfts={FEATURED_NFTS}
+              />
+            </motion.div>
           )}
           {currentPage.isExplore && (
             <ExploreView
               onSearch={handleSearch}
               selectedUser={selectedUser}
-              onPlayNFT={(nft: NFT, context?: { queue?: NFT[], queueType?: string }) => handlePlayFromLibrary(nft, context)}
+              onPlayNFT={handlePlayFromLibrary}
               currentlyPlaying={currentlyPlaying}
               isPlaying={isPlaying}
               searchResults={searchResults}
@@ -1301,12 +1295,16 @@ const DemoBase: React.FC = () => {
                     // This prevents duplicate tracking and ensures we maintain the isENS flag
                   } else {
                     // Only track Farcaster users
-                    await trackUserSearch(user.username, userFid);
+                    if (fid !== undefined) {
+                      await trackUserSearch(user.username, fid);
+                    }
                   }
 
                   // Immediately refresh recent searches
-                  const updatedSearches = await getRecentSearches(userFid);
-                  setRecentSearches(updatedSearches);
+                  if (fid !== undefined) {
+                    const updatedSearches = await getRecentSearches(fid);
+                    setRecentSearches(updatedSearches);
+                  }
 
                   if (cachedNFTs && Array.isArray(cachedNFTs)) {
                     setUserNFTs(cachedNFTs);
@@ -1349,7 +1347,7 @@ const DemoBase: React.FC = () => {
               handleDirectUserSelect={handleDirectUserSelect}
               onLikeToggle={handleLikeToggle}
               isNFTLiked={isNFTLiked}
-              userFid={userFid}
+              userFid={fid ?? 0}
               userNFTs={userNFTs}
               searchType={''}
               searchParam={''}
@@ -1368,7 +1366,7 @@ const DemoBase: React.FC = () => {
               onReset={handleReset}
               userContext={{
                 user: userData ? {
-                  fid: userFid,
+                  fid: fid ?? 0,
                   username: userData.username,
                   displayName: userData.display_name,
                   pfpUrl: userData.pfp_url,
@@ -1410,8 +1408,8 @@ const DemoBase: React.FC = () => {
             <ProfileView
               userContext={{
                 user: {
-                  fid: userFid,
-                  username: userData?.username,
+                  fid: fid ?? 0,
+                  username: userData?.username ?? '',
                   displayName: userData?.display_name,
                   pfpUrl: userData?.pfp_url,
                   custody_address: userData?.custody_address,
@@ -1421,7 +1419,7 @@ const DemoBase: React.FC = () => {
                 }
               }}
               nfts={userNFTs}
-              handlePlayAudio={(nft: NFT, context?: { queue?: NFT[], queueType?: string }) => handlePlayFromLibrary(nft, context)}
+              handlePlayAudio={(nft: NFT) => handlePlayFromLibrary(nft)}
               isPlaying={isPlaying}
               currentlyPlaying={currentlyPlaying}
               handlePlayPause={handlePlayPause}
@@ -1482,13 +1480,13 @@ const DemoBase: React.FC = () => {
                   fromProfile: false
                 });
               }}
-              currentUserFid={userFid || 0}
+              currentUserFid={fid ?? 0}
               onLikeToggle={handleLikeToggle}
               isNFTLiked={isNFTLiked}
             />
           )}
-        </motion.div>
-      </AnimatePresence>
+        </AnimatePresence>
+      </>
     );
   };
 
@@ -1511,13 +1509,13 @@ const DemoBase: React.FC = () => {
   };
 
   const fetchRecentlyPlayed = useCallback(async () => {
-    if (!userFid) return;
+    if (!fid) return;
 
     try {
       const recentlyPlayedCollection = collection(db, 'nft_plays');
       const q = query(
         recentlyPlayedCollection,
-        where('fid', '==', userFid),
+        where('fid', '==', fid),
         orderBy('timestamp', 'desc'),
         limit(12) // Fetch more to account for duplicates
       );
@@ -1557,7 +1555,7 @@ const DemoBase: React.FC = () => {
           const recentlyPlayedCollection = collection(db, 'nft_plays');
           const fallbackQuery = query(
             recentlyPlayedCollection,
-            where('fid', '==', userFid),
+            where('fid', '==', fid),
             limit(12)
           );
           
@@ -1593,7 +1591,7 @@ const DemoBase: React.FC = () => {
         }
       }
     }
-  }, [userFid]);
+  }, [fid]);
 
   useEffect(() => {
     fetchRecentlyPlayed();
@@ -1859,7 +1857,7 @@ const DemoBase: React.FC = () => {
     let profileUser = {...user};
     
     // Track the search and get complete user data
-    if (userFid) {
+    if (fid) {
       try {
         // Verify we're still loading the same user before continuing
         if (targetUserFid !== user.fid) {
@@ -1869,7 +1867,7 @@ const DemoBase: React.FC = () => {
         }
         
         // Get the updated user data with complete profile information including bio
-        const updatedUserData = await trackUserSearch(user.username, userFid);
+        const updatedUserData = await trackUserSearch(user.username, fid);
         
         // Double-check we're still on the same user
         if (targetUserFid !== user.fid) {
@@ -1881,7 +1879,7 @@ const DemoBase: React.FC = () => {
         profileUser = updatedUserData;
         
         // Get updated recent searches
-        const searches = await getRecentSearches(userFid);
+        const searches = await getRecentSearches(fid);
         setRecentSearches(searches);
       } catch (error) {
         logger.error('Error tracking user search:', error);
@@ -1995,8 +1993,8 @@ const DemoBase: React.FC = () => {
   // Find where you initially load the liked NFTs
   useEffect(() => {
     const loadLikedNFTs = async () => {
-      if (userFid) {
-        const liked = await getLikedNFTs(userFid);
+      if (fid) {
+        const liked = await getLikedNFTs(fid);
         
         // CRITICAL: Apply our permanent blacklist using mediaKey (content-first approach)
         const filteredLiked = liked.filter(item => {
@@ -2009,7 +2007,7 @@ const DemoBase: React.FC = () => {
     };
     
     loadLikedNFTs();
-  }, [userFid, permanentlyRemovedNFTs]); // Add permanentlyRemovedNFTs as a dependency
+  }, [fid, permanentlyRemovedNFTs]); // Add permanentlyRemovedNFTs as a dependency
 
   // Add this effect to monitor for problematic NFTs
   const checkProblematicNFTs = useCallback(() => {
@@ -2031,129 +2029,13 @@ const DemoBase: React.FC = () => {
     };
   }, [checkProblematicNFTs]);
 
-  // If terms haven't been accepted, show only the Terms of Service component
-  if (!hasAcceptedTerms) {
-    return <TermsOfService onAccept={acceptTerms} />;
-  }
-
   return (
-    <div className="min-h-screen flex flex-col no-select">
-      {/* Persistent header with logo that navigates to home page */}
-      <NotificationHeader
-        show={false} // Keeps the header in a state where it just shows the logo
-        message=""
-        onLogoClick={() => switchPage('isHome')}
-        type="info"
-      />
-      
-      {/* Global NFT Notification component */}
-      <NFTNotification onReset={() => switchPage('isHome')} />
-      
-      {/* Hidden debug control - only visible when double-clicking logo */}
-      <div className="hidden">
-        <button
-          onClick={() => {
-            // Toggle between logging enabled/disabled
-            const isCurrentlyEnabled = logger.isDebugMode();
-            if (isCurrentlyEnabled) {
-              logger.disableAllLogs();
-              alert('All logs disabled. Reload page for changes to fully take effect.');
-            } else {
-              // Use type assertion to handle _originalConsole property
-              const customWindow = window as any;
-              if (customWindow._originalConsole) {
-                // Restore original console methods if they were saved
-                Object.keys(customWindow._originalConsole).forEach(key => {
-                  // @ts-ignore - dynamic property access
-                  console[key] = customWindow._originalConsole[key];
-                });
-              }
-              logger.setDebugMode(true);
-              alert('Logs enabled');
-            }
-          }}
-          id="hidden-debug-toggle"
-          className="hidden"
-        >
-          Toggle Logs
-        </button>
-      </div>
-
-      
-      {userFid && (
-        <UserDataLoader
-          userFid={userFid}
-          onUserDataLoaded={setUserData}
-          onNFTsLoaded={setUserNFTs}
-          onLikedNFTsLoaded={setLikedNFTs}
-          onError={setError}
-        />
-      )}
-      {/* We no longer need a hidden RecentlyPlayed component since we're using it directly in HomeView */}
-
-      <div className="flex-1 container mx-auto px-4 py-6 pb-40"> {/* Removed mt-16 to restore original positioning */}
-        {renderCurrentView()}
-      </div>
-
-      {/* Audio Element */}
-      {currentPlayingNFT && (
-        <audio
-          ref={audioRef as React.RefObject<HTMLAudioElement>}
-          src={processMediaUrl(currentPlayingNFT.audio || currentPlayingNFT.metadata?.animation_url || '')}
-        />
-      )}
-
-      {currentPlayingNFT && (
-        <PlayerWithAds
-          nft={currentPlayingNFT}
-          isPlaying={isPlaying}
-          onPlayPause={handlePlayPause}
-          onNext={handlePlayNext}
-          onPrevious={handlePlayPrevious}
-          isMinimized={isPlayerMinimized}
-          onMinimizeToggle={handleMinimizeToggle}
-          progress={audioProgress}
-          duration={audioDuration}
-          onSeek={handleSeek}
-          onLikeToggle={(nft) => {
-            // If we're in the library view, we need to handle the unlike notification
-            if (currentPage.isLibrary && libraryViewRef.current) {
-              libraryViewRef.current.handleUnlike(nft);
-            } else {
-              handleLikeToggle(nft);
-            }
-          }}
-          isLiked={isNFTLiked(currentPlayingNFT, true)}
-          onPictureInPicture={togglePictureInPicture}
-        />
-      )}
-
-      {/* Only use VideoSyncManager for special cases */}
-      {currentPlayingNFT?.isVideo && 
-       !currentPlayingNFT.metadata?.animation_url?.match(/\.(mp4|webm|mov)$/i) && (
-        <VideoSyncManager
-          videoRef={videoRef}
-          currentPlayingNFT={currentPlayingNFT}
-          isPlaying={isPlaying}
-          audioProgress={audioProgress}
-          onPlayPause={handlePlayPause}
-        />
-      )}
-
-      <BottomNav
-        currentPage={currentPage}
-        onNavigate={switchPage}
-        className={isPlayerMinimized ? '' : 'hidden'}
-      />
-
-      {/* Use our new unified NFTNotification component */}
-      <NFTNotification onReset={() => switchPage('isHome')} />
+    <div className="relative min-h-screen bg-black text-white">
+      {renderCurrentView()}
+      {/* ... rest of the JSX ... */}
     </div>
   );
 };
 
-// Wrap the Demo component with React.memo to prevent unnecessary re-renders
-const Demo = React.memo(DemoBase);
-
-export default Demo;
+export default DemoBase;
 //

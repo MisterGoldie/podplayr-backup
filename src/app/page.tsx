@@ -1,8 +1,12 @@
+'use client';
+
 import { Metadata } from "next";
 import App from "./app";
 import dynamic from "next/dynamic";
 import ErrorBoundary from '../components/ErrorBoundary';
 import Demo from '../components/Demo';
+import { useEffect } from 'react';
+import { useMiniKit } from '@coinbase/onchainkit/minikit';
 
 const appUrl = process.env.NEXT_PUBLIC_URL;
 
@@ -21,29 +25,19 @@ const frame = {
   },
 };
 
-export const revalidate = 300;
-
-export async function generateMetadata(): Promise<Metadata> {
-  return {
-    title: "PODPLAYR",
-    openGraph: {
-      title: "PODPLAYR",
-      description: "Listen & Watch NFTs on PODPLAYR",
-      images: [
-        {
-          url: `${appUrl}/image.png`,
-          width: 1200,
-          height: 630,
-          alt: "PODPLAYR Media Player",
-        },
-      ],
-    },
-    other: {
-      "fc:frame": JSON.stringify(frame),
-    },
-  };
-}
-
 export default function Home() {
-  return (<App />);
+  const { setFrameReady, isFrameReady } = useMiniKit();
+
+  // The setFrameReady() function is called when your mini-app is ready to be shown
+  useEffect(() => {
+    if (!isFrameReady) {
+      setFrameReady();
+    }
+  }, [setFrameReady, isFrameReady]);
+
+  return (
+    <main>
+      <App />
+    </main>
+  );
 }
