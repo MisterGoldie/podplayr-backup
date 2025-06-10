@@ -74,13 +74,11 @@ export function Providers({ children }: { children: React.ReactNode }) {
   
   // Aggressive Farcaster environment detection
   useEffect(() => {
-    const isDetectedByFunction = isFarcasterMiniApp();
-    const hasSDKGlobal = !!(window as any)?.FarcasterFramesSDK;
-    const isInIframe = window !== window.parent;
-    const urlHasFarcaster = window.location.href.includes('farcaster');
-    
-    const shouldBeFarcaster = isDetectedByFunction || hasSDKGlobal || isInIframe || urlHasFarcaster;
-    setIsFarcaster(shouldBeFarcaster);
+    async function checkFarcaster() {
+      const isFarcaster = await isFarcasterMiniApp();
+      setIsFarcaster(isFarcaster);
+    }
+    checkFarcaster();
   }, []);
   
   console.log(`🚨 App is ${isFarcaster ? 'RUNNING in Farcaster mini-app' : 'NOT in Farcaster mini-app'}`);

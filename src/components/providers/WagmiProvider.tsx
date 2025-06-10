@@ -2,28 +2,16 @@
 import React from 'react';
 import { base } from 'wagmi/chains';
 import { http } from 'wagmi';
+import sdk from '@farcaster/frame-sdk';
 
-// DIRECT IMPLEMENTATION: Include the detection logic directly in this file
-// to avoid cross-module dependencies that cause HMR issues
-function detectFarcasterMiniApp(): boolean {
-  if (typeof window === 'undefined') return false;
-  
-  // Check for explicit FORCE_FARCASTER_MODE flag first
-  if (typeof window !== 'undefined' && (window as any).FORCE_FARCASTER_MODE === true) {
-    console.log('ℹ️ Using explicit FORCE_FARCASTER_MODE flag');
-    return true;
+// Updated detection using the official @farcaster/frame-sdk
+async function detectFarcasterMiniApp(): Promise<boolean> {
+  try {
+    return await sdk.isInMiniApp();
+  } catch (error) {
+    console.error('Error detecting Farcaster mini-app:', error);
+    return false;
   }
-  
-  // Check if app is inside an iframe
-  const isInIframe = window !== window.parent;
-  
-  // Check for Farcaster-specific signals
-  const hasFarcasterContext = !!(window as any)?.farcasterFrameContext;
-  const hasFarcasterUA = navigator.userAgent.includes('Farcaster') || 
-                         navigator.userAgent.includes('Warpcast');
-  
-  // Combine signals
-  return isInIframe || hasFarcasterContext || hasFarcasterUA;
 }
 
 // AGGRESSIVE MONKEY PATCH: Complete override of WalletConnect initialization
@@ -112,9 +100,10 @@ const Provider = React.memo(function WagmiProviderComponent({ children }: { chil
   
   // Only run the detection on the client side
   React.useEffect(() => {
-    const isFarcaster = detectFarcasterMiniApp();
-    setIsInFarcasterMode(isFarcaster);
-    console.log(`🧩 Using ${isFarcaster ? 'FARCASTER' : 'WEB'} WagmiProvider mode`);
+    detectFarcasterMiniApp().then(isFarcaster => {
+      setIsInFarcasterMode(isFarcaster);
+      console.log(`🧩 Using ${isFarcaster ? 'FARCASTER' : 'WEB'} WagmiProvider mode`);
+    });
   }, []);
   
   return (
