@@ -12,7 +12,9 @@ const nextConfig = {
   experimental: {
     scrollRestoration: true,
     // Optimize resource loading
-    optimizeCss: true,
+    optimizeCss: {
+      inlineThreshold: 0,
+    },
     // Reduce unnecessary preloads
     optimizeServerReact: false,
   },
