@@ -1,37 +1,11 @@
 "use client";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useEffect, useState } from 'react';
 import { isFarcasterMiniApp } from '../utils/platform';
-import { RenderProtection } from '../lib/RenderProtection';
-import { Frame } from '~/components/frame/Frame';
-import type { FrameContext } from '@farcaster/frame-core';
+import { updatePodplayrFollowerCount } from '../lib/firebase';
 import { VideoPlayProvider } from '../contexts/VideoPlayContext';
-import { UserImageProvider } from '../contexts/UserImageContext';
-import { Toaster } from 'react-hot-toast';
-import NetworkProvider from '../providers/NetworkProvider';
-import { ensurePodplayrFollow, updatePodplayrFollowerCount } from '../lib/firebase';
 import { NFTNotificationProvider } from '../context/NFTNotificationContext';
-import { ConnectionProvider } from '../context/ConnectionContext';
-import { TermsProvider } from '../context/TermsContext';
-import { NFTCacheProvider } from '../contexts/NFTCacheContext';
-import dynamic from "next/dynamic";
-import { useRouter } from 'next/navigation';
-
-// Create a new QueryClient instance
-const queryClient = new QueryClient();
-
-// Import ALL wallet-related components dynamically to avoid SSR issues and control initialization order
-const WagmiProvider = dynamic(
-  () => import("~/components/providers/WagmiProvider").then((mod) => mod.default),
-  {
-    ssr: false,
-    loading: () => <div className="hidden">Loading wallet...</div>
-  }
-);
-
-// Our WalletConnect protection happens via the client component in layout.tsx
-// Privy provider is already imported at the top of the file
+import { PlayerProvider } from '../contexts/PlayerContext';
 
 // Create a context for the user's Farcaster ID
 export const UserFidContext = createContext<{
@@ -54,7 +28,6 @@ export function Providers({ children }: { children: React.ReactNode }) {
   const [fid, setFid] = useState<number>();
   const [isFarcaster, setIsFarcaster] = useState(false);
   const [initialProfileImage, setInitialProfileImage] = useState<string | null>(null);
-  const router = useRouter();
 
   // Update PODPLAYR follower count when the app starts
   useEffect(() => {
@@ -94,9 +67,11 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <UserFidContext.Provider value={{ fid, setFid }}>
       <FarcasterContext.Provider value={{ isFarcaster, initialProfileImage }}>
         <VideoPlayProvider>
-          <NFTNotificationProvider>
-            {children}
-          </NFTNotificationProvider>
+          <PlayerProvider>
+            <NFTNotificationProvider>
+              {children}
+            </NFTNotificationProvider>
+          </PlayerProvider>
         </VideoPlayProvider>
       </FarcasterContext.Provider>
     </UserFidContext.Provider>
