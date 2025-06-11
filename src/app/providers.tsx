@@ -93,9 +93,11 @@ export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <UserFidContext.Provider value={{ fid, setFid }}>
       <FarcasterContext.Provider value={{ isFarcaster, initialProfileImage }}>
-        <NFTNotificationProvider>
-          {children}
-        </NFTNotificationProvider>
+        <VideoPlayProvider>
+          <NFTNotificationProvider>
+            {children}
+          </NFTNotificationProvider>
+        </VideoPlayProvider>
       </FarcasterContext.Provider>
     </UserFidContext.Provider>
   );
