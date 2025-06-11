@@ -1,10 +1,6 @@
 'use client';
 
-import { Metadata } from "next";
 import App from "./app";
-import dynamic from "next/dynamic";
-import ErrorBoundary from '../components/ErrorBoundary';
-import Demo from '../components/Demo';
 import { useEffect } from 'react';
 import { useMiniKit } from '@coinbase/onchainkit/minikit';
 

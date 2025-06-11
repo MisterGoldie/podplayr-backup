@@ -2748,16 +2748,16 @@ export const searchUsersByAddress = async (address: string): Promise<FarcasterUs
   }
 };
 
-export const searchUsers = async (query: string): Promise<FarcasterUser[]> => {
+export const searchUsers = async (queryString: string): Promise<FarcasterUser[]> => {
   // Clear any pending search
   if (searchTimeout) clearTimeout(searchTimeout);
 
   // Return early if query is too short (increased minimum length)
-  if (query.length < 3) return [];
+  if (queryString.length < 3) return [];
   
   // Prevent searching for incomplete ENS names (e.g. while typing "mister.et")
   // This avoids unnecessary ENS lookups during typing
-  const isIncompleteEnsName = query.includes('.') && !query.endsWith('.eth');
+  const isIncompleteEnsName = queryString.includes('.') && !queryString.endsWith('.eth');
   if (isIncompleteEnsName) {
     return [];
   }
@@ -2768,7 +2768,7 @@ export const searchUsers = async (query: string): Promise<FarcasterUser[]> => {
     
     // Only perform ENS lookup when the query ends with .eth
     // This is the ONLY condition for ENS lookups - strict separation
-    const isEnsQuery = query.endsWith('.eth');
+    const isEnsQuery = queryString.endsWith('.eth');
     
     // CASE 1: ENS NAME SEARCH - Only when query explicitly ends with .eth
     if (isEnsQuery) {
@@ -2779,15 +2779,15 @@ export const searchUsers = async (query: string): Promise<FarcasterUser[]> => {
         
         // Only log during development
         if (process.env.NODE_ENV === 'development') {
-          console.log('Attempting ENS lookup for:', query);
+          console.log('Attempting ENS lookup for:', queryString);
         }
         
-        const ensProfile = await getEnsProfile(query);
+        const ensProfile = await getEnsProfile(queryString);
         
         if (ensProfile && ensProfile.address) {
           // Only log during development
           if (process.env.NODE_ENV === 'development') {
-            console.log('ENS profile found for:', query);
+            console.log('ENS profile found for:', queryString);
           }
           
           // Create the ENS user
@@ -2843,10 +2843,10 @@ export const searchUsers = async (query: string): Promise<FarcasterUser[]> => {
     // CASE 2: FARCASTER USER SEARCH
     
     // If query is a number, treat it as FID
-    const isFid = !isNaN(Number(query));
+    const isFid = !isNaN(Number(queryString));
     const endpoint = isFid 
-      ? `https://api.neynar.com/v2/farcaster/user/bulk?fids=${query}`
-      : `https://api.neynar.com/v2/farcaster/user/search?q=${encodeURIComponent(query)}`;
+      ? `https://api.neynar.com/v2/farcaster/user/bulk?fids=${queryString}`
+      : `https://api.neynar.com/v2/farcaster/user/search?q=${encodeURIComponent(queryString)}`;
 
     console.log('Fetching from endpoint:', endpoint);
     const response = await fetchWithRetry(endpoint, {
@@ -2993,22 +2993,22 @@ export const searchUsers = async (query: string): Promise<FarcasterUser[]> => {
     
     // Only try ENS as fallback if the query explicitly ends with .eth
     // This maintains strict separation between ENS and Farcaster searches
-    if (query.endsWith('.eth')) {
+    if (queryString.endsWith('.eth')) {
       try {
         const { getEnsProfile } = await import('./ens');
         const { createENSUser } = await import('../types/ens');
         
         // Only log during development
         if (process.env.NODE_ENV === 'development') {
-          console.log('Attempting ENS lookup as fallback for:', query);
+          console.log('Attempting ENS lookup as fallback for:', queryString);
         }
         
-        const ensProfile = await getEnsProfile(query);
+        const ensProfile = await getEnsProfile(queryString);
         
         if (ensProfile && ensProfile.address) {
           // Only log during development
           if (process.env.NODE_ENV === 'development') {
-            console.log('ENS profile found as fallback for:', query);
+            console.log('ENS profile found as fallback for:', queryString);
           }
           
           const ensUser = createENSUser(ensProfile);

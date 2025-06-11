@@ -2,10 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useFarcasterContext } from '~/contexts/FarcasterContext';
-import { NFTImage } from '../media/NFTImage';
-import { NFTGifImage } from '../media/NFTGifImage';
 import type { NFT } from '~/types/nft';
-import { getMediaKey, extractIPFSHash, IPFS_GATEWAYS, processMediaUrl } from '../../utils/media';
 import { preloadAudio } from '~/utils/audioPreloader';
 import { NFTCard } from '../nft/NFTCard';
 import { formatPlayCount } from '~/utils/format';

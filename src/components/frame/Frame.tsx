@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 // Direct SDK import
 import sdk from "@farcaster/frame-sdk";
-import type { FrameContext } from '@farcaster/frame-core';
+import type { FrameContext } from '~/types/user';
 
 interface FrameProps {
   onContextUpdate?: (context: FrameContext) => void;
