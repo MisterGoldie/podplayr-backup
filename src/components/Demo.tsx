@@ -209,6 +209,11 @@ const DemoBase: React.FC = () => {
   const [permanentlyRemovedNFTs, setPermanentlyRemovedNFTs] = useState<Set<string>>(new Set());
   const [likeSyncComplete, setLikeSyncComplete] = useState<boolean>(false);
 
+  // Add these state variables near the other state declarations
+  const [currentPlayingNFT, setCurrentPlayingNFT] = useState<NFT | null>(null);
+  const [currentlyPlaying, setCurrentlyPlaying] = useState<string | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+
   // Load liked NFTs and recent searches when user changes
   useEffect(() => {
     let unsubscribeSearches: (() => void) | undefined;
@@ -360,13 +365,13 @@ const DemoBase: React.FC = () => {
   }, [fid, likedNFTs, isLoading]);
 
   const {
-    isPlaying,
-    currentPlayingNFT,
-    currentlyPlaying,
+    isPlaying: audioIsPlaying,
+    currentPlayingNFT: audioCurrentPlayingNFT,
+    currentlyPlaying: audioCurrentlyPlaying,
     audioProgress,
     audioDuration,
     handlePlayAudio,
-    handlePlayPause,
+    handlePlayPause: audioHandlePlayPause,
     handleSeek,
     audioRef
   } = useAudioPlayer({ 
@@ -994,14 +999,189 @@ const DemoBase: React.FC = () => {
     };
   }, [checkProblematicNFTs]);
 
+  // Add these functions before renderCurrentView
+  const handlePlayNFT = async (nft: NFT, context?: { queue?: NFT[], queueType?: string }) => {
+    if (context?.queue) {
+      setCurrentNFTQueue(context.queue);
+      setCurrentQueueType(context.queueType || '');
+    }
+    setCurrentPlayingNFT(nft);
+    setIsPlayerMinimized(false);
+    setIsInitialPlay(true);
+  };
+
+  const handlePlayPause = () => {
+    setIsPlaying(!isPlaying);
+  };
+
+  const onReset = () => {
+    setCurrentPage({
+      isHome: true,
+      isExplore: false,
+      isLibrary: false,
+      isProfile: false,
+      isUserProfile: false
+    });
+  };
+
+  const isNFTLiked = (nft: NFT): boolean => {
+    return likedNFTs.some(liked => 
+      liked.contract === nft.contract && 
+      liked.tokenId === nft.tokenId
+    );
+  };
+
+  // Add these functions before renderCurrentView
+  const handleSearch = async (query: string) => {
+    setIsSearching(true);
+    try {
+      const results = await searchUsers(query);
+      setSearchResults(results);
+    } catch (error) {
+      console.error('Error searching users:', error);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
   function renderCurrentView(): React.ReactNode {
-    throw new Error('Function not implemented.');
+    const currentView = currentPage.isHome ? 'home' : 
+                       currentPage.isExplore ? 'explore' : 
+                       currentPage.isLibrary ? 'library' : 
+                       currentPage.isProfile ? 'profile' : 'home';
+
+    const handleViewChange = (view: 'home' | 'explore' | 'library' | 'profile') => {
+      setCurrentPage({
+        isHome: view === 'home',
+        isExplore: view === 'explore',
+        isLibrary: view === 'library',
+        isProfile: view === 'profile',
+        isUserProfile: false
+      });
+    };
+
+    return (
+      <>
+        {currentPage.isHome && (
+          <HomeView
+            recentlyPlayedNFTs={recentlyPlayedNFTs}
+            topPlayedNFTs={topPlayedNFTs}
+            onPlayNFT={handlePlayNFT}
+            currentlyPlaying={currentlyPlaying}
+            isPlaying={isPlaying}
+            handlePlayPause={handlePlayPause}
+            isLoading={isLoading}
+            onReset={onReset}
+            onLikeToggle={onLikeToggle}
+            likedNFTs={likedNFTs}
+            hasActivePlayer={!isPlayerMinimized}
+            currentPlayingNFT={currentPlayingNFT}
+            recentlyAddedNFT={recentlyAddedNFT}
+            featuredNfts={FEATURED_NFTS}
+          />
+        )}
+
+        {currentPage.isExplore && (
+          <ExploreView
+            onSearch={handleSearch}
+            selectedUser={selectedUser}
+            onPlayNFT={handlePlayNFT}
+            currentlyPlaying={currentlyPlaying}
+            isPlaying={isPlaying}
+            searchResults={searchResults}
+            nfts={userNFTs}
+            isSearching={isSearching}
+            handlePlayPause={handlePlayPause}
+            isLoadingNFTs={isLoading}
+            onBack={() => setCurrentPage(prev => ({ ...prev, isUserProfile: false }))}
+            publicCollections={[]}
+            recentSearches={recentSearches}
+            handleUserSelect={handleDirectUserSelect}
+            handleDirectUserSelect={handleDirectUserSelect}
+            onReset={onReset}
+            onLikeToggle={onLikeToggle}
+            isNFTLiked={isNFTLiked}
+            userFid={fid}
+            userNFTs={userNFTs}
+            searchType=""
+            searchParam=""
+            likedNFTs={likedNFTs}
+          />
+        )}
+
+        {currentPage.isLibrary && (
+          <LibraryView
+            ref={libraryViewRef}
+            likedNFTs={likedNFTs}
+            isPlaying={isPlaying}
+            currentlyPlaying={currentlyPlaying}
+            currentPlayingNFT={currentPlayingNFT}
+            handlePlayAudio={handlePlayNFT}
+            handlePlayPause={handlePlayPause}
+            onReset={onReset}
+            userContext={{ user: { fid: fid || 0 } }}
+            setIsLiked={() => {}}
+            setIsPlayerVisible={() => {}}
+            setIsPlayerMinimized={setIsPlayerMinimized}
+            onLikeToggle={onLikeToggle}
+          />
+        )}
+
+        {currentPage.isProfile && (
+          <ProfileView
+            userContext={{ user: { fid: fid || 0 } }}
+            nfts={likedNFTs}
+            handlePlayAudio={handlePlayNFT}
+            isPlaying={isPlaying}
+            currentlyPlaying={currentlyPlaying}
+            handlePlayPause={handlePlayPause}
+            onReset={onReset}
+            onNFTsLoaded={() => {}}
+            onLikeToggle={onLikeToggle}
+          />
+        )}
+
+        {currentPage.isUserProfile && selectedUser && (
+          <UserProfileView
+            user={selectedUser}
+            nfts={userNFTs}
+            handlePlayAudio={handlePlayNFT}
+            isPlaying={isPlaying}
+            currentlyPlaying={currentlyPlaying}
+            handlePlayPause={handlePlayPause}
+            onReset={onReset}
+            onBack={() => setCurrentPage(prev => ({ ...prev, isUserProfile: false }))}
+            currentUserFid={fid || 0}
+            onLikeToggle={onLikeToggle}
+            isNFTLiked={isNFTLiked}
+          />
+        )}
+
+        <BottomNav currentView={currentView} onViewChange={handleViewChange} />
+      </>
+    );
   }
 
   return (
     <div className="relative min-h-screen bg-black text-white">
       {renderCurrentView()}
-      {/* ... rest of the JSX ... */}
+      {!isPlayerMinimized && (
+        <PlayerWithAds
+          nft={currentPlayingNFT}
+          isPlaying={isPlaying}
+          onPlayPause={handlePlayPause}
+          onNext={handlePlayNext}
+          onPrevious={handlePlayPrevious}
+          isMinimized={isPlayerMinimized}
+          onMinimizeToggle={() => setIsPlayerMinimized(true)}
+          progress={0}
+          duration={0}
+          onSeek={() => {}}
+          onLikeToggle={() => currentPlayingNFT && onLikeToggle(currentPlayingNFT)}
+          isLiked={currentPlayingNFT ? isNFTLiked(currentPlayingNFT) : false}
+          onPictureInPicture={togglePictureInPicture}
+        />
+      )}
     </div>
   );
 };
