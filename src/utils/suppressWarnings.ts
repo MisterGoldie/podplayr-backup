@@ -36,12 +36,18 @@ export function setupWarningSuppressions() {
       const isFarcasterWarning = args.some(arg => 
         typeof arg === 'string' && arg.includes('App is NOT in Farcaster mini-app')
       );
+
+      // Check if this is the specific empty src audio error
+      const isEmptySrcError = args.some(arg => 
+        typeof arg === 'string' && arg.includes('MEDIA_ELEMENT_ERROR: Empty src attribute')
+      );
       
       // Don't log the warning if it's one we want to suppress
-      if (!isDialogWarning && !isAudioError && !isSentryDsnError && !isFarcasterWarning) {
+      if (!isDialogWarning && !isAudioError && !isSentryDsnError && !isFarcasterWarning && !isEmptySrcError) {
         originalConsoleError.apply(console, args);
-      } else if (isAudioError) {
+      } else if (isAudioError && !isEmptySrcError) {
         // For audio errors, we want to log them in development but not in production
+        // But we still suppress the empty src error
         if (process.env.NODE_ENV === 'development') {
           originalConsoleError.apply(console, args);
         }
