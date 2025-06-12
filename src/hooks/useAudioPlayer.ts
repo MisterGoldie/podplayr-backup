@@ -85,6 +85,68 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
   const [currentQueue, setCurrentQueue] = useState<NFT[]>([]);
   const [queueType, setQueueType] = useState<string>('default');
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [currentFallbackIndex, setCurrentFallbackIndex] = useState<number>(0);
+  const [error, setError] = useState<Error | null>(null);
+  const [fallbackUrls, setFallbackUrls] = useState<string[]>([]);
+  const fallbackStateRef = useRef({
+    currentIndex: 0,
+    urls: [] as string[]
+  });
+
+  const handleError = useCallback((e: Event) => {
+    const target = e.target as HTMLAudioElement;
+    const error = target.error;
+    const errorMessage = error ? `Error ${error.code}: ${error.message}` : 'Unknown error';
+    logger.error('Audio error:', errorMessage, {
+      currentSrc: target.currentSrc,
+      networkState: target.networkState,
+      readyState: target.readyState
+    });
+
+    // Only attempt fallback if we haven't tried all fallbacks yet
+    if (fallbackStateRef.current.currentIndex < fallbackStateRef.current.urls.length - 1) {
+      const nextIndex = fallbackStateRef.current.currentIndex + 1;
+      fallbackStateRef.current.currentIndex = nextIndex;
+      const nextUrl = fallbackStateRef.current.urls[nextIndex];
+      
+      // Reset error state before trying next URL
+      setError(null);
+      
+      // Small delay to ensure clean state
+      setTimeout(() => {
+        if (audioRef.current) {
+          audioRef.current.src = nextUrl;
+          audioRef.current.load();
+          audioRef.current.play().catch(err => {
+            logger.error('Failed to play fallback URL:', err);
+            setError(err);
+          });
+        }
+      }, 100);
+    } else {
+      // If we've tried all fallbacks, set the error state
+      setError(new Error(errorMessage));
+    }
+  }, [logger]);
+
+  // Update fallback URLs when they change
+  useEffect(() => {
+    fallbackStateRef.current.urls = fallbackUrls;
+    fallbackStateRef.current.currentIndex = 0;
+  }, [fallbackUrls]);
+
+  useEffect(() => {
+    if (!audioRef.current) return;
+
+    // Add error handler to log audio errors
+    audioRef.current.addEventListener('error', handleError);
+    
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.removeEventListener('error', handleError);
+      }
+    };
+  }, [handleError]);
 
   useEffect(() => {
     // Initialize the audio element if it doesn't exist
@@ -120,22 +182,12 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
     const handlePlay = () => setIsPlaying(true);
     const handlePause = () => setIsPlaying(false);
     
-    // Add error handler to log audio errors
-    const handleError = (e: Event) => {
-      audioLogger.error('Audio element error:', {
-        code: audio.error?.code,
-        message: audio.error?.message,
-        src: audio.src
-      });
-    };
-
     // Add timeupdate event to track progress
     audio.addEventListener('timeupdate', updateProgress);
     audio.addEventListener('loadedmetadata', handleLoadedMetadata);
     audio.addEventListener('ended', handleEnded);
     audio.addEventListener('play', handlePlay);
     audio.addEventListener('pause', handlePause);
-    audio.addEventListener('error', handleError);
 
     return () => {
       // Clean up event listeners when component unmounts
@@ -144,7 +196,6 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
       audio.removeEventListener('ended', handleEnded);
       audio.removeEventListener('play', handlePlay);
       audio.removeEventListener('pause', handlePause);
-      audio.removeEventListener('error', handleError);
       
       // Pause audio and reset when unmounting
       audio.pause();
@@ -178,7 +229,7 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
         }
       });
     }
-  }, [isPlaying]);
+  }, [isPlaying, currentPlayingNFT]);
 
   // Track blob URLs to clean up
   const blobUrlsRef = useRef<string[]>([]);
@@ -236,8 +287,10 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
     const audioUrls: string[] = [];
     
     // Special handling for PODs audio URLs (ar:// protocol with path)
-    if (rawAudioUrl.startsWith('ar://') && rawAudioUrl.includes('/')) {
-      const segments = rawAudioUrl.replace('ar://', '').split('/');
+    if (rawAudioUrl.startsWith('ar://')) {
+      // Extract the transaction ID and path
+      const arPath = rawAudioUrl.replace('ar://', '');
+      const segments = arPath.split('/');
       const txId = segments[0];
       const filePath = segments.slice(1).join('/');
       
@@ -253,13 +306,13 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
       const directTxUrl = `https://arweave.net/${txId}`;
       audioUrls.push(directTxUrl);
       
-      audioLogger.info('Generated PODs audio URLs:', {
+      audioLogger.info('Generated Arweave audio URLs:', {
         fullPath: fullPathUrl,
         altGateway: altGatewayUrl,
         directTx: directTxUrl
       });
     } 
-    // Standard URL processing for non-PODs URLs
+    // Standard URL processing for non-Arweave URLs
     else {
       // 1. Process using our standard processMediaUrl function
       const processedUrl = processMediaUrl(rawAudioUrl, undefined, 'audio');
@@ -267,16 +320,7 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
         audioUrls.push(processedUrl);
       }
       
-      // 2. For Arweave URLs, add direct https://arweave.net/ URL as fallback
-      if (rawAudioUrl.startsWith('ar://')) {
-        const txId = rawAudioUrl.replace('ar://', '');
-        const directArweaveUrl = `https://arweave.net/${txId}`;
-        if (!audioUrls.includes(directArweaveUrl)) {
-          audioUrls.push(directArweaveUrl);
-        }
-      }
-      
-      // 3. If it's already an HTTPS URL, add it directly
+      // 2. If it's already an HTTPS URL, add it directly
       if (rawAudioUrl.startsWith('https://')) {
         if (!audioUrls.includes(rawAudioUrl)) {
           audioUrls.push(rawAudioUrl);
@@ -335,106 +379,9 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
     // Make sure the NFT has mediaKey for proper deduplication
     const mediaKey = nft.mediaKey || getMediaKey(nft);
     
-    // CRITICAL: Update the recentlyAddedNFT ref immediately to trigger the RecentlyPlayed component
-    if (recentlyAddedNFT && mediaKey) {
-      audioLogger.info(`📢 CRITICAL: Setting recentlyAddedNFT ref to: ${mediaKey}`);
-      // Force a new value to trigger the useEffect in RecentlyPlayed
-      recentlyAddedNFT.current = null;
-      
-      // Small delay to ensure the null value is registered
-      setTimeout(() => {
-        if (recentlyAddedNFT) {
-          recentlyAddedNFT.current = mediaKey;
-          audioLogger.info(`📢 CONFIRMED: recentlyAddedNFT ref set to: ${recentlyAddedNFT.current}`);
-        }
-      }, 50);
-      
-      // Clear the ref after a longer delay
-      setTimeout(() => {
-        if (recentlyAddedNFT && recentlyAddedNFT.current === mediaKey) {
-          audioLogger.info(`📢 CLEARING: recentlyAddedNFT ref after delay`);
-          recentlyAddedNFT.current = null;
-        }
-      }, 5000);
-    } else {
-      audioLogger.error(`❌ Cannot update recentlyAddedNFT ref: ${recentlyAddedNFT ? 'ref exists' : 'ref is null'}, ${mediaKey ? 'mediaKey exists' : 'mediaKey is null'}`);
-    }
-
-    // IMPORTANT: Immediately update the Recently Played list regardless of the 25% threshold
-    // This ensures users can find NFTs they started playing even if they don't reach 25%
-    if (setRecentlyPlayedNFTs) {
-      // Update the local recently played state directly
-      setRecentlyPlayedNFTs((prevNFTs: NFT[]) => {
-        const newNFT: NFT = { ...nft };
-        // Make sure the NFT has mediaKey for proper deduplication
-        if (!newNFT.mediaKey) {
-          newNFT.mediaKey = mediaKey; // Use the mediaKey we already generated
-        }
-        
-        if (!mediaKey) {
-          audioLogger.error('Could not generate mediaKey for NFT:', nft);
-          return prevNFTs;
-        }
-        
-        // Mark as immediately added to Recently Played (before 25% threshold)
-        newNFT.addedToRecentlyPlayed = true;
-        newNFT.addedToRecentlyPlayedAt = new Date().getTime();
-        
-        // Check if this NFT is already in the list
-        const isDuplicate = prevNFTs.some(item => {
-          const itemMediaKey = item.mediaKey || getMediaKey(item);
-          const contract_tokenId = `${item.contract}-${item.tokenId}`;
-          const new_contract_tokenId = `${nft.contract}-${nft.tokenId}`;
-          
-          return contract_tokenId === new_contract_tokenId || 
-                 (itemMediaKey && mediaKey && itemMediaKey === mediaKey);
-        });
-        
-        // Filter out NFTs with the same mediaKey to avoid duplicates
-        const filteredNFTs = prevNFTs.filter(item => {
-          const itemMediaKey = item.mediaKey || getMediaKey(item);
-          const contract_tokenId = `${item.contract}-${item.tokenId}`;
-          const new_contract_tokenId = `${nft.contract}-${nft.tokenId}`;
-          
-          // Check if this is actually the same NFT by contract-tokenId (as a fallback)
-          if (contract_tokenId === new_contract_tokenId) {
-            return false;
-          }
-          
-          // Main mediaKey comparison (CRITICAL: primary mechanism for content-based tracking)
-          if (itemMediaKey && mediaKey && itemMediaKey === mediaKey) {
-            return false;
-          }
-          
-          return true; // Keep this NFT in the filtered list
-        });
-        
-        // Only log if we're actually adding a new NFT (not a duplicate)
-        if (!isDuplicate) {
-          audioLogger.info('Adding NFT to Recently Played (local state):', nft.name);
-          audioLogger.info('Using mediaKey for deduplication:', mediaKey?.substring(0, 12) + '...');
-          audioLogger.info('Local recently played update - previous count:', prevNFTs.length, 'new count:', filteredNFTs.length + 1);
-        }
-        
-        // We already set the recentlyAddedNFT ref above, no need to do it again here
-        
-        // Add the new NFT to the beginning and limit to 8 items
-        return [newNFT, ...filteredNFTs].slice(0, 8);
-      });
-    }
+    // Check if this is a video with embedded audio
+    const isVideoWithEmbeddedAudio = nft.isVideo && nft.metadata?.animation_url;
     
-    // Track play in Firebase (but don't wait for the 25% threshold to update UI)
-    try {
-      // Track the play - our Firebase function will handle deduplication and the 25% threshold
-      await trackNFTPlay(nft, fid);
-    } catch (error) {
-      audioLogger.error('Error tracking NFT play:', error);
-    }
-
-    // NEW CODE: Check if this is a video with embedded audio
-    const isVideoWithEmbeddedAudio = nft.isVideo && 
-      (nft.metadata?.animation_url?.match(/\.(mp4|webm|mov)$/i));
-
     if (isVideoWithEmbeddedAudio) {
       audioLogger.info('Playing video with embedded audio');
       
@@ -468,45 +415,42 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
         const mediaKey = getMediaKey(nft);
         const nftKey = `${nft.contract}-${nft.tokenId}`;
         
-        // Define and store event handlers
-        const timeUpdateHandler: EventListener = () => {
-          setAudioProgress(videoElement.currentTime);
-          
+        // Add event listeners
+        const timeupdateHandler: EventListener = () => {
           // Check for 25% threshold without using component state
           if (!playTracked && videoElement.duration > 0 && videoElement.currentTime >= (videoElement.duration * 0.25)) {
             playTracked = true; // Mark as tracked to prevent duplicate counting
             
             // Only log mediaKey if available
             if (mediaKey) {
-              audioLogger.info(`🎵 25% threshold reached for Video NFT: ${nft.name} (${Math.round(videoElement.currentTime)}s of ${Math.round(videoElement.duration)}s) [mediaKey: ${mediaKey.substring(0, 20)}...]`);
+              audioLogger.info(`🎵 25% threshold reached for NFT: ${nft.name} (${Math.round(videoElement.currentTime)}s of ${Math.round(videoElement.duration)}s) [mediaKey: ${mediaKey.substring(0, 20)}...]`);
             } else {
-              audioLogger.info(`🎵 25% threshold reached for Video NFT: ${nft.name} (${Math.round(videoElement.currentTime)}s of ${Math.round(videoElement.duration)}s)`);
+              audioLogger.info(`🎵 25% threshold reached for NFT: ${nft.name} (${Math.round(videoElement.currentTime)}s of ${Math.round(videoElement.duration)}s)`);
             }
             
             // Track the play in Firebase with threshold flag
             trackNFTPlay(nft, fid, { thresholdReached: true }).catch(error => {
-              audioLogger.error('Error tracking Video NFT play after 25% threshold:', error);
+              audioLogger.error('Error tracking NFT play after 25% threshold:', error);
             });
           }
         };
-        videoEventHandlers['timeupdate'] = timeUpdateHandler;
+        videoEventHandlers['timeupdate'] = timeupdateHandler;
         
-        const loadedMetadataHandler: EventListener = () => {
-          setAudioDuration(videoElement.duration);
+        const playHandler: EventListener = () => {
+          setIsPlaying(true);
+          audioLogger.info('Video playback started');
         };
-        videoEventHandlers['loadedmetadata'] = loadedMetadataHandler;
-        
-        const playHandler: EventListener = () => setIsPlaying(true);
         videoEventHandlers['play'] = playHandler;
         
-        const pauseHandler: EventListener = () => setIsPlaying(false);
+        const pauseHandler: EventListener = () => {
+          setIsPlaying(false);
+          audioLogger.info('Video playback paused');
+        };
         videoEventHandlers['pause'] = pauseHandler;
         
         const endedHandler: EventListener = () => {
           setIsPlaying(false);
-          setAudioProgress(0);
-          
-          // Clean up listeners when video ends
+          audioLogger.info('Video playback ended');
           cleanupVideoListeners();
         };
         videoEventHandlers['ended'] = endedHandler;
@@ -534,7 +478,7 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
         const cleanupTimeout = setTimeout(() => {
           audioLogger.info('Automatic cleanup of video listeners after timeout');
           cleanupVideoListeners();
-        }, 30 * 60 * 1000); // 30 minutes
+        }, 30 * 60 * 1000);
         
         // Try to play the video with better error handling
         try {
@@ -791,8 +735,6 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
         };
       }
       
-
-      
       // Set up event listeners before loading
       audio.addEventListener('loadedmetadata', () => {
         audioLogger.info('Audio metadata loaded:', {
@@ -1036,6 +978,12 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
     if (!audioRef.current) return;
     audioRef.current.currentTime = time;
     setAudioProgress(time);
+  }, []);
+
+  // Add a function to set fallback URLs
+  const setFallbackSources = useCallback((urls: string[]) => {
+    setFallbackUrls(urls);
+    setCurrentFallbackIndex(0);
   }, []);
 
   return {

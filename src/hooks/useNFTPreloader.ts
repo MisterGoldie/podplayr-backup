@@ -194,7 +194,7 @@ export const useNFTPreloader = (nfts: NFT[]) => {
     const key = `${nft.contract}-${nft.tokenId}`;
     
     // Skip if already preloaded
-    if (preloadedImages.has(key)) return;
+    if (imageMapRef.current.has(key)) return;
     
     // Create a new image element
     const img = new Image();
@@ -204,11 +204,8 @@ export const useNFTPreloader = (nfts: NFT[]) => {
     
     // Store the preloaded image
     img.onload = () => {
-      setPreloadedImages(prev => {
-        const newMap = new Map(prev);
-        newMap.set(key, img);
-        return newMap;
-      });
+      imageMapRef.current.set(key, img);
+      setPreloadedImages(new Map(imageMapRef.current));
     };
     
     img.onerror = (error) => {
@@ -223,11 +220,8 @@ export const useNFTPreloader = (nfts: NFT[]) => {
           console.log('Using fallback for failed Arweave image in preloadImage:', fallbackUrl);
           const fallbackImg = new Image();
           fallbackImg.onload = () => {
-            setPreloadedImages(prev => {
-              const newMap = new Map(prev);
-              newMap.set(key, fallbackImg);
-              return newMap;
-            });
+            imageMapRef.current.set(key, fallbackImg);
+            setPreloadedImages(new Map(imageMapRef.current));
           };
           fallbackImg.src = fallbackUrl;
         }
@@ -235,7 +229,7 @@ export const useNFTPreloader = (nfts: NFT[]) => {
         console.error('Error checking Arweave URL in preloadImage:', error);
       }
     };
-  }, [preloadedImages]);
+  }, []);
 
   return {
     isLoading,

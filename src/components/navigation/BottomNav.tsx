@@ -52,7 +52,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({ currentView, onViewChange 
         </button>
 
         {!isFarcaster && (
-          <button
+          <div
             onClick={() => onViewChange('profile')}
             className={`flex flex-col items-center p-2 ${
               currentView === 'profile' ? 'text-green-400' : 'text-gray-400'
@@ -60,7 +60,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({ currentView, onViewChange 
           >
             <UserDropdownMenu />
             <span className="text-sm mt-1">Profile</span>
-          </button>
+          </div>
         )}
       </div>
     </nav>

@@ -135,13 +135,15 @@ const FeaturedSection: React.FC<FeaturedSectionProps> = ({
   const [preloaded, setPreloaded] = useState(false);
 
   useEffect(() => {
-    if (preloaded) return;
+    let isMounted = true;
 
     const preloadFeaturedContent = async () => {
+      if (!isMounted) return;
       console.log('🎵 Starting to preload featured NFTs...');
       
       try {
         for (const nft of nfts) {
+          if (!isMounted) return;
           try {
             const audioUrl = nft.audio || nft.metadata?.animation_url;
             if (audioUrl) {
@@ -151,16 +153,26 @@ const FeaturedSection: React.FC<FeaturedSectionProps> = ({
             console.warn(`Failed to preload NFT ${nft.name || nft.tokenId}:`, error);
           }
         }
-        console.log('✨ All featured NFTs preloaded!');
-        setPreloaded(true);
+        if (isMounted) {
+          console.log('✨ All featured NFTs preloaded!');
+          setPreloaded(true);
+        }
       } catch (error) {
         console.warn('Failed to preload some featured NFTs:', error);
-        setPreloaded(true);
+        if (isMounted) {
+          setPreloaded(true);
+        }
       }
     };
 
-    preloadFeaturedContent();
-  }, [preloaded, nfts]);
+    if (!preloaded) {
+      preloadFeaturedContent();
+    }
+
+    return () => {
+      isMounted = false;
+    };
+  }, [nfts]); // Only depend on nfts array, not preloaded state
 
   return (
     <section className="w-full py-8">

@@ -256,7 +256,7 @@ const HomeView: React.FC<HomeViewProps> = ({
         {/* Top Played Section */}
         <section>
           {topPlayedNFTs.length > 0 && (
-            <div className="mb-8">
+            <div className="mb-8 px-4 sm:px-6 lg:px-8">
               <h2 className="text-xl font-mono text-green-400 mb-6">Top Played</h2>
               <div className="relative">
                 <div className="overflow-x-auto pb-4 hide-scrollbar">
