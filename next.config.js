@@ -31,6 +31,12 @@ const nextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
+  // Allow ngrok domains in development
+  allowedDevOrigins: [
+    'b252fcf49668.ngrok.app',
+    '*.ngrok.app',
+    '*.ngrok-free.app'
+  ],
 };
 
 module.exports = nextConfig; 

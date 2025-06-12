@@ -31,9 +31,14 @@ export function setupWarningSuppressions() {
       const isSentryDsnError = args.some(arg => 
         typeof arg === 'string' && arg.includes('Invalid Sentry Dsn')
       );
+
+      // Check if this is a Farcaster mini-app warning
+      const isFarcasterWarning = args.some(arg => 
+        typeof arg === 'string' && arg.includes('App is NOT in Farcaster mini-app')
+      );
       
       // Don't log the warning if it's one we want to suppress
-      if (!isDialogWarning && !isAudioError && !isSentryDsnError) {
+      if (!isDialogWarning && !isAudioError && !isSentryDsnError && !isFarcasterWarning) {
         originalConsoleError.apply(console, args);
       } else if (isAudioError) {
         // For audio errors, we want to log them in development but not in production
