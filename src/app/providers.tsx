@@ -45,16 +45,42 @@ export function Providers({ children }: { children: React.ReactNode }) {
     updatePodplayrCount();
   }, []);
   
-  // Aggressive Farcaster environment detection
+  // CRITICAL: Get Farcaster user context and environment detection
   useEffect(() => {
-    async function checkFarcaster() {
-      const isFarcaster = await isFarcasterMiniApp();
-      setIsFarcaster(isFarcaster);
+    async function initializeFarcasterContext() {
+      try {
+        // Check if we're in a Farcaster mini-app
+        const isInMiniApp = await isFarcasterMiniApp();
+        setIsFarcaster(isInMiniApp);
+        
+        console.log(`🚨 App is ${isInMiniApp ? 'RUNNING in Farcaster mini-app' : 'NOT in Farcaster mini-app'}`);
+        
+        if (isInMiniApp) {
+          // Get the user context from the SDK
+          const { sdk } = await import('@farcaster/miniapp-sdk');
+          const context = await sdk.context;
+          
+          console.log('👤 Farcaster user context:', context);
+          
+          if (context?.user?.fid) {
+            console.log('🔑 Setting user FID from SDK context:', context.user.fid);
+            setFid(context.user.fid);
+            
+            // Set initial profile image if available
+            if (context.user.pfpUrl) {
+              setInitialProfileImage(context.user.pfpUrl);
+            }
+          } else {
+            console.warn('⚠️ No FID found in Farcaster context');
+          }
+        }
+      } catch (error) {
+        console.error('❌ Error initializing Farcaster context:', error);
+      }
     }
-    checkFarcaster();
+    
+    initializeFarcasterContext();
   }, []);
-  
-  console.log(`🚨 App is ${isFarcaster ? 'RUNNING in Farcaster mini-app' : 'NOT in Farcaster mini-app'}`);
   
   // Ensure user follows PODPlayr whenever they have a valid FID
   useEffect(() => {

@@ -3,7 +3,7 @@ import { usePlayerState } from './hooks/usePlayerState';
 import { NFTImage } from '../media/NFTImage';
 import { processMediaUrl, getMediaKey } from '../../utils/media';
 import type { NFT } from '../../types/user';
-import sdk from '@farcaster/frame-sdk';
+// Dynamic import for Farcaster SDK - will use miniapp-sdk in mini-app environment
 import { getNftCdnUrl, preloadNftMedia } from '../../utils/cdn';
 import { logger } from '../../utils/logger';
 
@@ -562,7 +562,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
                   )}
                   {nft && (
                     <button
-                      onClick={() => {
+                      onClick={async () => {
                         // Personalize the share message with the NFT name
                         const shareText = `Check out "${nft.name}" on @podplayr! ▶️`;
                         const shareUrl = 'podplayr.xyz';
@@ -589,7 +589,12 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
                         if (shouldSkipImage) {
                           logger.debug('player', 'Skipping problematic image URL:', shareImage);
                           // Use the share URL without any image embed
-                          sdk.actions.openUrl(shareUrlWithEmbeds);
+                          try {
+                            const { sdk } = await import('@farcaster/miniapp-sdk');
+                            await sdk.actions.openUrl(shareUrlWithEmbeds);
+                          } catch (error) {
+                            console.error('Error opening URL:', error);
+                          }
                           return;
                         }
                         
@@ -639,7 +644,12 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
                         }
                         
                         // Use the imported SDK directly with the appropriate share URL
-                        sdk.actions.openUrl(shareUrlWithEmbeds);
+                        try {
+                          const { sdk } = await import('@farcaster/miniapp-sdk');
+                          await sdk.actions.openUrl(shareUrlWithEmbeds);
+                        } catch (error) {
+                          console.error('Error opening URL:', error);
+                        }
                       }}
                       className="text-purple-400 hover:text-purple-300 p-2"
                     >

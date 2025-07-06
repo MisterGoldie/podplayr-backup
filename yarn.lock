@@ -1003,6 +1003,30 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@farcaster/miniapp-core@npm:0.3.4":
+  version: 0.3.4
+  resolution: "@farcaster/miniapp-core@npm:0.3.4"
+  dependencies:
+    "@solana/web3.js": "npm:^1.98.2"
+    ox: "npm:^0.4.4"
+    zod: "npm:^3.25.0"
+  checksum: 10c0/ef8f38b9cddf3f4c6047d6b7fde8e5a516579486344f2a04e26df5b3c33b4a1e6bc499789e82c552cbeb5e068bcd64e05ed024e66e23537fac4e4a77ed5b734c
+  languageName: node
+  linkType: hard
+
+"@farcaster/miniapp-sdk@npm:^0.1.4":
+  version: 0.1.4
+  resolution: "@farcaster/miniapp-sdk@npm:0.1.4"
+  dependencies:
+    "@farcaster/miniapp-core": "npm:0.3.4"
+    "@farcaster/quick-auth": "npm:^0.0.6"
+    comlink: "npm:^4.4.2"
+    eventemitter3: "npm:^5.0.1"
+    ox: "npm:^0.4.4"
+  checksum: 10c0/812073deb05f55615caad4e311d14fbe8fb99546d2a51ff3200f13bcb3b33bfeace91ed5f35bf7faa2a9e14821ef1701187c675dbc3059dbe9e3d48d5529d7dd
+  languageName: node
+  linkType: hard
+
 "@farcaster/quick-auth@npm:^0.0.5":
   version: 0.0.5
   resolution: "@farcaster/quick-auth@npm:0.0.5"
@@ -10107,6 +10131,7 @@ __metadata:
     "@farcaster/frame-node": "npm:^0.0.3"
     "@farcaster/frame-sdk": "npm:^0.0.61"
     "@farcaster/frame-wagmi-connector": "npm:^0.0.50"
+    "@farcaster/miniapp-sdk": "npm:^0.1.4"
     "@firebase/app": "npm:^0.11.0"
     "@firebase/firestore": "npm:^4.7.7"
     "@heroicons/react": "npm:^2.2.0"
@@ -12995,6 +13020,13 @@ __metadata:
   version: 3.25.57
   resolution: "zod@npm:3.25.57"
   checksum: 10c0/3b3d98bf31d4ca9ce92e151ec6a69f6d63a9a7e4e74ce2bd0dfac87a1955d77934fc0fd5caf0017c9c9746e86cdcd27c63b0e3378bbf5e8b62ec5833f94395ac
+  languageName: node
+  linkType: hard
+
+"zod@npm:^3.25.0":
+  version: 3.25.74
+  resolution: "zod@npm:3.25.74"
+  checksum: 10c0/59e38b046ac333b5bd1ba325a83b6798721227cbfb1e69dfc7159bd7824b904241ab923026edb714fafefec3624265ae374a70aee9a5a45b365bd31781ffa105
   languageName: node
   linkType: hard
 
