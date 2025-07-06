@@ -765,6 +765,29 @@ const DemoBase: React.FC = () => {
     );
   };
 
+  // Add direct user selection handler
+  const handleDirectUserSelect = async (user: FarcasterUser) => {
+    setIsLoading(true);
+    try {
+      // Implementation of handleDirectUserSelect
+      demoLogger.info(`Selected user: ${user.username}`);
+      setSelectedUser(user);
+      setCurrentPage(prev => ({ ...prev, isUserProfile: true }));
+    } catch (error) {
+      demoLogger.error('Error selecting user:', error);
+      setError('Error selecting user');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Update local recent searches when Firebase data changes
+  useEffect(() => {
+    if (firebaseRecentSearches.length > 0) {
+      setLocalRecentSearches(firebaseRecentSearches);
+    }
+  }, [firebaseRecentSearches]);
+
   function renderCurrentView(): React.ReactNode {
     const currentView = currentPage.isHome ? 'home' : 
                        currentPage.isExplore ? 'explore' : 
@@ -923,25 +946,3 @@ export const Demo = React.memo(DemoBase);
 function prepareAndPlayAudio(nextNFT: NFT) {
   throw new Error('Function not implemented.');
 }
-
-// Add direct user selection handler
-const handleDirectUserSelect = async (user: FarcasterUser) => {
-  setIsLoading(true);
-  try {
-    // Implementation of handleDirectUserSelect
-    demoLogger.info(`Selected user: ${user.username}`);
-  } catch (error) {
-    demoLogger.error('Error selecting user:', error);
-    setError('Error selecting user');
-  } finally {
-    setIsLoading(false);
-  }
-};
-
-// Update local recent searches when Firebase data changes
-useEffect(() => {
-  if (firebaseRecentSearches.length > 0) {
-    setLocalRecentSearches(firebaseRecentSearches);
-  }
-}, [firebaseRecentSearches]);
-//
