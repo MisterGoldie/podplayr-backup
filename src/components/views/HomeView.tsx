@@ -231,12 +231,7 @@ const HomeView: React.FC<HomeViewProps> = ({
         </button>
       </header>
       <div 
-        className={`space-y-8 pt-20 pb-40 overflow-y-auto overscroll-y-contain ${
-          // Use conditional class for height based on player state and screen size
-          hasActivePlayer 
-            ? 'h-[calc(100vh-130px)] md:h-[calc(100vh-150px)]' // Adjusted height when player active
-            : 'h-screen' // Full height when no player
-        }`}
+        className={`space-y-8 pt-20 pb-40 overflow-y-auto overscroll-y-contain min-h-screen bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082] ${hasActivePlayer ? 'h-[calc(100vh-130px)] md:h-[calc(100vh-150px)]' : 'h-screen'}`}
       >
         {/* Notifications are now handled by the global NFTNotification component */}
 
