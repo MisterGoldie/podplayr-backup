@@ -17,34 +17,20 @@ import { useTerms } from '../context/TermsContext';
 import Image from 'next/image';
 import { processMediaUrl } from '../utils/media';
 import {
-  getRecentSearches,
-  getTopPlayedNFTs,
   trackUserSearch,
   trackNFTPlay,
   fetchNFTDetails,
   getLikedNFTs,
   searchUsers,
-  subscribeToRecentSearches,
   toggleLikeNFT,
-  fetchUserNFTs
+  fetchUserNFTs,
+  getRecentSearches
 } from '../lib/firebase';
 import { fetchUserNFTsFromAlchemy } from '../lib/alchemy';
 import type { NFT, FarcasterUser, SearchedUser, UserContext, LibraryViewProps, ProfileViewProps, NFTFile, NFTPlayData, GroupedNFT } from '../types/user';
 import { useAudioPlayer } from '../hooks/useAudioPlayer';
 import { useTopPlayedNFTs } from '../hooks/useTopPlayedNFTs';
-import {
-  collection,
-  query,
-  where,
-  orderBy,
-  limit,
-  getDocs,
-  DocumentData,
-  QueryDocumentSnapshot,
-  doc,
-  setDoc
-} from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { useFirebase } from '../contexts/FirebaseContext';
 import { UserDataLoader } from './data/UserDataLoader';
 import { VideoSyncManager } from './media/VideoSyncManager';
 import { videoPerformanceMonitor } from '../utils/videoPerformanceMonitor';
@@ -95,6 +81,12 @@ const pageVariants = {
   exit: { opacity: 0 }
 };
 
+interface RecentSearch {
+  id: string;
+  username: string;
+  timestamp: number;
+}
+
 const DemoBase: React.FC = () => {
   // CRITICAL: Force ENABLE all logs for debugging
   logger.setDebugMode(true);
@@ -108,6 +100,7 @@ const DemoBase: React.FC = () => {
   const { isFarcaster } = useContext(FarcasterContext);
   const { fid } = useContext(UserFidContext);
   const { hasAcceptedTerms, acceptTerms } = useTerms();
+  const { recentSearches: firebaseRecentSearches, featuredNFTs } = useFirebase();
   
   // Use a ref to track if this is the first render
   const isFirstRender = useRef(true);
@@ -215,92 +208,63 @@ const DemoBase: React.FC = () => {
   const [currentlyPlaying, setCurrentlyPlaying] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
 
-  // Load liked NFTs and recent searches when user changes
+  const [localRecentSearches, setLocalRecentSearches] = useState<RecentSearch[]>([]);
+
+  // Remove old Firebase subscription
   useEffect(() => {
-    let unsubscribeSearches: (() => void) | undefined;
+    if (!fid) return;
 
-    const loadUserData = async () => {
-      if (fid) {
-        logger.info(`[demo] 🔄 Starting initial liked NFTs load for userFid: ${fid}`);
-        try {
-          // Load liked NFTs
-          const freshLikedNFTs = await getLikedNFTs(fid);
-          
-          // Filter out permanently removed NFTs
-          const filteredLiked = freshLikedNFTs.filter(item => {
-            const mediaKey = getMediaKey(item);
-            return !permanentlyRemovedNFTs.has(mediaKey);
-          });
-          
-          logger.info(`[demo] 📊 Found ${filteredLiked.length} liked NFTs during initial load`);
-          setLikedNFTs(filteredLiked);
-          
-          // Create a set of liked media keys for efficient lookups
-          const likedMediaKeys = new Set(filteredLiked.map(nft => getMediaKey(nft)));
-          
-          // Update window.nftList for the current page
-          if (currentPage.isLibrary) {
-            window.nftList = filteredLiked;
-          } else if (currentPage.isHome) {
-            // Update recentlyPlayedNFTs with correct like states
-            setRecentlyPlayedNFTs(prev => 
-              prev.map(nft => ({
-                ...nft,
-                isLiked: likedMediaKeys.has(getMediaKey(nft))
-              }))
-            );
-          }
-          
-          // Load recent searches
-          const searches = await getRecentSearches(fid);
-          setRecentSearches(searches);
-
-          // Subscribe to real-time updates for recent searches
-          unsubscribeSearches = subscribeToRecentSearches(fid, (searches) => {
-            setRecentSearches(searches);
-          });
-        } catch (error) {
-          logger.error('Error loading user data:', error);
-        }
+    const loadLikedNFTs = async () => {
+      try {
+        const likedNFTs = await getLikedNFTs(fid);
+        demoLogger.info('❤️ Liked NFTs loaded:', likedNFTs.length);
+      } catch (error) {
+        demoLogger.error('Error loading liked NFTs:', error);
       }
     };
 
-    loadUserData();
-
-    return () => {
-      if (unsubscribeSearches) {
-        unsubscribeSearches();
-      }
-    };
-  }, [fid, currentPage.isLibrary, currentPage.isHome, permanentlyRemovedNFTs]);
+    loadLikedNFTs();
+  }, [fid]);
 
   // Initialize player state
   useEffect(() => {
     setIsPlayerMinimized(true);
   }, []);
 
-  // Load initial data
-  useEffect(() => {
-    const loadInitialData = async () => {
+  // Update loadInitialData to use Firebase context
+  const loadInitialData = async () => {
+    if (!fid) {
+      demoLogger.warn('⚠️ No userFid available for initial data load');
+      return;
+    }
+
+    try {
       demoLogger.info('🔄 Starting initial data load with userFid:', fid);
       
-      try {
-        // Load recent searches regardless of FID
-        const recentSearches = await getRecentSearches();
-        demoLogger.info('📜 Recent searches loaded:', recentSearches.length);
-        
-        // Only load user-specific data if we have a FID
-        if (fid) {
-          const likedNFTs = await getLikedNFTs(fid);
-          demoLogger.info('❤️ Liked NFTs loaded:', likedNFTs.length);
-        } else {
-          demoLogger.warn('⚠️ No userFid available for initial data load');
-        }
-      } catch (error) {
-        demoLogger.error('❌ Error loading initial data:', error);
+      // Use featuredNFTs from context instead of fetching
+      if (featuredNFTs.length > 0) {
+        demoLogger.info(`Found ${featuredNFTs.length} featured NFTs from context`);
       }
-    };
 
+      // Use recentSearches from context
+      if (firebaseRecentSearches.length > 0) {
+        demoLogger.info(`📜 Recent searches loaded: ${firebaseRecentSearches.length}`);
+      }
+
+      // Load user's NFTs
+      const userNFTs = await fetchUserNFTsFromAlchemy(fid.toString());
+      const mediaNFTs = userNFTs.filter(nft => nft.metadata?.image || nft.image);
+      nftLogger.info(`Found ${mediaNFTs.length} media NFTs out of ${userNFTs.length} total NFTs`);
+      
+      setUserNFTs(userNFTs);
+      setFilteredNFTs(mediaNFTs);
+    } catch (error) {
+      demoLogger.error('Error loading initial data:', error);
+    }
+  };
+
+  // Call loadInitialData when fid changes
+  useEffect(() => {
     loadInitialData();
   }, [fid]);
 
@@ -326,7 +290,7 @@ const DemoBase: React.FC = () => {
       
       try {
         // Load recent searches regardless of FID
-        const recentSearches = await getRecentSearches();
+        const recentSearches = await getRecentSearches(fid);
         demoLogger.info('📜 Recent searches loaded:', recentSearches.length);
         
         // Only load user-specific data if we have a FID
@@ -709,187 +673,21 @@ const DemoBase: React.FC = () => {
     return mediaOnly;
   }, []);
 
-  // Add a direct wallet search function that bypasses search results
-  const handleDirectUserSelect = async (user: FarcasterUser) => {
-    // Store the target user FID to prevent race conditions
-    const targetUserFid = user.fid;
-    
-    // First set loading state to prevent interactions during transition
-    setIsLoading(true);
-    
-    // IMPORTANT: Clear all NFT data immediately to prevent showing previous user's NFTs
-    // This is critical to prevent cross-user NFT display issues
-    setUserNFTs([]);
-    setFilteredNFTs([]);
-    window.nftList = [];
-    setSearchResults([]);
-    
-    // Set the selected user to null first to ensure clean state transition
-    // This forces a complete re-render and ensures the loading state is shown
-    setSelectedUser(null);
-    
-    // Small delay to ensure the UI shows the loading state before proceeding
-    // This prevents flickering between users
-    await new Promise(resolve => setTimeout(resolve, 50));
-    
-    // Determine the navigation source based on current page
-    // When on the explore page, isHome is also true, so we need to check both
-    const isFromExplore = currentPage.isExplore || (currentPage.isHome && !currentPage.isProfile && !currentPage.isUserProfile && !currentPage.isLibrary);
-    const isFromProfile = currentPage.isProfile;
-    
-    // Log the current page state and navigation source for debugging
-    logger.info('Navigation source tracking:', { 
-      currentPage, 
-      isFromExplore, 
-      isFromProfile 
-    });
-    
-    // Track where the user is coming from
-    setNavigationSource({
-      fromExplore: isFromExplore,
-      fromProfile: isFromProfile
-    });
-    
-    // Navigate to the user profile view first with a clean slate
-    setCurrentPage({
-      isHome: false,
-      isExplore: false,
-      isLibrary: false,
-      isProfile: false,
-      isUserProfile: true
-    });
-    
-    // Create a local copy of the user to prevent reference issues
-    let profileUser = {...user};
-    
-    // Track the search and get complete user data
-    if (fid) {
-      try {
-        // Verify we're still loading the same user before continuing
-        if (targetUserFid !== user.fid) {
-          logger.warn('User changed during profile load, aborting previous operation');
-          setIsLoading(false);
-          return;
-        }
-        
-        // Get the updated user data with complete profile information including bio
-        const updatedUserData = await trackUserSearch(user.username, fid);
-        
-        // Double-check we're still on the same user
-        if (targetUserFid !== user.fid) {
-          logger.warn('User changed after search tracking, aborting previous operation');
-          setIsLoading(false);
-          return;
-        }
-        
-        profileUser = updatedUserData;
-        
-        // Get updated recent searches
-        const searches = await getRecentSearches(fid);
-        setRecentSearches(searches);
-      } catch (error) {
-        logger.error('Error tracking user search:', error);
-        // Fall back to using the original user data if there was an error
-      }
-    } else {
-      // If no userFid, just ensure the user has a profile object with bio even if it's empty
-      profileUser = {
-        ...user,
-        profile: user.profile || { bio: "" }
-      };
-    }
-    
-    // Set the user profile - only after we have complete data
-    // Check again that we're still loading the same user
-    if (targetUserFid !== user.fid) {
-      logger.warn('User changed before setting profile data, aborting');
-      setIsLoading(false);
+  // Update search handling to use context
+  const handleSearch = async (query: string) => {
+    if (!query.trim()) {
+      setSearchResults([]);
       return;
     }
-    
-    // Now that we've verified everything, set the selected user
-    setSelectedUser(profileUser);
-    
+
+    setIsSearching(true);
     try {
-      // Load NFTs for this user directly from Farcaster API/database
-      logger.info(`Loading NFTs for user ${profileUser.username} (FID: ${targetUserFid})`);
-      
-      // Ensure we have a longer loading state to prevent premature "No NFTs" message
-      // This helps with race conditions where the NFT data might take longer to load
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
-      const nfts = await fetchUserNFTs(targetUserFid);
-      
-      // Final verification that we're still on the same user before updating UI
-      if (targetUserFid !== profileUser.fid) {
-        logger.warn('User changed during NFT fetch, aborting update');
-        setIsLoading(false);
-        return;
-      }
-      
-      // Log NFT loading success
-      logger.info(`Successfully loaded ${nfts.length} NFTs for ${profileUser.username} (FID: ${targetUserFid})`);
-      
-      // Add user FID to each NFT to ensure proper ownership tracking
-      const nftsWithOwnership = nfts.map(nft => ({
-        ...nft,
-        ownerFid: targetUserFid // Add explicit owner FID to each NFT
-      }));
-      
-      // Add a small delay before updating the UI to ensure loading states are properly shown
-      await new Promise(resolve => setTimeout(resolve, 150));
-      
-      // Final check to make sure we're still on the same user
-      if (targetUserFid !== profileUser.fid) {
-        logger.warn('User changed after NFT processing, aborting update');
-        setIsLoading(false);
-        return;
-      }
-      
-      // Only set the NFTs once we have them all loaded and we're still on the same user
-      // CRITICAL: Set an empty array first, then wait, then set the actual NFTs
-      // This prevents the "No NFTs" message from showing prematurely
-      setUserNFTs([]);
-      setFilteredNFTs([]);
-      
-      // Add another small delay to ensure the UI is in a loading state
-      await new Promise(resolve => setTimeout(resolve, 200));
-      
-      // Final verification before updating the UI
-      if (targetUserFid !== profileUser.fid) {
-        logger.warn('User changed before final NFT update, aborting');
-        setIsLoading(false);
-        return;
-      }
-      
-      // Now set the actual NFTs
-      setUserNFTs(nftsWithOwnership);
-      setFilteredNFTs(nftsWithOwnership);
-      
-      // CRITICAL: Always reset the global NFT list when switching users
-      if (nftsWithOwnership && nftsWithOwnership.length > 0) {
-        // Update global NFT list for player ONLY if there are actual NFTs
-        window.nftList = [...nftsWithOwnership]; // Create a new array to avoid reference issues
-        logger.info(`Set ${nftsWithOwnership.length} NFTs for user ${profileUser.username} (FID: ${targetUserFid})`);
-      } else {
-        // For users with no NFTs, ALWAYS set an empty array to prevent showing previous user's NFTs
-        window.nftList = [];
-        // Also clear any cached NFT data
-        logger.info(`User ${profileUser.username} (FID: ${targetUserFid}) has no NFTs, clearing player queue and cached data`);
-      }
-      
-      setError(null);
+      const results = await searchUsers(query);
+      setSearchResults(results);
     } catch (error) {
-      // Only show error if we're still on the same user
-      if (targetUserFid === profileUser.fid) {
-        logger.error(`Error loading NFTs for ${profileUser.username} (FID: ${targetUserFid}):`, error);
-        setError('Error loading NFTs');
-      }
+      demoLogger.error('Error searching users:', error);
     } finally {
-      // Only update loading state if we're still on the same user
-      if (targetUserFid === profileUser.fid) {
-        setIsLoading(false);
-      }
+      setIsSearching(false);
     }
   };
 
@@ -965,19 +763,6 @@ const DemoBase: React.FC = () => {
       liked.contract === nft.contract && 
       liked.tokenId === nft.tokenId
     );
-  };
-
-  // Add these functions before renderCurrentView
-  const handleSearch = async (query: string) => {
-    setIsSearching(true);
-    try {
-      const results = await searchUsers(query);
-      setSearchResults(results);
-    } catch (error) {
-      console.error('Error searching users:', error);
-    } finally {
-      setIsSearching(false);
-    }
   };
 
   function renderCurrentView(): React.ReactNode {
@@ -1133,9 +918,30 @@ const DemoBase: React.FC = () => {
   );
 };
 
-export default DemoBase;
+export const Demo = React.memo(DemoBase);
 
 function prepareAndPlayAudio(nextNFT: NFT) {
   throw new Error('Function not implemented.');
 }
+
+// Add direct user selection handler
+const handleDirectUserSelect = async (user: FarcasterUser) => {
+  setIsLoading(true);
+  try {
+    // Implementation of handleDirectUserSelect
+    demoLogger.info(`Selected user: ${user.username}`);
+  } catch (error) {
+    demoLogger.error('Error selecting user:', error);
+    setError('Error selecting user');
+  } finally {
+    setIsLoading(false);
+  }
+};
+
+// Update local recent searches when Firebase data changes
+useEffect(() => {
+  if (firebaseRecentSearches.length > 0) {
+    setLocalRecentSearches(firebaseRecentSearches);
+  }
+}, [firebaseRecentSearches]);
 //

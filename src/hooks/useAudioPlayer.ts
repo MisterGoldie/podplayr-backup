@@ -255,7 +255,9 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
       // Clean up audio element
       if (audioRef.current) {
         audioRef.current.pause();
-        audioRef.current.src = '';
+        // Instead of setting empty src, remove the source element
+        audioRef.current.removeAttribute('src');
+        audioRef.current.load();
       }
     };
   }, [cleanupBlobUrls]);

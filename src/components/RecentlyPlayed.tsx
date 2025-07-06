@@ -370,7 +370,7 @@ const RecentlyPlayed: React.FC<RecentlyPlayedProps> = ({
                         currentlyPlaying={currentlyPlaying || null}
                         handlePlayPause={handlePlayPause || (() => {})}
                         onLikeToggle={onLikeToggle ? () => onLikeToggle(nft) : undefined}
-                        userFid={userFid}
+                        userFid={userFid.toString()}
                         isNFTLiked={isNFTLiked ? () => isNFTLiked(nft) : undefined}
                         animationDelay={0.2 + (index * 0.05)}
                         smallCard={true} // Position heart icon properly for smaller cards

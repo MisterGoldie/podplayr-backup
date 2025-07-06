@@ -87,6 +87,19 @@ const getConsoleMethod = (level: 'debug' | 'info' | 'warn' | 'error') => {
 };
 
 /**
+ * Check if this is an error we want to suppress
+ */
+const shouldSuppressError = (message: string, args: any[]): boolean => {
+  // Check for empty src audio error
+  if (message.includes('Audio error:') && args.some(arg => 
+    typeof arg === 'string' && arg.includes('MEDIA_ELEMENT_ERROR: Empty src attribute')
+  )) {
+    return true;
+  }
+  return false;
+};
+
+/**
  * Core logging function
  */
 const log = (
@@ -97,6 +110,11 @@ const log = (
 ) => {
   // Skip logging if disabled for this level or module
   if (!isLevelEnabled(level) || !isModuleEnabled(module)) {
+    return;
+  }
+
+  // Skip logging if this is an error we want to suppress
+  if (level === 'error' && shouldSuppressError(message, args)) {
     return;
   }
 

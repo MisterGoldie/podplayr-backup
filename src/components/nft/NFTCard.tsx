@@ -19,6 +19,7 @@ interface NFTCardProps {
   isNFTLiked?: () => boolean;
   playCountBadge?: string;
   animationDelay?: number;
+  smallCard?: boolean;
 }
 
 export const NFTCard: React.FC<NFTCardProps> = ({ 
@@ -31,7 +32,8 @@ export const NFTCard: React.FC<NFTCardProps> = ({
   userFid,
   isNFTLiked,
   playCountBadge,
-  animationDelay
+  animationDelay,
+  smallCard
 }) => {
   const { isFarcaster, fid } = useFarcasterContext();
   const { isLiked, likesCount, toggleLike } = useNFTLikeState(nft, fid);

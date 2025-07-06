@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import type { NFT } from '../types/user';
 import { getMediaKey, processMediaUrl, processArweaveUrl } from '../utils/media';
 import { v4 as uuidv4 } from 'uuid';
@@ -93,9 +93,15 @@ export const useNFTPreloader = (nfts: NFT[]) => {
   const observerRef = useRef<IntersectionObserver | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const imageMapRef = useRef<Map<string, HTMLImageElement>>(new Map());
+  const nftsRef = useRef(nfts);
+
+  // Update nftsRef when nfts change
+  useEffect(() => {
+    nftsRef.current = nfts;
+  }, [nfts]);
 
   // Determine batch size based on network speed
-  const batchSize = networkType === '4g' ? 6 : 3;
+  const batchSize = useMemo(() => networkType === '4g' ? 6 : 3, [networkType]);
 
   // Network speed detection
   useEffect(() => {
@@ -114,20 +120,20 @@ export const useNFTPreloader = (nfts: NFT[]) => {
 
   // Progressive loading with Intersection Observer
   const loadMoreOnScroll = useCallback(async () => {
-    if (loadedCount >= nfts.length) return;
+    if (loadedCount >= nftsRef.current.length) return;
     
-    const nextBatch = nfts.slice(loadedCount, loadedCount + batchSize);
+    const nextBatch = nftsRef.current.slice(loadedCount, loadedCount + batchSize);
     const updatedMap = await preloadBatch(nextBatch, imageMapRef.current);
     imageMapRef.current = updatedMap;
     setPreloadedImages(new Map(updatedMap));
     setLoadedCount(prev => prev + batchSize);
-  }, [loadedCount, nfts, batchSize]);
+  }, [loadedCount, batchSize]); // Removed nfts from dependencies
 
   // Initialize Intersection Observer
   useEffect(() => {
     if (!containerRef.current) return;
 
-    observerRef.current = new IntersectionObserver(
+    const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting) {
           loadMoreOnScroll();
@@ -136,15 +142,20 @@ export const useNFTPreloader = (nfts: NFT[]) => {
       { threshold: 0.5 }
     );
 
-    observerRef.current.observe(containerRef.current);
-    return () => observerRef.current?.disconnect();
+    observerRef.current = observer;
+    observer.observe(containerRef.current);
+    
+    return () => {
+      observer.disconnect();
+      observerRef.current = null;
+    };
   }, [loadMoreOnScroll]);
 
   // Preload initial batch
   useEffect(() => {
     const preloadInitialBatch = async () => {
       setIsLoading(true);
-      const initialBatch = nfts.slice(0, batchSize);
+      const initialBatch = nftsRef.current.slice(0, batchSize);
       
       // Preload initial batch
       const updatedMap = await preloadBatch(initialBatch, imageMapRef.current);
@@ -162,12 +173,12 @@ export const useNFTPreloader = (nfts: NFT[]) => {
       setPreloadedImages(new Map());
       setLoadedCount(0);
     };
-  }, [nfts, batchSize]);
+  }, [batchSize]); // Only depend on batchSize
 
-  const getPreloadedImage = (nft: NFT): HTMLImageElement | undefined => {
-    const key = generateMediaKey(nft);
+  const getPreloadedImage = useCallback((nft: NFT): HTMLImageElement | undefined => {
+    const key = getMediaKey(nft);
     return preloadedImages.get(key);
-  };
+  }, [preloadedImages]);
 
   const preloadImage = useCallback((nft: NFT) => {
     // Get the image URL
@@ -191,50 +202,28 @@ export const useNFTPreloader = (nfts: NFT[]) => {
     }
     
     // Create a key for this NFT
-    const key = `${nft.contract}-${nft.tokenId}`;
+    const key = getMediaKey(nft);
     
     // Skip if already preloaded
     if (imageMapRef.current.has(key)) return;
     
     // Create a new image element
     const img = new Image();
-    
-    // Set the source to preload
-    img.src = nftImageUrl;
-    
-    // Store the preloaded image
     img.onload = () => {
       imageMapRef.current.set(key, img);
       setPreloadedImages(new Map(imageMapRef.current));
     };
-    
-    img.onerror = (error) => {
-      console.warn('Failed to preload image in preloadImage for NFT:', nft.name, error);
-      // Try a fallback for Arweave URLs
-      try {
-        const isArweaveNet = typeof nftImageUrl === 'string' && new URL(nftImageUrl).hostname === 'arweave.net';
-        const hasArProtocol = typeof nft.metadata?.image === 'string' && nft.metadata.image.startsWith('ar://');
-        
-        if (isArweaveNet && hasArProtocol) {
-          const fallbackUrl = `/default-nft.png`;
-          console.log('Using fallback for failed Arweave image in preloadImage:', fallbackUrl);
-          const fallbackImg = new Image();
-          fallbackImg.onload = () => {
-            imageMapRef.current.set(key, fallbackImg);
-            setPreloadedImages(new Map(imageMapRef.current));
-          };
-          fallbackImg.src = fallbackUrl;
-        }
-      } catch (error) {
-        console.error('Error checking Arweave URL in preloadImage:', error);
-      }
+    img.onerror = () => {
+      console.warn('Failed to preload image for NFT:', nft.name);
     };
+    img.src = nftImageUrl;
   }, []);
 
   return {
+    preloadedImages,
     isLoading,
     getPreloadedImage,
-    preloadedImages,
-    preloadImage
+    preloadImage,
+    containerRef
   };
 };
