@@ -8,11 +8,11 @@ export async function GET() {
     frame: {
       version: "1",
       name: "PODPLAYR",
-      iconUrl: "https://podplayr.xyz/icon.png",
-      homeUrl: "https://podplayr.xyz",
-      imageUrl: "https://podplayr.xyz/image.png",
+      iconUrl: "https://podplayr-backup.vercel.app/icon.png",
+      homeUrl: "https://podplayr-backup.vercel.app",
+      imageUrl: "https://podplayr-backup.vercel.app//image.png",
       buttonTitle: "Enter PODPLAYR",
-      splashImageUrl: "https://podplayr.xyz/splash.png",
+      splashImageUrl: "https://podplayr-backup.vercel.app/splash.png",
       splashBackgroundColor: "#000000",
       webhookUrl: "https://podplayr.xyz/api/webhook"
     },
