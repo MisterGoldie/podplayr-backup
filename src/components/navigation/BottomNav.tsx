@@ -51,17 +51,15 @@ export const BottomNav: React.FC<BottomNavProps> = ({ currentView, onViewChange 
           <span className="text-sm mt-1">Library</span>
         </button>
 
-        {!isFarcaster && (
-          <div
-            onClick={() => onViewChange('profile')}
-            className={`flex flex-col items-center p-2 ${
-              currentView === 'profile' ? 'text-green-400' : 'text-gray-400'
-            }`}
-          >
-            <UserDropdownMenu />
-            <span className="text-sm mt-1">Profile</span>
-          </div>
-        )}
+        <div
+          onClick={() => onViewChange('profile')}
+          className={`flex flex-col items-center p-2 ${
+            currentView === 'profile' ? 'text-green-400' : 'text-gray-400'
+          }`}
+        >
+          <UserDropdownMenu />
+          <span className="text-sm mt-1">Profile</span>
+        </div>
       </div>
     </nav>
   );

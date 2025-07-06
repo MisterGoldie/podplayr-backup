@@ -351,7 +351,7 @@ class LibraryView extends React.Component<LibraryViewProps> {
         <NFTNotification onReset={this.props.onReset} />
 
         <div 
-          className="space-y-8 pt-20 pb-12 min-h-screen overflow-y-auto"
+          className="space-y-8 pt-20 pb-48 overflow-y-auto h-screen overscroll-y-contain min-h-screen bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082]"
           style={{
             WebkitOverflowScrolling: 'touch',
             height: 'calc(100vh - 4rem)', // Subtract header height

@@ -387,7 +387,9 @@ const ProfileView: React.FC<ProfileViewProps> = ({
           onUserProfileClick={onUserProfileClick}
         />
       )}
-      <div className="space-y-8 pt-20 pb-48 overflow-y-auto h-screen overscroll-y-contain">
+      <div 
+        className="space-y-8 pt-20 pb-48 overflow-y-auto h-screen overscroll-y-contain min-h-screen bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082]"
+      >
         {/* Profile Header */}
         <div className="relative flex flex-col items-center justify-between text-center p-8 pt-6 pb-4 rounded-3xl mx-4 w-[340px] h-[280px] mx-auto border border-purple-400/20 shadow-xl shadow-purple-900/30 overflow-hidden hover:border-indigo-400/30 transition-all duration-300"
           style={{

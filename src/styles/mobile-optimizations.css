@@ -2,8 +2,8 @@
 @media (max-width: 768px) {
   /* Reduce animations to improve performance */
   * {
-    animation-duration: 0.001s !important;
-    transition-duration: 0.001s !important;
+    /* animation-duration: 0.001s !important; - REMOVED: This was breaking animations */
+    /* transition-duration: 0.001s !important; - REMOVED: This was breaking transitions */
   }
   
   /* Optimize scrolling */
@@ -29,6 +29,6 @@
   
   /* Remove hover effects that don't work well on mobile */
   .hover\:scale-105:hover {
-    transform: none !important;
+    /* transform: none !important; - REMOVED: This was breaking hover effects */
   }
 } 

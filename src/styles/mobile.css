@@ -30,7 +30,6 @@
     object-fit: contain;
     max-height: 80vh;
     width: 100%;
-    background-color: #000;
   }
   
   /* Improve scrubber usability on mobile */

@@ -906,7 +906,7 @@ const DemoBase: React.FC = () => {
   }
 
   return (
-    <div className="relative min-h-screen bg-black text-white">
+    <div className="relative min-h-screen bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082] text-white">
       {renderCurrentView()}
       {!isPlayerMinimized && (
         <PlayerWithAds
@@ -926,18 +926,6 @@ const DemoBase: React.FC = () => {
           onPlayNFT={handlePlayNFT}
         />
       )}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-        {topPlayedNFTs.map((item) => (
-          <NFTCard
-            key={`${item.nft.contract}-${item.nft.tokenId}`}
-            nft={item.nft}
-            onClick={() => handlePlayNFT(item.nft)}
-            isPlaying={isPlaying && currentPlayingNFT?.contract === item.nft.contract && currentPlayingNFT?.tokenId === item.nft.tokenId}
-            isCompact={false}
-            isPreview={false}
-          />
-        ))}
-      </div>
     </div>
   );
 };
