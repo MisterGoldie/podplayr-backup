@@ -8,7 +8,7 @@ interface UltraDirectPlayerProps {
 }
 
 export const UltraDirectPlayer: React.FC<UltraDirectPlayerProps> = ({ nft }) => {
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   // Get most direct URL possible and use fastest gateway
   const url = nft.metadata?.animation_url || '';
   let directUrl = url;

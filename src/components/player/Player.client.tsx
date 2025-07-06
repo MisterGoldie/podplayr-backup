@@ -22,6 +22,7 @@ interface PlayerClientProps {
   progress: number;
   duration: number;
   onSeek: (time: number) => void;
+  onPlayNFT: (nft: NFT) => Promise<void>;
 }
 
 export const PlayerClient: FC<PlayerClientProps> = memo((props) => {

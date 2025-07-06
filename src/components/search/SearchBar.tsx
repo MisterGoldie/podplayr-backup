@@ -2,7 +2,7 @@ import { useState, useEffect, useContext } from 'react';
 import Image from 'next/image';
 import { FarcasterUser } from '../../types/user';
 import { ENSUser, createENSUser } from '../../types/ens';
-import { FarcasterContext } from '../../app/providers';
+import { UserFidContext } from '../../app/providers';
 import { trackUserSearch, trackENSUserSearch } from '../../lib/firebase';
 import { resolveEnsAddress, getEnsProfile } from '../../lib/ens';
 import { logger } from '../../utils/logger';
@@ -20,7 +20,7 @@ interface SearchBarProps {
 }
 
 export const SearchBar: React.FC<SearchBarProps> = ({ onSearch, isSearching, handleUserSelect }) => {
-  const { fid: userFid = 0 } = useContext(FarcasterContext);
+  const { fid: userFid = 0 } = useContext(UserFidContext);
   const [username, setUsername] = useState('');
   const [suggestions, setSuggestions] = useState<FarcasterUser[]>([]);
 

@@ -20,6 +20,7 @@ interface PlayerWithAdsProps {
   onLikeToggle?: (nft: NFT) => void;
   isLiked?: boolean;
   onPictureInPicture?: () => void;
+  onPlayNFT: (nft: NFT) => Promise<void>;
 }
 
 export const PlayerWithAds: React.FC<PlayerWithAdsProps> = (props) => {
@@ -123,5 +124,5 @@ export const PlayerWithAds: React.FC<PlayerWithAdsProps> = (props) => {
   }
 
   // Only render the Player when no ad is showing
-  return <Player {...props} />;
+  return <Player {...props} onPlayNFT={props.onPlayNFT} />;
 }

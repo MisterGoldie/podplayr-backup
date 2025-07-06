@@ -66,12 +66,9 @@ export const UserProfileNFTGrid: React.FC<UserProfileNFTGridProps> = ({
               isPlaying={isPlaying}
               currentlyPlaying={currentlyPlaying}
               handlePlayPause={handlePlayPause}
-              publicCollections={[]}
-              showTitleOverlay={true}
-              useCenteredPlay={true}
               onLikeToggle={onLikeToggle}
-              userFid={userFid}
-              isNFTLiked={isNFTLiked}
+              userFid={userFid?.toString()}
+              isNFTLiked={isNFTLiked ? () => isNFTLiked(nft) : undefined}
               animationDelay={staggerDelay}
             />
           );

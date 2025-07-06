@@ -923,6 +923,7 @@ const DemoBase: React.FC = () => {
           onLikeToggle={() => currentPlayingNFT && onLikeToggle(currentPlayingNFT)}
           isLiked={currentPlayingNFT ? isNFTLiked(currentPlayingNFT) : false}
           onPictureInPicture={togglePictureInPicture}
+          onPlayNFT={handlePlayNFT}
         />
       )}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">

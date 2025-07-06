@@ -26,7 +26,8 @@ import {
   collectionGroup,
   startAfter
 } from 'firebase/firestore';
-import type { NFT, FarcasterUser, SearchedUser, NFTPlayData, FollowedUser } from '../types/user';
+import type { FarcasterUser, SearchedUser, NFTPlayData, FollowedUser } from '../types/user';
+import type { NFT } from '../types/nft';
 import { fetchUserNFTsFromAlchemy } from './alchemy';
 import { getMediaKey } from '~/utils/media';
 import { logger } from '../utils/logger';
@@ -622,7 +623,7 @@ export const trackNFTPlay = async (nft: NFT, fid: number, options?: { forceTrack
     }
 
     // Get audio URL with fallbacks
-    const audioUrl = nft.metadata?.animation_url || nft.audio || nft.metadata?.audio || nft.metadata?.audio_url;
+    const audioUrl = nft.metadata?.animation_url || nft.audio;
     if (!audioUrl) {
       firebaseLogger.error('No audio URL found for NFT:', {
         contract: nft.contract,
@@ -630,9 +631,7 @@ export const trackNFTPlay = async (nft: NFT, fid: number, options?: { forceTrack
         name: nft.name,
         audio: nft.audio,
         metadata: {
-          animation_url: nft.metadata?.animation_url,
-          audio: nft.metadata?.audio,
-          audio_url: nft.metadata?.audio_url
+          animation_url: nft.metadata?.animation_url
         }
       });
       return;
@@ -1728,7 +1727,7 @@ export const fetchUserNFTs = async (fid: number): Promise<NFT[]> => {
         const nfts = await fetchUserNFTsFromAlchemy(address);
         
         // Process mediaKeys for all NFTs to ensure consistent tracking
-        const processedNFTs = nfts.map(nft => {
+        const processedNFTs = nfts.map((nft: NFT) => {
           // If NFT doesn't have a mediaKey yet (from alchemy fetching)
           if (!nft.mediaKey) {
             // Import the getMediaKey function dynamically to avoid circular dependencies
@@ -1744,7 +1743,7 @@ export const fetchUserNFTs = async (fid: number): Promise<NFT[]> => {
         firebaseLogger.info(`Total NFTs found for ENS user ${ensName} (${fid}): ${processedNFTs.length} NFTs`);
         
         // Process NFTs for media content
-        const mediaNFTs = processedNFTs.filter(nft => {
+        const mediaNFTs = processedNFTs.filter((nft: NFT) => {
           const hasAudio = nft.audio || (nft.metadata?.animation_url && (
             nft.metadata.animation_url.includes('.mp3') || 
             nft.metadata.animation_url.includes('.wav') ||
@@ -1901,7 +1900,7 @@ export const fetchUserNFTs = async (fid: number): Promise<NFT[]> => {
     firebaseLogger.info('Total unique NFTs found:', uniqueNFTs.length);
     
     // Process NFTs for media content
-    const mediaNFTs = uniqueNFTs.filter(nft => {
+    const mediaNFTs = uniqueNFTs.filter((nft: NFT) => {
       const hasAudio = nft.audio || (nft.metadata?.animation_url && (
         nft.metadata.animation_url.includes('.mp3') || 
         nft.metadata.animation_url.includes('.wav') ||

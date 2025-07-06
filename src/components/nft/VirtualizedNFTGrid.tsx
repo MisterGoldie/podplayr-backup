@@ -125,14 +125,9 @@ export const VirtualizedNFTGrid: React.FC<VirtualizedNFTGridProps> = ({
             isPlaying={isPlaying}
             currentlyPlaying={currentlyPlaying}
             handlePlayPause={handlePlayPause}
-            publicCollections={publicCollections}
-            onAddToCollection={addToPublicCollection}
-            onRemoveFromCollection={removeFromPublicCollection}
-            showTitleOverlay={true}
-            useCenteredPlay={true}
             onLikeToggle={onLikeToggle}
-            userFid={userFid}
-            isNFTLiked={checkDirectlyLiked}
+            userFid={userFid?.toString()}
+            isNFTLiked={() => checkDirectlyLiked(nft)}
             animationDelay={staggerDelay} // Pass the staggered delay
           />
         </ErrorBoundary>

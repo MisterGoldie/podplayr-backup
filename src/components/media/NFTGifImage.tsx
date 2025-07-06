@@ -22,7 +22,7 @@ export const NFTGifImage: React.FC<NFTGifImageProps> = ({
   const [isLoaded, setIsLoaded] = useState(false);
   const [hasError, setHasError] = useState(false);
   const elementRef = useRef<HTMLDivElement>(null);
-  const animatedImgRef = useRef<HTMLImageElement>(null);
+  const animatedImgRef = useRef<HTMLImageElement | null>(null);
   
   // Use a ref to cache the processed URL to avoid redundant processing
   const processedUrlRef = useRef<string>('');
