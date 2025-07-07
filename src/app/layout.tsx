@@ -2,7 +2,6 @@ import type { Metadata, Viewport } from "next";
 import "~/app/globals.css";
 import "~/styles/mobile.css"; // Import mobile-specific styles
 import { Providers } from "~/app/providers";
-import Script from 'next/script';
 import { Space_Grotesk } from 'next/font/google';
 import { MiniKitContextProvider } from '../components/providers/MiniKitProvider';
 
@@ -66,9 +65,6 @@ export default function RootLayout({
       <head>
         {/* Ensure mobile support with proper viewport */}
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-        
-        {/* CRITICAL: Load Farcaster SDK as early as possible and ensure immediate execution */}
-        <Script src="https://cdn.farcaster.xyz/frames/sdk.js" strategy="beforeInteractive" />
       </head>
       <body>
         <MiniKitContextProvider>
