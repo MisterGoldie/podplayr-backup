@@ -334,7 +334,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
           src={videoUrl}
           playsInline
           loop
-          muted={false}  // Change this line - don't mute videos by default
+          muted={true}  // CHANGE THIS - mute the video so only audio player handles sound
           autoPlay={isPlaying}
           preload="auto"
           className="w-auto h-auto object-contain rounded-lg max-h-[60vh] min-h-[40vh] min-w-[60%] max-w-full"

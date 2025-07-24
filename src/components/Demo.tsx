@@ -205,10 +205,7 @@ const DemoBase: React.FC = () => {
   const [permanentlyRemovedNFTs, setPermanentlyRemovedNFTs] = useState<Set<string>>(new Set());
   const [likeSyncComplete, setLikeSyncComplete] = useState<boolean>(false);
 
-  // Add these state variables near the other state declarations
-  const [currentPlayingNFT, setCurrentPlayingNFT] = useState<NFT | null>(null);
-  const [currentlyPlaying, setCurrentlyPlaying] = useState<string | null>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
+
 
   const [localRecentSearches, setLocalRecentSearches] = useState<RecentSearch[]>([]);
 
@@ -270,15 +267,18 @@ const DemoBase: React.FC = () => {
     loadInitialData();
   }, [fid]);
 
+  // Fix the useAudioPlayer destructuring (around line 250)
   const {
-    isPlaying: audioIsPlaying,
-    currentPlayingNFT: audioCurrentPlayingNFT,
-    currentlyPlaying: audioCurrentlyPlaying,
+    isPlaying,
+    currentPlayingNFT,
+    currentlyPlaying,
     audioProgress,
     audioDuration,
     handlePlayAudio,
     handlePlayPause: audioHandlePlayPause,
     handleSeek,
+    handlePlayNext,
+    handlePlayPrevious,
     audioRef
   } = useAudioPlayer({ 
     fid: fid,
@@ -508,53 +508,7 @@ const DemoBase: React.FC = () => {
     setIsLiked
   });
 
-  const handlePlayNext = async () => {
-    if (!currentPlayingNFT || currentNFTQueue.length === 0) return;
-    
-    // Find current NFT index in our saved queue
-    // Use mediaKey for consistent tracking rather than contract+tokenId
-    const currentIndex = currentNFTQueue.findIndex(
-      (nft: NFT) => getMediaKey(nft) === getMediaKey(currentPlayingNFT)
-    );
-    
-    if (currentIndex === -1) {
-      demoLogger.warn(`Current NFT not found in the ${currentQueueType} queue. Can't navigate to next.`);
-      return;
-    }
-    
-    // Get next NFT with wraparound
-    const nextIndex = (currentIndex + 1) % currentNFTQueue.length;
-    const nextNFT = currentNFTQueue[nextIndex];
-    
-    demoLogger.info(`Playing next NFT (${nextIndex + 1}/${currentNFTQueue.length}) in ${currentQueueType} queue`);
-    
-    // Play the next NFT
-    await prepareAndPlayAudio(nextNFT);
-  };
 
-  const handlePlayPrevious = async () => {
-    if (!currentPlayingNFT || currentNFTQueue.length === 0) return;
-    
-    // Find current NFT index in our saved queue
-    // Use mediaKey for consistent tracking rather than contract+tokenId
-    const currentIndex = currentNFTQueue.findIndex(
-      (nft: NFT) => getMediaKey(nft) === getMediaKey(currentPlayingNFT)
-    );
-    
-    if (currentIndex === -1) {
-      demoLogger.warn(`Current NFT not found in the ${currentQueueType} queue. Can't navigate to previous.`);
-      return;
-    }
-    
-    // Get previous NFT with wraparound
-    const prevIndex = (currentIndex - 1 + currentNFTQueue.length) % currentNFTQueue.length;
-    const prevNFT = currentNFTQueue[prevIndex];
-    
-    demoLogger.info(`Playing previous NFT (${prevIndex + 1}/${currentNFTQueue.length}) in ${currentQueueType} queue`);
-    
-    // Play the previous NFT
-    await prepareAndPlayAudio(prevNFT);
-  };
 
   // Add this helper function to release resources from videos
   const releaseVideoResources = useCallback(() => {
@@ -737,20 +691,20 @@ const DemoBase: React.FC = () => {
   }, [checkProblematicNFTs]);
 
   // Add these functions before renderCurrentView
-  const handlePlayNFT = async (nft: NFT, context?: { queue?: NFT[], queueType?: string }) => {
-    if (context?.queue) {
-      setCurrentNFTQueue(context.queue);
-      setCurrentQueueType(context.queueType || '');
-    }
-    setCurrentPlayingNFT(nft);
-    // Don't force minimize on initial play - let it show maximized
-    setIsPlayerMinimized(false);
-    // Remove this line that was causing the issue:
-    // setIsInitialPlay(true);
-  };
+  const handlePlayNFT = useCallback(async (nft: NFT, context?: { queue?: NFT[], queueType?: string }) => {
+  // Check if this is a different NFT by comparing the currently playing identifier
+  if (!currentlyPlaying || currentlyPlaying !== `${nft.contract}-${nft.tokenId}`) {
+  // New NFT - start with minimized player and play audio
+  setIsPlayerMinimized(true);
+await handlePlayAudio(nft);
+  } else {
+  // Same NFT - just ensure player is minimized without restarting audio
+  setIsPlayerMinimized(true);
+  }
+  }, [handlePlayAudio, currentlyPlaying]);
 
   const handlePlayPause = () => {
-    setIsPlaying(!isPlaying);
+    audioHandlePlayPause();
   };
 
   const onReset = () => {
@@ -936,22 +890,22 @@ const DemoBase: React.FC = () => {
   return (
     <div className="relative min-h-screen bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082] text-white">
       {renderCurrentView()}
-      {!isPlayerMinimized && (
+      {currentPlayingNFT && (
         <PlayerWithAds
           nft={currentPlayingNFT}
           isPlaying={isPlaying}
+          progress={audioProgress}
+          duration={audioDuration}
+          onSeek={handleSeek}
           onPlayPause={handlePlayPause}
           onNext={handlePlayNext}
           onPrevious={handlePlayPrevious}
           isMinimized={isPlayerMinimized}
-          onMinimizeToggle={() => setIsPlayerMinimized(true)}
-          progress={0}
-          duration={0}
-          onSeek={() => {}}
+          onMinimizeToggle={() => setIsPlayerMinimized(!isPlayerMinimized)}
+          onPlayNFT={handlePlayNFT}
           onLikeToggle={() => currentPlayingNFT && onLikeToggle(currentPlayingNFT)}
           isLiked={currentPlayingNFT ? isNFTLiked(currentPlayingNFT) : false}
           onPictureInPicture={togglePictureInPicture}
-          onPlayNFT={handlePlayNFT}
         />
       )}
     </div>
@@ -959,7 +913,3 @@ const DemoBase: React.FC = () => {
 };
 
 export const Demo = React.memo(DemoBase);
-
-function prepareAndPlayAudio(nextNFT: NFT) {
-  throw new Error('Function not implemented.');
-}

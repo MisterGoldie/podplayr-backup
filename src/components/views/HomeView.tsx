@@ -287,7 +287,6 @@ const HomeView: React.FC<HomeViewProps> = ({
                               onLikeToggle={() => handleNFTLike(nft)}
                               userFid={(fid ?? 0).toString()}
                               isNFTLiked={() => checkDirectlyLiked(nft)}
-                              playCountBadge={`${count} plays`}
                               animationDelay={index * 0.1}
                             />
                           </div>
