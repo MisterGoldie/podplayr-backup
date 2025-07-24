@@ -3,6 +3,9 @@
  * to optimize media playback on different devices and networks
  */
 
+// NOTE: For React components, use the useDeviceDetection hook from hooks/useDeviceDetection.ts for consistent device detection.
+// Only use these utilities in non-React code.
+
 // Function to detect if the current device is mobile
 export const isMobileDevice = (): boolean => {
   if (typeof window === 'undefined') return false;

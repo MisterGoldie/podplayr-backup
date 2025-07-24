@@ -178,26 +178,31 @@ const FeaturedSection: React.FC<FeaturedSectionProps> = ({
     <section className="w-full py-8">
       <div className="container mx-auto px-4">
         <div className="mb-8">
-          <h2 className="text-2xl font-bold text-white">Featured NFTs</h2>
-          <p className="text-gray-400">Discover our curated collection</p>
+          <h2 className="text-xl font-mono text-green-400 mb-6">Featured NFTs</h2>
         </div>
         
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-          {nfts.map((nft, index) => (
-            <NFTCard
-              key={nft.contract + '-' + nft.tokenId}
-              nft={nft}
-              onPlay={async (nft) => onPlayNFT(nft)}
-              isPlaying={isPlaying && currentlyPlaying === nft.contract + '-' + nft.tokenId}
-              currentlyPlaying={currentlyPlaying}
-              handlePlayPause={handlePlayPause}
-              onLikeToggle={() => onLikeToggle(nft)}
-              userFid={fid?.toString() || undefined}
-              isNFTLiked={() => isNFTLiked(nft)}
-              playCountBadge={formatPlayCount(nft.playCount || 0)}
-              animationDelay={0.2 + (index * 0.05)}
-            />
-          ))}
+        <div className="relative">
+          <div className="overflow-x-auto pb-4 hide-scrollbar">
+            <div className="flex gap-6">
+              {nfts.map((nft, index) => (
+                <div key={nft.contract + '-' + nft.tokenId} className="flex-shrink-0 w-[200px]">
+                  <NFTCard
+                    nft={nft}
+                    onPlay={async (nft) => onPlayNFT(nft)}
+                    isPlaying={isPlaying && currentlyPlaying === nft.contract + '-' + nft.tokenId}
+                    currentlyPlaying={currentlyPlaying}
+                    handlePlayPause={handlePlayPause}
+                    onLikeToggle={() => onLikeToggle(nft)}
+                    userFid={fid?.toString() || undefined}
+                    isNFTLiked={() => isNFTLiked(nft)}
+                    playCountBadge={formatPlayCount(nft.playCount || 0)}
+                    animationDelay={0.2 + (index * 0.05)}
+                  />
+                  <h3 className="font-mono text-white text-sm truncate mt-3">{nft.name}</h3>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
     </section>

@@ -7,6 +7,7 @@ import { getMediaKey, processMediaUrl } from '../../utils/media';
 import { logger } from '../../utils/logger';
 import { optimizeVideoForConnection } from '../../utils/adaptiveStreaming';
 import { videoPerformanceMonitor } from '../../utils/videoPerformanceMonitor';
+import { useDeviceDetection } from '../../hooks/useDeviceDetection';
 
 interface DirectVideoPlayerProps {
   nft: NFT;
@@ -36,6 +37,8 @@ const DirectVideoPlayerBase: React.FC<DirectVideoPlayerProps> = ({
   const [loadProgress, setLoadProgress] = useState(0);
   const [networkType, setNetworkType] = useState<'cellular' | 'wifi' | 'unknown'>('unknown');
   const [networkGeneration, setNetworkGeneration] = useState<'5G' | '4G' | '3G' | '2G' | 'unknown'>('unknown');
+  
+  const deviceInfo = useDeviceDetection();
   
   // Get the mediaKey for consistent tracking
   const mediaKey = getMediaKey(nft);
@@ -466,7 +469,7 @@ const DirectVideoPlayerBase: React.FC<DirectVideoPlayerProps> = ({
     video.playsInline = true;
     
     // Mobile-specific optimizations
-    if (isMobile) {
+    if (deviceInfo.isMobile) {
       // Both Android and iOS need these optimizations
       video.style.transform = 'translateZ(0)'; // Hardware acceleration
       
@@ -643,7 +646,7 @@ const DirectVideoPlayerBase: React.FC<DirectVideoPlayerProps> = ({
     video.addEventListener('waiting', handleWaiting);
     
     // Apply adaptive streaming optimizations based on connection quality
-    optimizeVideoForConnection(video, mediaKey, isMobile);
+    optimizeVideoForConnection(video, mediaKey, deviceInfo.isMobile);
     
     // Add a loadedmetadata listener to transition to auto preload after metadata is loaded
     // This creates a progressive loading effect that gets video started faster
@@ -688,7 +691,7 @@ const DirectVideoPlayerBase: React.FC<DirectVideoPlayerProps> = ({
       }
     };
 
-  }, [isHostedPlayer, onLoadComplete, onError, directUrl, isMobile, isIOS, isAndroid, hasError, currentGateway, retryCount, mediaKey, nft, MAX_RETRIES]);
+  }, [isHostedPlayer, onLoadComplete, onError, directUrl, deviceInfo.isMobile, isIOS, isAndroid, hasError, currentGateway, retryCount, mediaKey, nft, MAX_RETRIES]);
 
   useEffect(() => {
     if (!videoRef.current || !shouldLoadVideo) return;
@@ -826,48 +829,5 @@ const DirectVideoPlayerBase: React.FC<DirectVideoPlayerProps> = ({
             loop
             playsInline
             autoPlay={shouldPlayVideo} // Only autoplay when visible and hovered
-            controls={isMobile} // Add controls for all mobile devices
-            className={`w-full h-full object-cover rounded-md ${shouldLoadVideo ? 'opacity-100' : 'opacity-0'}`}
-            preload="metadata" // Always start with metadata for faster loading
-            data-network-type={networkType}
-            data-network-generation={networkGeneration}
-            data-media-key={mediaKey} // Ensure mediaKey tracking is maintained
-            data-priority="high" // Mark as high priority for browser loading
-            style={{ 
-              transform: 'translateZ(0)', // Hardware acceleration for all platforms
-              // Add Android-specific height limitations to improve performance
-              ...(isAndroid ? { maxHeight: '480px' } : {})
-            }} 
-            {...(isIOS ? { 'webkit-playsinline': 'true' } : {})}
-            {...(isAndroid ? { 'playsinline': 'true' } : {})}
-          />
-          
-          {/* Cellular network indicator */}
-          {networkType === 'cellular' && (
-            <div className="absolute top-2 right-2 bg-black bg-opacity-60 text-white text-xs px-2 py-1 rounded">
-              {networkGeneration !== 'unknown' ? networkGeneration : 'Cellular'}
-            </div>
-          )}
-          
-          {/* Loading indicator */}
-          {bufferingState === 'loading' && (
-            <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-40">
-              <div className="text-white text-sm">
-                {loadProgress > 0 ? `Loading: ${loadProgress}%` : 'Buffering...'}
-              </div>
-            </div>
-          )}
-        </>
-      )}
-    </div>
-  );
-};
-
-// Export the memoized component to prevent unnecessary re-renders
-export const DirectVideoPlayer = React.memo(DirectVideoPlayerBase, (prevProps, nextProps) => {
-  // Only re-render if the NFT mediaKey changes
-  const prevMediaKey = getMediaKey(prevProps.nft);
-  const nextMediaKey = getMediaKey(nextProps.nft);
-  return prevMediaKey === nextMediaKey;
-});
-
+            controls={deviceInfo.isMobile} // Add controls for all mobile devices
+            className={`

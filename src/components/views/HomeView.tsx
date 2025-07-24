@@ -231,7 +231,7 @@ const HomeView: React.FC<HomeViewProps> = ({
         </button>
       </header>
       <div 
-        className={`space-y-8 pt-20 pb-40 overflow-y-auto overscroll-y-contain min-h-screen bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082] ${hasActivePlayer ? 'h-[calc(100vh-130px)] md:h-[calc(100vh-150px)]' : 'h-screen'}`}
+        className={`space-y-8 pt-20 pb-40 overflow-y-auto overscroll-y-contain min-h-screen bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082] h-[calc(100vh-130px)]`}
       >
         {/* Notifications are now handled by the global NFTNotification component */}
 
@@ -249,54 +249,56 @@ const HomeView: React.FC<HomeViewProps> = ({
         />
 
         {/* Top Played Section */}
-        <section>
-          {topPlayedNFTs.length > 0 && (
-            <div className="mb-8 px-4 sm:px-6 lg:px-8">
-              <h2 className="text-xl font-mono text-green-400 mb-6">Top Played</h2>
-              <div className="relative">
-                <div className="overflow-x-auto pb-4 hide-scrollbar">
-                  <div className="flex gap-6">
-                    {topPlayedNFTs.map(({ nft, count }, index) => {
-                      // Generate strictly unique key that doesn't depend on content
-                      const uniqueKey = nft.contract && nft.tokenId 
-                        ? `top-${nft.contract}-${nft.tokenId}-${index}` 
-                        : `top-${index}-${Math.random().toString(36).substr(2, 9)}`;
-                      
-                      return (
-                        <div key={uniqueKey} className="flex-shrink-0 w-[200px]">
-                          <NFTCard
-                            key={nft.contract + '-' + nft.tokenId}
-                            nft={nft}
-                            onPlay={async (nft) => {
-                              homeLogger.debug(`Play button clicked for NFT in Top Played: ${nft.name}`);
-                              try {
-                                // Pass all top played NFTs as the queue context
-                                await onPlayNFT(nft, {
-                                  queue: topPlayedNFTs.map(item => item.nft),
-                                  queueType: 'topPlayed'
-                                });
-                              } catch (error) {
-                                homeLogger.error('Error playing NFT from Top Played:', error);
-                              }
-                            }}
-                            isPlaying={currentlyPlaying === nft.contract + '-' + nft.tokenId}
-                            currentlyPlaying={currentlyPlaying}
-                            handlePlayPause={handlePlayPause}
-                            onLikeToggle={() => handleNFTLike(nft)}
-                            userFid={(fid ?? 0).toString()}
-                            isNFTLiked={() => checkDirectlyLiked(nft)}
-                            playCountBadge={`${count} plays`}
-                            animationDelay={index * 0.1}
-                          />
-                          <h3 className="font-mono text-white text-sm truncate mt-3">{nft.name}</h3>
-                        </div>
-                      );
-                    })}
+        <section className="w-full py-8">
+          <div className="container mx-auto px-4">
+            {topPlayedNFTs.length > 0 && (
+              <div className="mb-8">
+                <h2 className="text-xl font-mono text-green-400 mb-6">Top Played</h2>
+                <div className="relative">
+                  <div className="overflow-x-auto pb-4 hide-scrollbar">
+                    <div className="flex gap-6">
+                      {topPlayedNFTs.map(({ nft, count }, index) => {
+                        // Generate strictly unique key that doesn't depend on content
+                        const uniqueKey = nft.contract && nft.tokenId 
+                          ? `top-${nft.contract}-${nft.tokenId}-${index}` 
+                          : `top-${index}-${Math.random().toString(36).substr(2, 9)}`;
+                        
+                        return (
+                          <div key={uniqueKey} className="flex-shrink-0 w-[200px]">
+                            <NFTCard
+                              key={nft.contract + '-' + nft.tokenId}
+                              nft={nft}
+                              onPlay={async (nft) => {
+                                homeLogger.debug(`Play button clicked for NFT in Top Played: ${nft.name}`);
+                                try {
+                                  // Pass all top played NFTs as the queue context
+                                  await onPlayNFT(nft, {
+                                    queue: topPlayedNFTs.map(item => item.nft),
+                                    queueType: 'topPlayed'
+                                  });
+                                } catch (error) {
+                                  homeLogger.error('Error playing NFT from Top Played:', error);
+                                }
+                              }}
+                              isPlaying={currentlyPlaying === nft.contract + '-' + nft.tokenId}
+                              currentlyPlaying={currentlyPlaying}
+                              handlePlayPause={handlePlayPause}
+                              onLikeToggle={() => handleNFTLike(nft)}
+                              userFid={(fid ?? 0).toString()}
+                              isNFTLiked={() => checkDirectlyLiked(nft)}
+                              playCountBadge={`${count} plays`}
+                              animationDelay={index * 0.1}
+                            />
+                            <h3 className="font-mono text-white text-sm truncate mt-3">{nft.name}</h3>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </section>
 
         {/* Featured Section */}

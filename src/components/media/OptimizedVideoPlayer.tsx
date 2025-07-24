@@ -6,6 +6,7 @@ import { processMediaUrl, getMediaKey } from '../../utils/media';
 import { NFTImage } from './NFTImage';
 import { setupHls, destroyHls, isHlsUrl, getHlsUrl } from '../../utils/hlsUtils';
 import { videoPerformanceMonitor } from '../../utils/videoPerformanceMonitor';
+import { useDeviceDetection } from '../../hooks/useDeviceDetection';
 
 interface OptimizedVideoPlayerProps {
   nft: NFT;
@@ -28,7 +29,7 @@ export const OptimizedVideoPlayer: React.FC<OptimizedVideoPlayerProps> = ({
 }) => {
   const [isVisible, setIsVisible] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
+  const deviceInfo = useDeviceDetection();
   const [useHls, setUseHls] = useState(false);
   const [hlsInitialized, setHlsInitialized] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -36,11 +37,6 @@ export const OptimizedVideoPlayer: React.FC<OptimizedVideoPlayerProps> = ({
   const [isBuffering, setIsBuffering] = useState(false);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
 
-  // Detect if we're on mobile
-  useEffect(() => {
-    setIsMobile(/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent));
-  }, []);
-  
   // Use Intersection Observer to only load when visible
   useEffect(() => {
     if (!containerRef.current) return;

@@ -63,10 +63,19 @@ export const NFTCard: React.FC<NFTCardProps> = ({
     }
   };
 
+  const handleLikeClick = (e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent triggering the card click
+    if (isLiked) {
+      handleUnlike(nft);
+    } else {
+      handleLike(nft);
+    }
+  };
+
   const imageUrl = nft.image || nft.metadata?.image || '/default-nft.png';
 
   return (
-    <div className="relative group">
+    <div className="relative group cursor-pointer" onClick={handlePlay}>
       <div className="aspect-square rounded-lg overflow-hidden bg-gray-800/20 shadow-lg">
         <img
           src={imageUrl}
@@ -74,20 +83,10 @@ export const NFTCard: React.FC<NFTCardProps> = ({
           className="w-full h-full object-cover"
           loading="lazy"
         />
-        <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
         
-        <button 
-          onClick={handlePlay}
-          className="absolute bottom-2 right-2 w-10 h-10 rounded-full bg-purple-500 text-black flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200 hover:scale-105 transform"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="currentColor">
-            <path d="M320-200v-560l440 280-440 280Z"/>
-          </svg>
-        </button>
-
         {fid && (
           <button 
-            onClick={() => isLiked ? handleUnlike(nft) : handleLike(nft)}
+            onClick={handleLikeClick}
             className="absolute top-2 right-2 w-10 h-10 flex items-center justify-center text-red-500 transition-all duration-300 hover:scale-125 z-10"
           >
             {isLiked ? (

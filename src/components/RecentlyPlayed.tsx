@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { NFT } from '../types/user';
 import { subscribeToRecentPlays } from '../lib/firebase';
@@ -289,36 +289,41 @@ const RecentlyPlayed: React.FC<RecentlyPlayedProps> = ({
   }, [localRecentlyPlayed, firebaseRecentlyPlayed]);
 
   // Handle empty state
+  // Handle empty state
   if (isLoading) {
-    return (
-      <section>
+  return (
+    <section className="w-full py-8">
+      <div className="container mx-auto px-4">
         <h2 className="text-xl font-mono text-green-400 mb-6">Recently Played</h2>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 animate-pulse">
           {[...Array(4)].map((_, i) => (
             <div key={i} className="aspect-square bg-gray-800 rounded-lg"></div>
           ))}
         </div>
-      </section>
-    );
-  }
+      </div>
+    </section>
+  );
+}
 
-  if (validRecentlyPlayedNFTs.length === 0) {
-    return (
-      <section>
+if (validRecentlyPlayedNFTs.length === 0) {
+  return (
+    <section className="w-full py-8">
+      <div className="container mx-auto px-4">
         <h2 className="text-xl font-mono text-green-400 mb-6">Recently Played</h2>
         <div className="text-gray-400 font-mono">No recently played NFTs yet</div>
-      </section>
-    );
-  }
+      </div>
+    </section>
+  );
+}
 
   return (
-    <section>
-      {validRecentlyPlayedNFTs.length > 0 && (
+    <section className="w-full py-8">
+      <div className="container mx-auto px-4">
         <div className="mb-8">
           <h2 className="text-xl font-mono text-green-400 mb-6">Recently Played</h2>
           <div className="relative">
             <div className="overflow-x-auto pb-4 hide-scrollbar">
-              <div className="flex gap-4">
+              <div className="flex gap-6">
                 {/* Deduplicate NFTs based on mediaKey - this is CRITICAL for the app's functionality */}
                 {validRecentlyPlayedNFTs
                   .filter((nft, index, self) => {
@@ -351,7 +356,7 @@ const RecentlyPlayed: React.FC<RecentlyPlayedProps> = ({
                     : `recent-fallback-${index}-${Math.random().toString(36).substring(2, 9)}`;
                   
                   return (
-                    <div key={uniqueKey} className="flex-shrink-0 w-[140px]">
+                    <div key={uniqueKey} className="flex-shrink-0 w-[200px]">
                       <NFTCard
                         nft={nft}
                         onPlay={async () => {
@@ -378,14 +383,15 @@ const RecentlyPlayed: React.FC<RecentlyPlayedProps> = ({
                       <h3 className="font-mono text-white text-sm truncate mt-3">{nft.name}</h3>
                     </div>
                   );
-                })}
+                  })}
               </div>
             </div>
           </div>
         </div>
-      )}
+      </div>
     </section>
   );
+
 };
 
 // Wrap with React.memo to prevent unnecessary re-renders
