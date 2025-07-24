@@ -6,6 +6,7 @@ import { updatePodplayrFollowerCount } from '../lib/firebase';
 import { VideoPlayProvider } from '../contexts/VideoPlayContext';
 import { NFTNotificationProvider } from '../context/NFTNotificationContext';
 import { PlayerProvider } from '../contexts/PlayerContext';
+import { ConnectionProvider } from '../context/ConnectionContext';
 
 // Create a context for the user's Farcaster ID
 export const UserFidContext = createContext<{
@@ -95,7 +96,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
         <VideoPlayProvider>
           <PlayerProvider>
             <NFTNotificationProvider>
-              {children}
+              <ConnectionProvider>
+                {children}
+              </ConnectionProvider>
             </NFTNotificationProvider>
           </PlayerProvider>
         </VideoPlayProvider>
