@@ -356,7 +356,7 @@ if (validRecentlyPlayedNFTs.length === 0) {
                     : `recent-fallback-${index}-${Math.random().toString(36).substring(2, 9)}`;
                   
                   return (
-                    <div key={uniqueKey} className="flex-shrink-0 w-[200px]">
+                    <div key={uniqueKey} className="flex-shrink-0 w-[150px]"> {/* Changed from w-[200px] to w-[150px] */}
                       <NFTCard
                         nft={nft}
                         onPlay={async () => {
@@ -380,7 +380,7 @@ if (validRecentlyPlayedNFTs.length === 0) {
                         animationDelay={0.2 + (index * 0.05)}
                         smallCard={true} // Position heart icon properly for smaller cards
                       />
-                      <h3 className="font-mono text-white text-sm truncate mt-3">{nft.name}</h3>
+                      <h3 className="font-mono text-white text-xs truncate mt-2">{nft.name}</h3> {/* Changed from text-sm to text-xs and mt-3 to mt-2 */}
                     </div>
                   );
                   })}

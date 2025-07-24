@@ -512,8 +512,8 @@ const ProfileView: React.FC<ProfileViewProps> = ({
                   className="block w-full h-full transition-transform hover:scale-105 active:scale-95"
                 >
                   <Image
-                    src={userContext.user?.pfpUrl || '/default-avatar.png'}
-                    alt={userContext.user?.username}
+                    src={(userContext.user?.pfpUrl || profileImage || '/default-avatar.png').replace(/[`\s]/g, '').trim()}
+                    alt={userContext.user?.username || 'User'}
                     width={120}
                     height={120}
                     className="w-full h-full"

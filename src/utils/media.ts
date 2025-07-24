@@ -463,10 +463,44 @@ export const normalizeUrl = (url: string): string => {
 };
 
 /**
- * Generates a unique, random media key for each NFT
+ * Generates a consistent media key for each NFT based on its unique properties
  */
 export function getMediaKey(nft: NFT): string {
-  return uuidv4();
+  // Create a cache key based on contract and tokenId
+  const cacheKey = `${nft.contract}-${nft.tokenId}`;
+  
+  // Return cached mediaKey if it exists
+  if (mediaKeyCache[cacheKey]) {
+    return mediaKeyCache[cacheKey];
+  }
+  
+  // Generate a consistent key based on NFT properties
+  let keySource = '';
+  
+  // Use the actual media URL if available for content-based deduplication
+  const mediaUrl = nft.metadata?.animation_url || nft.metadata?.image || nft.image;
+  if (mediaUrl) {
+    keySource = normalizeUrl(mediaUrl);
+  }
+  
+  // Fallback to contract + tokenId if no media URL
+  if (!keySource) {
+    keySource = `${nft.contract}-${nft.tokenId}`;
+  }
+  
+  // Create a hash of the key source for consistency
+  const mediaKey = btoa(keySource).replace(/[^a-zA-Z0-9]/g, '').substring(0, 32);
+  
+  // Cache the result
+  mediaKeyCache[cacheKey] = mediaKey;
+  
+  // Prevent memory leaks by limiting cache size
+  if (Object.keys(mediaKeyCache).length > MAX_CACHE_SIZE) {
+    const firstKey = Object.keys(mediaKeyCache)[0];
+    delete mediaKeyCache[firstKey];
+  }
+  
+  return mediaKey;
 }
 
 export function getDirectMediaUrl(url: string): string {

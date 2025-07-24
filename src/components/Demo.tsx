@@ -42,6 +42,8 @@ import { logger } from '../utils/logger';
 import { useNFTLike } from '../hooks/useNFTLike';
 import { NFTCard } from './NFTCard';
 
+import { UserImageProvider } from '../contexts/UserImageContext';
+
 const NFT_CACHE_KEY = 'podplayr_nft_cache_';
 const TWO_HOURS = 2 * 60 * 60 * 1000;
 
@@ -97,7 +99,7 @@ const DemoBase: React.FC = () => {
   logger.enableModule('firebase', true);
   
   // 1. Context Hooks
-  const { isFarcaster } = useContext(FarcasterContext);
+  const { isFarcaster, initialProfileImage } = useContext(FarcasterContext);
   const { fid } = useContext(UserFidContext);
   const { hasAcceptedTerms, acceptTerms } = useTerms();
   const { recentSearches: firebaseRecentSearches, featuredNFTs } = useFirebase();
@@ -392,6 +394,7 @@ const DemoBase: React.FC = () => {
   // Video synchronization is now handled by VideoSyncManager component
 
   useEffect(() => {
+    // Remove or modify the problematic useEffect
     if (isInitialPlay) {
       playerLogger.info('Minimizing player due to initial play');
       setIsPlayerMinimized(true);
@@ -740,8 +743,10 @@ const DemoBase: React.FC = () => {
       setCurrentQueueType(context.queueType || '');
     }
     setCurrentPlayingNFT(nft);
+    // Don't force minimize on initial play - let it show maximized
     setIsPlayerMinimized(false);
-    setIsInitialPlay(true);
+    // Remove this line that was causing the issue:
+    // setIsInitialPlay(true);
   };
 
   const handlePlayPause = () => {
@@ -781,6 +786,24 @@ const DemoBase: React.FC = () => {
     }
   };
 
+  // Add the missing handleUserSelect function
+  const handleUserSelect = async (user: FarcasterUser) => {
+    setIsLoading(true);
+    try {
+      demoLogger.info(`Selecting user: ${user.username}`);
+      setSelectedUser(user);
+      // Load user's NFTs
+      const nfts = await fetchUserNFTs(user.fid);
+      setUserNFTs(nfts);
+      setCurrentPage(prev => ({ ...prev, isUserProfile: true }));
+    } catch (error) {
+      demoLogger.error('Error selecting user:', error);
+      setError('Error selecting user');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // Update local recent searches when Firebase data changes
   useEffect(() => {
     if (firebaseRecentSearches.length > 0) {
@@ -789,10 +812,11 @@ const DemoBase: React.FC = () => {
   }, [firebaseRecentSearches]);
 
   function renderCurrentView(): React.ReactNode {
-    const currentView = currentPage.isHome ? 'home' : 
-                       currentPage.isExplore ? 'explore' : 
-                       currentPage.isLibrary ? 'library' : 
-                       currentPage.isProfile ? 'profile' : 'home';
+    let currentViewKey: 'home' | 'explore' | 'library' | 'profile' = 'home';
+    if (currentPage.isHome) currentViewKey = 'home';
+    else if (currentPage.isExplore) currentViewKey = 'explore';
+    else if (currentPage.isLibrary) currentViewKey = 'library';
+    else if (currentPage.isProfile || currentPage.isUserProfile) currentViewKey = 'profile';
 
     const handleViewChange = (view: 'home' | 'explore' | 'library' | 'profile') => {
       setCurrentPage({
@@ -814,17 +838,14 @@ const DemoBase: React.FC = () => {
             currentlyPlaying={currentlyPlaying}
             isPlaying={isPlaying}
             handlePlayPause={handlePlayPause}
-            isLoading={isLoading}
             onReset={onReset}
             onLikeToggle={onLikeToggle}
             likedNFTs={likedNFTs}
-            hasActivePlayer={!isPlayerMinimized}
+            hasActivePlayer={!!currentPlayingNFT}
             currentPlayingNFT={currentPlayingNFT}
-            recentlyAddedNFT={recentlyAddedNFT}
-            featuredNfts={FEATURED_NFTS}
+            featuredNfts={[]}
           />
         )}
-
         {currentPage.isExplore && (
           <ExploreView
             onSearch={handleSearch}
@@ -837,22 +858,20 @@ const DemoBase: React.FC = () => {
             isSearching={isSearching}
             handlePlayPause={handlePlayPause}
             isLoadingNFTs={isLoading}
-            onBack={() => setCurrentPage(prev => ({ ...prev, isUserProfile: false }))}
+            onBack={() => setCurrentPage(prev => ({ ...prev, isExplore: false, isHome: true }))}
             publicCollections={[]}
             recentSearches={recentSearches}
-            handleUserSelect={handleDirectUserSelect}
+            handleUserSelect={handleUserSelect}
             handleDirectUserSelect={handleDirectUserSelect}
             onReset={onReset}
             onLikeToggle={onLikeToggle}
             isNFTLiked={isNFTLiked}
-            userFid={fid}
             userNFTs={userNFTs}
             searchType=""
             searchParam=""
             likedNFTs={likedNFTs}
           />
         )}
-
         {currentPage.isLibrary && (
           <LibraryView
             likedNFTs={likedNFTs}
@@ -862,28 +881,38 @@ const DemoBase: React.FC = () => {
             handlePlayAudio={handlePlayNFT}
             handlePlayPause={handlePlayPause}
             onReset={onReset}
-            userContext={{ user: { fid: fid || 0 } }}
+            userContext={{ 
+              user: { 
+                fid: fid || 0,
+                pfpUrl: initialProfileImage ?? '' 
+              } 
+            }}
             setIsLiked={() => {}}
             setIsPlayerVisible={() => {}}
             setIsPlayerMinimized={setIsPlayerMinimized}
             onLikeToggle={onLikeToggle}
           />
         )}
-
         {currentPage.isProfile && (
-          <ProfileView
-            userContext={{ user: { fid: fid || 0 } }}
-            nfts={likedNFTs}
-            handlePlayAudio={handlePlayNFT}
-            isPlaying={isPlaying}
-            currentlyPlaying={currentlyPlaying}
-            handlePlayPause={handlePlayPause}
-            onReset={onReset}
-            onNFTsLoaded={() => {}}
-            onLikeToggle={onLikeToggle}
-          />
+          <UserImageProvider fid={fid} initialProfileImage={initialProfileImage ?? undefined}>
+            <ProfileView
+              userContext={{ 
+                user: { 
+                  fid: fid || 0,
+                  pfpUrl: initialProfileImage ?? '' // Handle null to string
+                } 
+              }}
+              nfts={likedNFTs}
+              handlePlayAudio={handlePlayNFT}
+              isPlaying={isPlaying}
+              currentlyPlaying={currentlyPlaying}
+              handlePlayPause={handlePlayPause}
+              onReset={onReset}
+              onNFTsLoaded={() => {}}
+              onLikeToggle={onLikeToggle}
+            />
+          </UserImageProvider>
         )}
-
         {currentPage.isUserProfile && selectedUser && (
           <UserProfileView
             user={selectedUser}
@@ -899,8 +928,7 @@ const DemoBase: React.FC = () => {
             isNFTLiked={isNFTLiked}
           />
         )}
-
-        <BottomNav currentView={currentView} onViewChange={handleViewChange} />
+        <BottomNav currentView={currentViewKey} onViewChange={handleViewChange} />
       </>
     );
   }

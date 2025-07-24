@@ -42,6 +42,7 @@ export function UserImageProvider({
   };
 
   // Load user's images when fid changes
+  // Update the useEffect in UserImageProvider
   useEffect(() => {
     const loadUserImages = async () => {
       if (fid) {
@@ -55,8 +56,8 @@ export function UserImageProvider({
             setBackgroundImage(data.backgroundImage);
           }
           
-          // Load profile image if exists and not already set
-          if (data?.pfpUrl && !initialProfileImage) {
+          // Only load profile image from Firebase if no initialProfileImage from SDK
+          if (!initialProfileImage && data?.pfpUrl) {
             await preloadImage(data.pfpUrl);
             setProfileImage(data.pfpUrl);
           }
