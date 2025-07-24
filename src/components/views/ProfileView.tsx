@@ -46,6 +46,17 @@ const deduplicateNFTsByMediaKey = (nfts: NFT[]): NFT[] => {
   return Array.from(uniqueNFTs.values());
 };
 
+// Add this helper function at the top of the ProfileView component, after the imports and before the component function
+const cleanImageUrl = (url: string | undefined): string => {
+  if (!url) return '/default-avatar.png';
+  
+  // Remove backticks, extra spaces, and trim
+  return url
+    .replace(/[`]/g, '') // Remove all backticks
+    .replace(/\s+/g, ' ') // Replace multiple spaces with single space
+    .trim(); // Remove leading/trailing whitespace
+};
+
 const ProfileView: React.FC<ProfileViewProps> = ({
   userContext,
   nfts,
@@ -512,7 +523,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({
                   className="block w-full h-full transition-transform hover:scale-105 active:scale-95"
                 >
                   <Image
-                    src={(userContext.user?.pfpUrl || profileImage || '/default-avatar.png').replace(/[`\s]/g, '').trim()}
+                    src={cleanImageUrl(userContext.user?.pfpUrl) || profileImage || '/default-avatar.png'}
                     alt={userContext.user?.username || 'User'}
                     width={120}
                     height={120}

@@ -380,7 +380,8 @@ if (validRecentlyPlayedNFTs.length === 0) {
                         animationDelay={0.2 + (index * 0.05)}
                         smallCard={true} // Position heart icon properly for smaller cards
                       />
-                      <h3 className="font-mono text-white text-xs truncate mt-2">{nft.name}</h3> {/* Changed from text-sm to text-xs and mt-3 to mt-2 */}
+                      {/* Remove this line that was causing the double title: */}
+                      {/* <h3 className="font-mono text-white text-xs truncate mt-2">{nft.name}</h3> */}
                     </div>
                   );
                   })}
