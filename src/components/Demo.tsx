@@ -98,8 +98,8 @@ const DemoBase: React.FC = () => {
   logger.enableLevel('error', true);
   logger.enableModule('firebase', true);
   
-  // 1. Context Hooks
-  const { isFarcaster, initialProfileImage } = useContext(FarcasterContext);
+  // 1. Context Hooks - USE THE ENHANCED CONTEXT!
+  const { isFarcaster, user: farcasterUser, client: farcasterClient, location: farcasterLocation } = useContext(FarcasterContext);
   const { fid } = useContext(UserFidContext);
   const { hasAcceptedTerms, acceptTerms } = useTerms();
   const { recentSearches: firebaseRecentSearches, featuredNFTs } = useFirebase();
@@ -881,11 +881,11 @@ const DemoBase: React.FC = () => {
             handlePlayAudio={handlePlayNFT}
             handlePlayPause={handlePlayPause}
             onReset={onReset}
-            userContext={{ 
-              user: { 
+            userContext={{
+              user: {
                 fid: fid || 0,
-                pfpUrl: initialProfileImage ?? '' 
-              } 
+                pfpUrl: farcasterUser?.pfp ?? ''
+              }
             }}
             setIsLiked={() => {}}
             setIsPlayerVisible={() => {}}
@@ -894,13 +894,13 @@ const DemoBase: React.FC = () => {
           />
         )}
         {currentPage.isProfile && (
-          <UserImageProvider fid={fid} initialProfileImage={initialProfileImage ?? undefined}>
+          <UserImageProvider fid={fid} initialProfileImage={farcasterUser?.pfp}>
             <ProfileView
-              userContext={{ 
-                user: { 
-                  fid: fid || 0,
-                  pfpUrl: initialProfileImage ?? '' // Handle null to string
-                } 
+              farcasterContext={{
+                isFarcaster,
+                user: farcasterUser,
+                client: farcasterClient,
+                location: farcasterLocation
               }}
               nfts={likedNFTs}
               handlePlayAudio={handlePlayNFT}

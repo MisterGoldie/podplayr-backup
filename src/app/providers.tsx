@@ -16,23 +16,66 @@ export const UserFidContext = createContext<{
   setFid: () => {},
 });
 
-// Create a context for Farcaster-specific state
+// Enhanced context interfaces
+export interface FarcasterUserContext {
+  fid: number;
+  username?: string;
+  displayName?: string;
+  pfp?: string;
+  bio?: string;
+  location?: {
+    placeId?: string;
+    description?: string;
+  };
+}
+
+export interface FarcasterClientContext {
+  clientFid: number;
+  added: boolean;
+  safeAreaInsets?: {
+    top: number;
+    bottom: number;
+    left: number;
+    right: number;
+  };
+  notificationDetails?: {
+    url: string;
+    token: string;
+  };
+}
+
+export interface FarcasterLocationContext {
+  type: string;
+  cast?: {
+    fid: number;
+    hash: string;
+  };
+}
+
+// Enhanced Farcaster context
 export const FarcasterContext = createContext<{
   isFarcaster: boolean;
-  initialProfileImage: string | null;
+  user: FarcasterUserContext | null;
+  client: FarcasterClientContext | null;
+  location: FarcasterLocationContext | null;
 }>({
   isFarcaster: false,
-  initialProfileImage: null,
+  user: null,
+  client: null,
+  location: null,
 });
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [fid, setFid] = useState<number>();
   const [isFarcaster, setIsFarcaster] = useState(false);
-  const [initialProfileImage, setInitialProfileImage] = useState<string | null>(null);
+  
+  // ADD MISSING STATE VARIABLES
+  const [userContext, setUserContext] = useState<FarcasterUserContext | null>(null);
+  const [clientContext, setClientContext] = useState<FarcasterClientContext | null>(null);
+  const [locationContext, setLocationContext] = useState<FarcasterLocationContext | null>(null);
 
   // Update PODPLAYR follower count when the app starts
   useEffect(() => {
-    // Run this once when the app loads
     const updatePodplayrCount = async () => {
       try {
         console.log('App started - updating PODPlayr follower count');
@@ -50,26 +93,55 @@ export function Providers({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     async function initializeFarcasterContext() {
       try {
-        // Check if we're in a Farcaster mini-app
         const isInMiniApp = await isFarcasterMiniApp();
         setIsFarcaster(isInMiniApp);
         
         console.log(`🚨 App is ${isInMiniApp ? 'RUNNING in Farcaster mini-app' : 'NOT in Farcaster mini-app'}`);
         
         if (isInMiniApp) {
-          // Get the user context from the SDK
           const { sdk } = await import('@farcaster/miniapp-sdk');
           const context = await sdk.context;
           
-          console.log('👤 Farcaster user context:', context);
+          console.log('🔍 FULL USER CONTEXT:', context);
           
+          // Extract comprehensive user data
           if (context?.user?.fid) {
             console.log('🔑 Setting user FID from SDK context:', context.user.fid);
             setFid(context.user.fid);
             
-            // Set initial profile image if available
-            if (context.user.pfpUrl) {
-              setInitialProfileImage(context.user.pfpUrl);
+            // Set comprehensive user context - use type assertion to tell TypeScript this is SDK context
+            const sdkUser = context.user as any;
+            setUserContext({
+              fid: sdkUser.fid,
+              username: sdkUser.username,
+              displayName: sdkUser.displayName,
+              pfp: sdkUser.pfpUrl, // Use pfpUrl instead of pfp
+              bio: sdkUser.bio,
+              location: sdkUser.location
+            });
+            
+            // Set client context
+            if (context.client) {
+              setClientContext({
+                clientFid: context.client.clientFid,
+                added: context.client.added,
+                safeAreaInsets: context.client.safeAreaInsets,
+                notificationDetails: context.client.notificationDetails
+              });
+            }
+            
+            // Set location context
+            if (context.location) {
+              const sdkLocation = context.location as any; // Type assertion
+              setLocationContext({
+                type: sdkLocation.type,
+                cast: sdkLocation.cast // This should work with type assertion
+              });
+            }
+            
+            // Set initial profile image
+            if (sdkUser.pfpUrl) {
+              // Profile image is now correctly stored in userContext.pfp
             }
           } else {
             console.warn('⚠️ No FID found in Farcaster context');
@@ -92,7 +164,12 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
   return (
     <UserFidContext.Provider value={{ fid, setFid }}>
-      <FarcasterContext.Provider value={{ isFarcaster, initialProfileImage }}>
+      <FarcasterContext.Provider value={{ 
+        isFarcaster, 
+        user: userContext,
+        client: clientContext,
+        location: locationContext
+      }}>
         <VideoPlayProvider>
           <PlayerProvider>
             <NFTNotificationProvider>

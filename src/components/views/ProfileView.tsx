@@ -4,7 +4,8 @@ import React, { useEffect, useState, useRef } from 'react';
 import { useToast } from '../../hooks/useToast';
 import Image from 'next/image';
 import { VirtualizedNFTGrid } from '../nft/VirtualizedNFTGrid';
-import type { NFT, UserContext, FarcasterUser } from '../../types/user';
+import type { NFT, FarcasterUser } from '../../types/user';
+import type { FarcasterUserContext, FarcasterClientContext, FarcasterLocationContext } from '../../app/providers';
 import { getLikedNFTs, getFollowersCount, getFollowingCount, updatePodplayrFollowerCount } from '../../lib/firebase';
 import { uploadProfileBackground } from '../../firebase';
 import { optimizeImage } from '../../utils/imageOptimizer';
@@ -18,7 +19,12 @@ import { useNFTCache } from '../../contexts/NFTCacheContext';
 import { UserProfileNFTGrid } from '../nft/UserProfileNFTGrid';
 
 interface ProfileViewProps {
-  userContext: UserContext;
+  farcasterContext: {
+    isFarcaster: boolean;
+    user: FarcasterUserContext | null;
+    client: FarcasterClientContext | null;
+    location: FarcasterLocationContext | null;
+  };
   nfts: NFT[];
   handlePlayAudio: (nft: NFT) => Promise<void>;
   isPlaying: boolean;
@@ -27,7 +33,7 @@ interface ProfileViewProps {
   onReset: () => void;
   onNFTsLoaded: (nfts: NFT[]) => void;
   onLikeToggle: (nft: NFT) => Promise<void>;
-  onUserProfileClick?: (user: FarcasterUser) => void; // New prop for navigating to user profiles
+  onUserProfileClick?: (user: FarcasterUser) => void;
 }
 
 // Helper function to deduplicate NFTs based on mediaKey
@@ -59,7 +65,7 @@ const cleanImageUrl = (url: string | undefined): string => {
 };
 
 const ProfileView: React.FC<ProfileViewProps> = ({
-  userContext,
+  farcasterContext,
   nfts,
   handlePlayAudio,
   isPlaying,
@@ -94,27 +100,25 @@ const ProfileView: React.FC<ProfileViewProps> = ({
   // Combined error state that shows either local error or cache error
   const combinedError = error || cacheError;
   
-  // Debug userContext
-  console.log('🔍 FULL USER CONTEXT:', JSON.stringify(userContext, null, 2));
+  // Debug farcasterContext
+  console.log('🔍 FULL USER CONTEXT:', JSON.stringify(farcasterContext, null, 2));
   
   // Helper function to check if user is truly logged in
   const isUserLoggedIn = () => {
-    // A user is only considered logged in if they have either a valid FID or wallet address
-    const hasFid = !!userContext?.user?.fid;
-    const hasCustodyAddress = !!userContext?.user?.custody_address;
-    const hasWarpcastAddress = !!userContext?.user?.warpcast_address;
-    const hasVerifiedAddresses = !!userContext?.user?.verified_addresses?.eth_addresses?.length;
+    const user = farcasterContext.user;
+    const hasFid = !!user?.fid && user.fid > 0;
+    const hasUsername = !!user?.username;
+    const hasDisplayName = !!user?.displayName;
     
-    // User is logged in if they have any of these identifiers
-    const isLoggedIn = hasFid || hasCustodyAddress || hasWarpcastAddress || hasVerifiedAddresses;
+    const isLoggedIn = hasFid || hasUsername || hasDisplayName;
     
     console.log('🔐 Checking if user is logged in:', 
       'Result:', isLoggedIn, 
-      'Has userContext.user:', !!userContext?.user, 
+      'Has user:', !!user, 
       'Has FID:', hasFid, 
-      'Has custody address:', hasCustodyAddress,
-      'Has warpcast address:', hasWarpcastAddress,
-      'Has verified addresses:', hasVerifiedAddresses
+      'FID value:', user?.fid,
+      'Has username:', hasUsername,
+      'Has displayName:', hasDisplayName
     );
     
     return isLoggedIn;
@@ -123,12 +127,12 @@ const ProfileView: React.FC<ProfileViewProps> = ({
   useEffect(() => {
     const loadNFTs = async () => {
       if (!isUserLoggedIn()) {
-        console.log('🚫 No FID found in userContext:', userContext);
+        console.log('🚫 No FID found in farcasterContext:', farcasterContext);
         return;
       }
       
       // Safe access to user.fid with null check
-      const userFid = userContext?.user?.fid;
+      const userFid = farcasterContext?.user?.fid;
       if (!userFid) {
         console.log('🚫 FID is undefined even though user is logged in');
         return;
@@ -167,15 +171,15 @@ const ProfileView: React.FC<ProfileViewProps> = ({
       }
     };
 
-    console.log('🎯 ProfileView useEffect triggered with FID:', userContext.user?.fid);
+    console.log('🎯 ProfileView useEffect triggered with FID:', farcasterContext.user?.fid);
     loadNFTs();
-  }, [userContext.user?.fid, onNFTsLoaded, cachedNFTs, lastUpdated, refreshUserNFTs]);
+  }, [farcasterContext.user?.fid, onNFTsLoaded, cachedNFTs, lastUpdated, refreshUserNFTs]);
 
   useEffect(() => {
     const loadLikedNFTs = async () => {
-      if (userContext?.user?.fid) {
+      if (farcasterContext?.user?.fid) {
         try {
-          const liked = await getLikedNFTs(userContext.user.fid);
+          const liked = await getLikedNFTs(farcasterContext.user.fid);
           console.log('Loaded liked NFTs for profile view:', liked.length);
           setLikedNFTs(liked);
         } catch (error) {
@@ -185,12 +189,12 @@ const ProfileView: React.FC<ProfileViewProps> = ({
     };
 
     loadLikedNFTs();
-  }, [userContext?.user?.fid]);
+  }, [farcasterContext?.user?.fid]);
   
   // Handle follow status changes to update counts immediately
   const handleFollowStatusChange = (newFollowStatus: boolean, targetFid: number) => {
     // If viewing your own profile, update the following count
-    if (userContext?.user?.fid === targetFid) return; // Don't update if the user followed themselves (shouldn't happen)
+    if (farcasterContext?.user?.fid === targetFid) return; // Don't update if the user followed themselves (shouldn't happen)
     
     if (newFollowStatus) {
       // Increment following count when a user follows someone
@@ -204,11 +208,11 @@ const ProfileView: React.FC<ProfileViewProps> = ({
   // Fetch app-specific follower and following counts
   useEffect(() => {
     const fetchFollowCounts = async () => {
-      if (userContext?.user?.fid) {
+      if (farcasterContext?.user?.fid) {
         try {
           // Special case for PODPLAYR account (FID: 1014485)
           // Update the follower count to reflect all users in the system
-          if (userContext.user.fid === 1014485) {
+          if (farcasterContext.user.fid === 1014485) {
             console.log('PODPlayr account detected - updating follower count');
             // Update PODPLAYR follower count based on all users in the system
             const totalUsers = await updatePodplayrFollowerCount();
@@ -217,8 +221,8 @@ const ProfileView: React.FC<ProfileViewProps> = ({
             console.log(`Updated PODPlayr follower count: ${totalUsers} followers`);
           } else {
             // Regular user - get counts from our app's database
-            const followerCount = await getFollowersCount(userContext.user.fid);
-            const followingCount = await getFollowingCount(userContext.user.fid);
+            const followerCount = await getFollowersCount(farcasterContext.user.fid);
+            const followingCount = await getFollowingCount(farcasterContext.user.fid);
             
             // Update state with the counts
             setAppFollowerCount(followerCount);
@@ -241,7 +245,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({
     const intervalId = setInterval(fetchFollowCounts, 30000); // Refresh every 30 seconds
     
     return () => clearInterval(intervalId); // Clean up on unmount
-  }, [userContext?.user?.fid]);
+  }, [farcasterContext?.user?.fid]);
 
   // This function checks if an NFT is liked using the mediaKey approach
   const isNFTLiked = (nft: NFT, ignoreCurrentPage?: boolean): boolean => {
@@ -350,9 +354,9 @@ const ProfileView: React.FC<ProfileViewProps> = ({
       
       // If there was an error, revert the optimistic UI update
       // by refreshing the liked NFTs
-      if (userContext?.user?.fid) {
+      if (farcasterContext?.user?.fid) {
         try {
-          const liked = await getLikedNFTs(userContext.user.fid);
+          const liked = await getLikedNFTs(farcasterContext.user.fid);
           setLikedNFTs(liked);
         } catch (e) {
           console.error('Error refreshing liked NFTs after error:', e);
@@ -388,13 +392,13 @@ const ProfileView: React.FC<ProfileViewProps> = ({
       {/* Notifications are now handled by the global NFTNotification component */}
       
       {/* Follows Modal */}
-      {userContext?.user?.fid && showFollowsModal && (
+      {farcasterContext?.user?.fid && showFollowsModal && (
         <FollowsModal
           isOpen={showFollowsModal}
           onClose={() => setShowFollowsModal(false)}
-          userFid={userContext.user.fid}
+          userFid={farcasterContext.user.fid}
           type={followsModalType}
-          currentUserFid={userContext.user.fid}
+          currentUserFid={farcasterContext.user.fid}
           onFollowStatusChange={handleFollowStatusChange}
           onUserProfileClick={onUserProfileClick}
         />
@@ -432,7 +436,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({
               }
 
               const file = files[0];
-              if (!userContext?.user?.fid) {
+              if (!farcasterContext?.user?.fid) {
                 setError('User not authenticated');
                 return;
               }
@@ -466,7 +470,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({
                 });
 
                 // Upload optimized background
-                const url = await uploadProfileBackground(userContext.user.fid, optimized.file);
+                const url = await uploadProfileBackground(farcasterContext.user.fid, optimized.file);
                 setBackgroundImage(url);
 
                 // Clear the input and show success state
@@ -516,16 +520,16 @@ const ProfileView: React.FC<ProfileViewProps> = ({
           </div>
           <div className="relative z-10 mb-auto">
             <div className="rounded-full ring-4 ring-purple-400/20 overflow-hidden w-[120px] h-[120px]">
-              {userContext?.user?.username ? (
+              {farcasterContext?.user?.username ? (
                 <a 
-                  href={`https://warpcast.com/${userContext.user.username}`}
+                  href={`https://warpcast.com/${farcasterContext.user.username}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="block w-full h-full transition-transform hover:scale-105 active:scale-95"
                 >
                   <Image
-                    src={cleanImageUrl(userContext.user?.pfpUrl) || profileImage || '/default-avatar.png'}
-                    alt={userContext.user?.username || 'User'}
+                    src={cleanImageUrl(farcasterContext.user?.pfp) || profileImage || '/default-avatar.png'}
+                    alt={farcasterContext.user?.username || 'User'}
                     width={120}
                     height={120}
                     className="w-full h-full"
@@ -549,11 +553,11 @@ const ProfileView: React.FC<ProfileViewProps> = ({
           <div className="space-y-2 relative z-10">
             <div className="bg-black/70 px-3 py-2 rounded-lg inline-block">
               <h2 className="text-2xl font-mono text-purple-400 text-shadow">
-                {userContext?.user?.username ? `@${userContext.user.username}` : 'Welcome to PODPLAYR'}
+                {farcasterContext?.user?.username ? `@${farcasterContext.user.username}` : 'Welcome to PODPLAYR'}
               </h2>
               
               {/* Follower and following counts */}
-              {userContext?.user?.fid && (
+              {farcasterContext?.user?.fid && (
                 <div className="flex items-center gap-2 mt-2 mb-1">
                   <button 
                     onClick={() => {
@@ -618,7 +622,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({
               onPlayNFT={handlePlayAudio}
               onLikeToggle={handleNFTLikeToggle}
               isNFTLiked={isNFTLiked}
-              userFid={userContext?.user?.fid}
+              userFid={farcasterContext?.user?.fid}
             />
           ) : (
             <div className="text-center py-12">
