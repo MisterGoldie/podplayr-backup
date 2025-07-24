@@ -31,13 +31,13 @@ export const NFTCard: React.FC<NFTCardProps> = ({
   onLikeToggle,
   userFid,
   isNFTLiked,
-  playCountBadge,
+  playCountBadge, // Keep prop for compatibility but don't use it
   animationDelay,
   smallCard
 }) => {
   const { isFarcaster, fid } = useFarcasterContext();
   const { isLiked, likesCount, toggleLike } = useNFTLikeState(nft, fid);
-  const { playCount, loading: playCountLoading } = useNFTPlayCount(nft);
+  // Remove useNFTPlayCount hook since we're not displaying play counts
   const { getPreloadedImage } = useNFTPreloader([nft]);
 
   // Use the NFT like hook
@@ -105,8 +105,7 @@ export const NFTCard: React.FC<NFTCardProps> = ({
       <div className={smallCard ? "mt-1" : "mt-2"}>
         <h3 className={`font-medium text-white ${smallCard ? 'text-xs' : 'text-sm'} truncate`}>{nft.name}</h3>
         <div className={`flex items-center gap-2 text-gray-400 ${smallCard ? 'text-xs' : 'text-xs'}`}>
-          <span>{formatPlayCount(playCount)} plays</span>
-          {likesCount > 0 && <span>• {likesCount} likes</span>}
+          {likesCount > 0 && <span>{likesCount} likes</span>}
         </div>
       </div>
     </div>

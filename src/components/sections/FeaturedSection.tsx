@@ -195,7 +195,6 @@ const FeaturedSection: React.FC<FeaturedSectionProps> = ({
                     onLikeToggle={() => onLikeToggle(nft)}
                     userFid={fid?.toString() || undefined}
                     isNFTLiked={() => isNFTLiked(nft)}
-                    playCountBadge={formatPlayCount(nft.playCount || 0)}
                     animationDelay={0.2 + (index * 0.05)}
                   />
                 </div>
