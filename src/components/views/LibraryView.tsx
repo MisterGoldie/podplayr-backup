@@ -327,42 +327,44 @@ class LibraryView extends React.Component<LibraryViewProps> {
         onLikeToggle: this.props.onLikeToggle,
         setIsLiked: this.props.setIsLiked
       });
-
+    
       // Store the handleUnlike function in the instance
       (this as any).handleUnlike = handleUnlike;
-
+    
       return null;
     };
-
+  
     return (
       <>
         <style>{animationKeyframes}</style>
-
-        {/* Add NFTNotification component to ensure notifications work in LibraryView */}
-        <NFTNotification onReset={onReset} />
+  
+        {/* Header - EXACTLY matching HomeView */}
+        <header className="fixed top-0 left-0 right-0 h-16 bg-black border-b border-black flex items-center justify-center z-50">
+          <button 
+            onClick={onReset}
+            className="cursor-pointer"
+          >
+            <Image
+              src="/fontlogo.png"
+              alt="PODPlayr Logo"
+              width={120}
+              height={30}
+              className="logo-image"
+              priority={true}
+            />
+          </button>
+        </header>
         
-        {/* Add the NotificationHandler component to handle unlike notifications */}
-        <NotificationHandler 
-          nft={this.state.nftToNotify} 
-          onTrigger={this.resetNftToNotify} 
-        />
-        
-        {/* Add NFTNotification component for consistent notification behavior */}
-        <NFTNotification onReset={this.props.onReset} />
-
+        {/* Main content with EXACTLY matching HomeView styling */}
         <div 
-          className="space-y-8 pt-20 pb-48 overflow-y-auto h-screen overscroll-y-contain min-h-screen bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082]"
-          style={{
-            WebkitOverflowScrolling: 'touch',
-            height: 'calc(100vh - 4rem)', // Subtract header height
-            overscrollBehavior: 'contain',
-            position: 'fixed',
-            top: '0',
-            left: '0',
-            right: '0',
-            bottom: '0'
-          }}
+          className={`space-y-4 pt-20 pb-40 overflow-y-auto overscroll-y-contain min-h-screen bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082] h-[calc(100vh-130px)]`}
         >
+          {/* Add the NotificationHandler component to handle unlike notifications */}
+          <NotificationHandler 
+            nft={this.state.nftToNotify} 
+            onTrigger={this.resetNftToNotify} 
+          />
+          
           {/* Header and Filters */}
           <div className="flex justify-between items-center px-4">
             <div>
@@ -393,7 +395,7 @@ class LibraryView extends React.Component<LibraryViewProps> {
                   </svg>
                 </button>
               </div>
-
+  
               {/* Sort Options */}
               <select
                 value={filterSort}
@@ -405,7 +407,7 @@ class LibraryView extends React.Component<LibraryViewProps> {
               </select>
             </div>
           </div>
-
+  
           {/* Search Filter */}
           <div className="relative px-4">
             <input
@@ -420,7 +422,7 @@ class LibraryView extends React.Component<LibraryViewProps> {
               <path d="M784-120 532-372q-30 24-69 38t-83 14q-109 0-184.5-75.5T120-580q0-109 75.5-184.5T380-840q109 0 184.5 75.5T640-580q0 44-14 83t-38 69l252 252-56 56ZM380-400q75 0 127.5-52.5T560-580q0-75-52.5-127.5T380-760q-75 0-127.5 52.5T200-580q0 75 52.5 127.5T380-400Z"/>
             </svg>
           </div>
-
+  
           {/* Content */}
           {isLoading ? (
             <div className="flex flex-col justify-center items-center py-12 space-y-4">
@@ -467,6 +469,9 @@ class LibraryView extends React.Component<LibraryViewProps> {
             </div>
           )}
         </div>
+        
+        {/* Add NFTNotification component to handle like/unlike notifications - EXACTLY matching HomeView */}
+        <NFTNotification onReset={onReset} />
       </>
     );
   }

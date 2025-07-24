@@ -14,6 +14,7 @@ import NFTNotification from '../NFTNotification';
 import { useNFTNotification } from '../../context/NFTNotificationContext';
 import { logger } from '~/utils/logger';
 import { useRouter } from 'next/navigation';
+import { UserFidContext } from '~/app/providers'; // ✅ Use the correct context
 
 // Create a dedicated logger for the HomeView
 const homeLogger = logger.getModuleLogger('homeView');
@@ -86,7 +87,7 @@ const HomeView: React.FC<HomeViewProps> = ({
   useNFTPreloader(allNFTs);
 
   // Get user's FID from context
-  const { fid } = useFarcasterContext();
+  const { fid } = useContext(UserFidContext); // ✅ Get fid from UserFidContext
 
   // Directly check if an NFT is liked by comparing against likedNFTs prop
   // This is more reliable than depending on context or hooks

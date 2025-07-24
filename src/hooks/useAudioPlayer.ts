@@ -388,10 +388,12 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
       audioLogger.info('Playing video with embedded audio');
       
       // Wait for video element to be created with retry mechanism
-      const waitForVideoElement = async (maxAttempts = 10, delay = 100): Promise<HTMLVideoElement | null> => {
+      const waitForVideoElement = async (maxAttempts = 20, delay = 200): Promise<HTMLVideoElement | null> => {
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
           const videoElement = document.getElementById(`video-${nft.contract}-${nft.tokenId}`) as HTMLVideoElement;
           if (videoElement) {
+            // Wait a bit more to ensure the video element is fully initialized
+            await new Promise(resolve => setTimeout(resolve, 100));
             audioLogger.info(`Video element found on attempt ${attempt + 1}`);
             return videoElement;
           }
@@ -426,8 +428,17 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
         // Clean up existing listeners first
         cleanupVideoListeners();
         
-        // Unmute the video to hear its audio
-        videoElement.muted = false;
+        // Unmute the video to hear its audio - with additional safety checks
+        if (videoElement.muted) {
+          videoElement.muted = false;
+          audioLogger.info('Video unmuted for audio playback');
+        }
+        
+        // Ensure the video volume is set appropriately
+        if (videoElement.volume === 0) {
+          videoElement.volume = 1.0;
+          audioLogger.info('Video volume set to 1.0');
+        }
         
         // Create a closure variable to track if this particular NFT play has been counted
         let playTracked = false;
