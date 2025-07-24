@@ -252,7 +252,7 @@ const DemoBase: React.FC = () => {
       }
 
       // Load user's NFTs
-      const userNFTs = await fetchUserNFTsFromAlchemy(fid.toString());
+      const userNFTs = await fetchUserNFTs(fid); // ✅ CORRECT - use fetchUserNFTs which handles FID properly
       const mediaNFTs = userNFTs.filter(nft => nft.metadata?.image || nft.image);
       nftLogger.info(`Found ${mediaNFTs.length} media NFTs out of ${userNFTs.length} total NFTs`);
       
