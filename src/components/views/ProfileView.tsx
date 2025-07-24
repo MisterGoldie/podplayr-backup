@@ -15,6 +15,7 @@ import FollowsModal from '../FollowsModal';
 import { useNFTNotification } from '../../context/NFTNotificationContext';
 import NFTNotification from '../NFTNotification';
 import { useNFTCache } from '../../contexts/NFTCacheContext';
+import { UserProfileNFTGrid } from '../nft/UserProfileNFTGrid';
 
 interface ProfileViewProps {
   userContext: UserContext;
@@ -609,26 +610,16 @@ const ProfileView: React.FC<ProfileViewProps> = ({
               <p className="text-gray-400">{combinedError}</p>
             </div>
           ) : nfts.length > 0 ? (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {/* Custom styling to hide the "All X NFTs loaded" message */}
-              <style jsx global>{`
-                .grid > .col-span-full:last-child {
-                  display: none;
-                }
-              `}</style>
-              
-              <VirtualizedNFTGrid 
-                nfts={nfts}
-                currentlyPlaying={currentlyPlaying}
-                isPlaying={isPlaying}
-                handlePlayPause={handlePlayPause}
-                onPlayNFT={handlePlayAudio}
-                publicCollections={[]}
-                onLikeToggle={handleNFTLikeToggle}
-                isNFTLiked={isNFTLiked}
-                userFid={userContext?.user?.fid}
-              />
-            </div>
+            <UserProfileNFTGrid 
+              nfts={nfts}
+              currentlyPlaying={currentlyPlaying}
+              isPlaying={isPlaying}
+              handlePlayPause={handlePlayPause}
+              onPlayNFT={handlePlayAudio}
+              onLikeToggle={handleNFTLikeToggle}
+              isNFTLiked={isNFTLiked}
+              userFid={userContext?.user?.fid}
+            />
           ) : (
             <div className="text-center py-12">
               <h3 className="text-xl text-red-500 mb-2">No Media NFTs Found</h3>
