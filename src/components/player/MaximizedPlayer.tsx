@@ -334,7 +334,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
           src={videoUrl}
           playsInline
           loop
-          muted={!nft.metadata?.animation_url?.match(/\.(mp4|webm|mov)$/i)}
+          muted={false}  // Change this line - don't mute videos by default
           autoPlay={isPlaying}
           preload="auto"
           className="w-auto h-auto object-contain rounded-lg max-h-[60vh] min-h-[40vh] min-w-[60%] max-w-full"
@@ -833,4 +833,4 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
       </div>
     </>
   );
-}; 
+};
