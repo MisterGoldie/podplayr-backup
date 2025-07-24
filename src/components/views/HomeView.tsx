@@ -231,7 +231,7 @@ const HomeView: React.FC<HomeViewProps> = ({
         </button>
       </header>
       <div 
-        className={`space-y-8 pt-20 pb-40 overflow-y-auto overscroll-y-contain min-h-screen bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082] h-[calc(100vh-130px)]`}
+        className={`space-y-4 pt-20 pb-40 overflow-y-auto overscroll-y-contain min-h-screen bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082] h-[calc(100vh-130px)]`}
       >
         {/* Notifications are now handled by the global NFTNotification component */}
 
@@ -249,11 +249,11 @@ const HomeView: React.FC<HomeViewProps> = ({
         />
 
         {/* Top Played Section */}
-        <section className="w-full py-8">
+        <section className="w-full py-4">
           <div className="container mx-auto px-4">
             {topPlayedNFTs.length > 0 && (
-              <div className="mb-8">
-                <h2 className="text-xl font-mono text-green-400 mb-6">Top Played</h2>
+              <div className="mb-6">
+                <h2 className="text-xl font-mono text-green-400 mb-4">Top Played</h2>
                 <div className="relative">
                   <div className="overflow-x-auto pb-4 hide-scrollbar">
                     <div className="flex gap-6">
@@ -289,7 +289,6 @@ const HomeView: React.FC<HomeViewProps> = ({
                               playCountBadge={`${count} plays`}
                               animationDelay={index * 0.1}
                             />
-                            <h3 className="font-mono text-white text-sm truncate mt-3">{nft.name}</h3>
                           </div>
                         );
                       })}

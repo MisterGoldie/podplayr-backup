@@ -175,10 +175,10 @@ const FeaturedSection: React.FC<FeaturedSectionProps> = ({
   }, [nfts]); // Only depend on nfts array, not preloaded state
 
   return (
-    <section className="w-full py-8">
+    <section className="w-full py-4">
       <div className="container mx-auto px-4">
-        <div className="mb-8">
-          <h2 className="text-xl font-mono text-green-400 mb-6">Featured NFTs</h2>
+        <div className="mb-6">
+          <h2 className="text-xl font-mono text-green-400 mb-4">Featured NFTs</h2>
         </div>
         
         <div className="relative">
@@ -198,7 +198,6 @@ const FeaturedSection: React.FC<FeaturedSectionProps> = ({
                     playCountBadge={formatPlayCount(nft.playCount || 0)}
                     animationDelay={0.2 + (index * 0.05)}
                   />
-                  <h3 className="font-mono text-white text-sm truncate mt-3">{nft.name}</h3>
                 </div>
               ))}
             </div>

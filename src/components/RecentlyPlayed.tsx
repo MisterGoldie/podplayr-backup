@@ -317,10 +317,10 @@ if (validRecentlyPlayedNFTs.length === 0) {
 }
 
   return (
-    <section className="w-full py-8">
+    <section className="w-full py-4">
       <div className="container mx-auto px-4">
-        <div className="mb-8">
-          <h2 className="text-xl font-mono text-green-400 mb-6">Recently Played</h2>
+        <div className="mb-6">
+          <h2 className="text-xl font-mono text-green-400 mb-4">Recently Played</h2>
           <div className="relative">
             <div className="overflow-x-auto pb-4 hide-scrollbar">
               <div className="flex gap-6">

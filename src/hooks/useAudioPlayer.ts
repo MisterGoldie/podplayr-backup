@@ -387,8 +387,25 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
     if (isVideoWithEmbeddedAudio) {
       audioLogger.info('Playing video with embedded audio');
       
-      // Find the video element
-      const videoElement = document.querySelector(`#video-${nft.contract}-${nft.tokenId}`) as HTMLVideoElement;
+      // Wait for video element to be created with retry mechanism
+      const waitForVideoElement = async (maxAttempts = 10, delay = 100): Promise<HTMLVideoElement | null> => {
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+          const videoElement = document.getElementById(`video-${nft.contract}-${nft.tokenId}`) as HTMLVideoElement;
+          if (videoElement) {
+            audioLogger.info(`Video element found on attempt ${attempt + 1}`);
+            return videoElement;
+          }
+          
+          // Wait before next attempt
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+        
+        audioLogger.warn(`Video element not found after ${maxAttempts} attempts`);
+        return null;
+      };
+      
+      // Try to find video element with retry
+      const videoElement = await waitForVideoElement();
       
       if (videoElement) {
         // Store references to all event listeners so we can remove them later
@@ -519,6 +536,9 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
         
         // We're using the video element directly, so don't need the audio element
         return;
+      } else {
+        // Fall back to audio-only playback
+        audioLogger.info('Falling back to audio-only playback');
       }
     }
     
