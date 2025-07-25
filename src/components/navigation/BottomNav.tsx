@@ -19,28 +19,49 @@ const buttonVariants = {
 export const BottomNav: React.FC<BottomNavProps> = ({ currentView, onViewChange, isPlayerActive }) => {
   const { isFarcaster } = useFarcasterContext();
 
-  // Haptic feedback function
+  // Haptic feedback function with detailed logging
   const triggerHaptic = async (intensity: 'light' | 'medium' | 'heavy' = 'medium') => {
+    console.log('🔥 Haptic trigger attempt:', { 
+      isFarcaster, 
+      sdkAvailable: !!sdk, 
+      hapticsAvailable: !!sdk?.haptics?.impactOccurred,
+      intensity,
+      timestamp: new Date().toISOString()
+    });
+    
     if (isFarcaster) {
       try {
-        // Check if haptics are available and call them
         if (sdk?.haptics?.impactOccurred) {
+          console.log('✅ Calling haptic with intensity:', intensity);
           await sdk.haptics.impactOccurred(intensity);
+          console.log('✅ Haptic call completed successfully');
+        } else {
+          console.warn('⚠️ Haptics API not available on SDK');
         }
       } catch (error) {
-        // Silently handle haptic errors
-        console.debug('Haptic feedback failed:', error);
+        console.error('❌ Haptic feedback failed:', error);
       }
+    } else {
+      console.log('🚫 Not in Farcaster environment, skipping haptics');
     }
   };
 
-  // Enhanced click handlers with haptic feedback
+  // Enhanced click handlers with detailed logging
   const handleViewChange = async (view: View) => {
+    console.log('🎯 Button clicked:', {
+      targetView: view,
+      currentView,
+      timestamp: new Date().toISOString()
+    });
+    
     // Trigger haptic feedback first for immediate response
+    console.log('🔄 About to trigger haptic feedback...');
     await triggerHaptic('medium');
+    console.log('🔄 Haptic feedback call completed, now executing navigation...');
     
     // Then execute the navigation
     onViewChange(view);
+    console.log('✅ Navigation completed to:', view);
   };
 
   return (
@@ -50,7 +71,10 @@ export const BottomNav: React.FC<BottomNavProps> = ({ currentView, onViewChange,
           variants={buttonVariants}
           whileTap="tap"
           whileHover="hover"
-          onClick={() => handleViewChange('home')}
+          onClick={() => {
+            console.log('🏠 Home button clicked');
+            handleViewChange('home');
+          }}
           className={`flex flex-col items-center p-2 transition-colors duration-200 ${
             currentView === 'home' ? 'text-purple-400' : 'text-gray-400'
           }`}
@@ -65,7 +89,10 @@ export const BottomNav: React.FC<BottomNavProps> = ({ currentView, onViewChange,
           variants={buttonVariants}
           whileTap="tap"
           whileHover="hover"
-          onClick={() => handleViewChange('explore')}
+          onClick={() => {
+            console.log('🔍 Explore button clicked');
+            handleViewChange('explore');
+          }}
           className={`flex flex-col items-center p-2 transition-colors duration-200 ${
             currentView === 'explore' ? 'text-purple-400' : 'text-gray-400'
           }`}
@@ -80,7 +107,10 @@ export const BottomNav: React.FC<BottomNavProps> = ({ currentView, onViewChange,
           variants={buttonVariants}
           whileTap="tap"
           whileHover="hover"
-          onClick={() => handleViewChange('library')}
+          onClick={() => {
+            console.log('📚 Library button clicked');
+            handleViewChange('library');
+          }}
           className={`flex flex-col items-center p-2 transition-colors duration-200 ${
             currentView === 'library' ? 'text-purple-400' : 'text-gray-400'
           }`}
@@ -95,7 +125,10 @@ export const BottomNav: React.FC<BottomNavProps> = ({ currentView, onViewChange,
           variants={buttonVariants}
           whileTap="tap"
           whileHover="hover"
-          onClick={() => handleViewChange('profile')}
+          onClick={() => {
+            console.log('👤 Profile button clicked');
+            handleViewChange('profile');
+          }}
           className={`flex flex-col items-center p-2 transition-colors duration-200 ${
             currentView === 'profile' ? 'text-purple-400' : 'text-gray-400'
           }`}
