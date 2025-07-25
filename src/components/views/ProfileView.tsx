@@ -606,7 +606,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({
             </div>
           ) : !isUserLoggedIn() ? (
             <div className="text-center py-12">
-              <p className="text-gray-400 text-lg">Double tap the Profile icon to access Profile</p>
+              <p className="text-gray-400 text-lg">ONLY AVAILABLE AS A MINI-APP ON FARCASTER/THE BASE APP</p>
             </div>
           ) : combinedError ? (
             <div className="text-center py-12">
