@@ -72,15 +72,54 @@ interface NavigationSource {
   fromProfile: boolean;
 }
 
+// Enhanced page transition configurations
 const pageTransition = {
-  duration: 0.3,
+  duration: 0.4,
   ease: [0.43, 0.13, 0.23, 0.96]
 };
 
 const pageVariants = {
-  initial: { opacity: 0 },
-  animate: { opacity: 1 },
-  exit: { opacity: 0 }
+  initial: { 
+    opacity: 0, 
+    x: 20,
+    scale: 0.98
+  },
+  animate: { 
+    opacity: 1, 
+    x: 0,
+    scale: 1,
+    transition: pageTransition
+  },
+  exit: { 
+    opacity: 0, 
+    x: -20,
+    scale: 0.98,
+    transition: { ...pageTransition, duration: 0.3 }
+  }
+};
+
+// Slide transitions for different directions
+const slideVariants = {
+  slideLeft: {
+    initial: { opacity: 0, x: 100 },
+    animate: { opacity: 1, x: 0 },
+    exit: { opacity: 0, x: -100 }
+  },
+  slideRight: {
+    initial: { opacity: 0, x: -100 },
+    animate: { opacity: 1, x: 0 },
+    exit: { opacity: 0, x: 100 }
+  },
+  slideUp: {
+    initial: { opacity: 0, y: 50 },
+    animate: { opacity: 1, y: 0 },
+    exit: { opacity: 0, y: -50 }
+  },
+  fade: {
+    initial: { opacity: 0 },
+    animate: { opacity: 1 },
+    exit: { opacity: 0 }
+  }
 };
 
 interface RecentSearch {
@@ -789,7 +828,7 @@ await handlePlayAudio(nft);
     else if (currentPage.isExplore) currentViewKey = 'explore';
     else if (currentPage.isLibrary) currentViewKey = 'library';
     else if (currentPage.isProfile || currentPage.isUserProfile) currentViewKey = 'profile';
-
+  
     const handleViewChange = (view: 'home' | 'explore' | 'library' | 'profile') => {
       setCurrentPage({
         isHome: view === 'home',
@@ -799,7 +838,7 @@ await handlePlayAudio(nft);
         isUserProfile: false
       });
     };
-
+  
     return (
       <>
         {currentPage.isHome && (
