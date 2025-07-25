@@ -37,21 +37,22 @@ const RecentlyPlayed: React.FC<RecentlyPlayedProps> = ({
   const [localRecentlyPlayed, setLocalRecentlyPlayed] = useState<NFT[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const unsubscribeRef = useRef<(() => void) | null>(null);
-  // Create a unique instance ID for this component instance to help with debugging
   const instanceId = useRef<string>(uuidv4().substring(0, 8));
-  // Track processed mediaKeys to prevent infinite loops
   const processedMediaKeys = useRef<Set<string>>(new Set());
   
-  // Add a cleanup mechanism for the processedMediaKeys set
-  // This ensures we can process the same NFT again if it's played multiple times
+  // ✅ KEEP ONLY ONE cleanup mechanism - make it more efficient
   useEffect(() => {
     const clearProcessedKeys = () => {
-      processedMediaKeys.current.clear();
-      recentlyPlayedLogger.debug('🧹 Cleared processed mediaKeys set');
+      // Only clear and log if there are actually keys to clear
+      if (processedMediaKeys.current.size > 0) {
+        const clearedCount = processedMediaKeys.current.size;
+        processedMediaKeys.current.clear();
+        recentlyPlayedLogger.debug(`🧹 Cleared ${clearedCount} processed mediaKeys`);
+      }
     };
     
-    // Clear the set every 5 seconds to allow re-processing
-    const intervalId = setInterval(clearProcessedKeys, 5000);
+    // Clear the set every 30 seconds instead of 5 seconds to reduce noise
+    const intervalId = setInterval(clearProcessedKeys, 30000);
     
     return () => {
       clearInterval(intervalId);
@@ -146,7 +147,7 @@ const RecentlyPlayed: React.FC<RecentlyPlayedProps> = ({
       recentlyPlayedLogger.error('❌ Error setting up recently played subscription:', error);
       setIsLoading(false);
     }
-  }, [userFid, recentlyAddedNFT]);
+  }, [userFid]); // ✅ REMOVE recentlyAddedNFT dependency
   
   // Update local recently played when props.recentlyAddedNFT changes
   // Connect the localRecentlyPlayed state to the useAudioPlayer hook by watching the recentlyAddedNFT ref

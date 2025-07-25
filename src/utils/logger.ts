@@ -228,4 +228,21 @@ export const debugLog = (...args: any[]) => {
 // IMMEDIATELY disable all logs regardless of environment for demo
 disableAllLogs();
 
-export default logger; 
+export default logger;
+
+// ❌ REMOVE THIS DUPLICATE DECLARATION - it's causing the merge conflict
+// Find the logger configuration and set appropriate levels
+// const logger = {
+//   // ❌ Don't use DEBUG in production
+//   // level: 'DEBUG'
+//   
+//   // ✅ Use INFO or WARN in production
+//   level: process.env.NODE_ENV === 'production' ? 'INFO' : 'DEBUG'
+// };
+
+// Set production log level
+if (process.env.NODE_ENV === 'production') {
+  logger.enableLevel('info', true);
+logger.enableModule('nft', false);
+  logger.enableModule('RecentlyPlayed', false);
+}

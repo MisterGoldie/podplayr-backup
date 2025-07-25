@@ -240,6 +240,7 @@ const fetchFromNetwork = async (address: string, client: Alchemy, network: strin
     network: client.config.network,
     apiKey: client.config.apiKey ? 'Present' : 'Missing'
   });
+  
   try {
     console.log('=== START NFT FETCH ===');
     console.log('Fetching NFTs for address:', address);
@@ -254,18 +255,51 @@ const fetchFromNetwork = async (address: string, client: Alchemy, network: strin
     }
 
     console.log(`[${network.toUpperCase()}] Processing NFTs...`);
-    // Then fetch full metadata for each NFT
-    const nftPromises = response.ownedNfts.map(async (alchemyNft: Nft, index: number) => {
+    
+    // Process NFTs with retry logic and rate limiting
+    const processBatch = async (items: any[], batchSize: number, processor: (item: any, index: number) => Promise<any>) => {
+      const results = [];
+      
+      for (let i = 0; i < items.length; i += batchSize) {
+        const batch = items.slice(i, i + batchSize);
+        console.log(`Processing batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(items.length/batchSize)}`);
+        
+        const batchResults = await Promise.all(
+          batch.map((item, batchIndex) => processor(item, i + batchIndex))
+        );
+        
+        results.push(...batchResults);
+        
+        // Add delay between batches
+        if (i + batchSize < items.length) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
+      
+      return results;
+    };
+    
+    // Process NFTs in batches with retry logic
+    const nfts = await processBatch(response.ownedNfts, 5, async (alchemyNft: Nft, index: number) => {
       console.log(`[${network.toUpperCase()}] Processing NFT ${index + 1}/${response.ownedNfts.length}:`, {
         contract: alchemyNft.contract.address,
         tokenId: alchemyNft.tokenId
       });
+      
       try {
-        const metadata = await client.nft.getNftMetadata(
-          alchemyNft.contract.address,
-          alchemyNft.tokenId
-        );
-
+        // Add delay between requests to avoid rate limiting
+        if (index > 0) {
+          await new Promise(resolve => setTimeout(resolve, 100)); // 100ms delay
+        }
+        
+        // Use retry logic for metadata fetching
+        const metadata = await retryWithBackoff(async () => {
+          return await client.nft.getNftMetadata(
+            alchemyNft.contract.address,
+            alchemyNft.tokenId
+          );
+        }, 3); // 3 retries
+        
         console.log(`[${network.toUpperCase()}] Got metadata for NFT:`, {
           contract: alchemyNft.contract.address,
           tokenId: alchemyNft.tokenId,
@@ -277,16 +311,6 @@ const fetchFromNetwork = async (address: string, client: Alchemy, network: strin
             audio_url: metadata.raw.metadata?.audio_url
           }
         });
-
-        // Check if we have any media URLs
-        const mediaUrls = {
-          animation_url: metadata.raw.metadata?.animation_url,
-          image: metadata.raw.metadata?.image,
-          audio: metadata.raw.metadata?.audio,
-          audio_url: metadata.raw.metadata?.audio_url
-        };
-
-        console.log(`[${network.toUpperCase()}] Media URLs for NFT:`, mediaUrls);
 
         // Get animation URL and process it
         const rawAnimationUrl = metadata.raw.metadata?.animation_url || '';
@@ -405,36 +429,90 @@ const fetchFromNetwork = async (address: string, client: Alchemy, network: strin
         return nft;
 
       } catch (error: any) {
-        console.error('Error fetching NFT metadata:', error);
+        console.error(`Error fetching NFT metadata for ${alchemyNft.contract.address}-${alchemyNft.tokenId}:`, error);
+        
+        // Enhanced error handling
         if (error.toString().includes('500')) {
-          console.warn('Alchemy API returned a 500 error - this is likely a temporary issue');
-          return [];
+          console.warn(`Alchemy API returned a 500 error for NFT ${alchemyNft.contract.address}-${alchemyNft.tokenId} - skipping`);
+        } else if (error.toString().includes('429')) {
+          console.warn(`Rate limited for NFT ${alchemyNft.contract.address}-${alchemyNft.tokenId} - will retry`);
         }
+        
         return null;
       }
     });
 
-    const nfts = (await Promise.all(nftPromises)).filter(Boolean) as NFT[];
+    const filteredNfts = nfts.filter(Boolean) as NFT[];
+    
     console.log(`[${network.toUpperCase()}] Final NFT count:`, {
       total: response.totalCount,
-      processed: nftPromises.length,
-      mediaNFTs: nfts.length,
-      withAudio: nfts.filter(nft => nft.hasValidAudio).length,
-      withVideo: nfts.filter(nft => nft.isVideo).length,
-      withAnimation: nfts.filter(nft => nft.isAnimation).length
+      processed: response.ownedNfts.length,
+      mediaNFTs: filteredNfts.length,
+      withAudio: filteredNfts.filter(nft => nft.hasValidAudio).length,
+      withVideo: filteredNfts.filter(nft => nft.isVideo).length,
+      withAnimation: filteredNfts.filter(nft => nft.isAnimation).length
     });
 
-    console.log('Final NFT count:', {
-      total: nfts.length,
-      withAudio: nfts.filter(nftItem => nftItem.hasValidAudio).length,
-      withVideo: nfts.filter(nftItem => nftItem.isVideo).length,
-      withAnimation: nfts.filter(nftItem => nftItem.isAnimation).length
-    });
-
-    return nfts;
+    return filteredNfts;
 
   } catch (error) {
     console.error('Error fetching NFTs from Alchemy:', error);
     return [];
   }
 };
+
+// Add retry logic with exponential backoff
+const retryWithBackoff = async (fn: () => Promise<any>, maxRetries = 3) => {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await fn();
+    } catch (error: any) {
+      const isRetryableError = 
+        error.toString().includes('500') || 
+        error.toString().includes('429') ||
+        error.toString().includes('502') ||
+        error.toString().includes('503') ||
+        error.toString().includes('timeout');
+      
+      if (isRetryableError && i < maxRetries - 1) {
+        const delay = Math.pow(2, i) * 1000 + Math.random() * 1000; // Add jitter
+        console.log(`Retry attempt ${i + 1}/${maxRetries} after ${delay}ms for error:`, error.message);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      throw error;
+    }
+  }
+};
+
+// Add at the top of the file
+let consecutiveErrors = 0;
+const MAX_CONSECUTIVE_ERRORS = 10;
+const CIRCUIT_BREAKER_TIMEOUT = 30000; // 30 seconds
+let circuitBreakerUntil = 0;
+
+const isCircuitBreakerOpen = () => {
+  return Date.now() < circuitBreakerUntil;
+};
+
+const recordError = () => {
+  consecutiveErrors++;
+  if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+    circuitBreakerUntil = Date.now() + CIRCUIT_BREAKER_TIMEOUT;
+    console.warn(`Circuit breaker activated for ${CIRCUIT_BREAKER_TIMEOUT/1000} seconds due to ${consecutiveErrors} consecutive errors`);
+  }
+};
+
+const recordSuccess = () => {
+  consecutiveErrors = 0;
+  circuitBreakerUntil = 0;
+};
+
+// Export the circuit breaker functions for use in other parts of the application
+export { isCircuitBreakerOpen, recordError, recordSuccess };
+
+// In your NFT processing logic:
+if (isCircuitBreakerOpen()) {
+  console.warn('Circuit breaker is open, skipping API call');
+throw new Error('Circuit breaker is open, API calls temporarily disabled');
+}

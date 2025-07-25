@@ -386,122 +386,20 @@ const createSafeId = (url: string): string => {
  * In-memory cache to avoid redundant mediaKey calculations
  * Maps NFT contract+tokenId to its calculated mediaKey
  */
-const mediaKeyCache: Record<string, string> = {};
+// Add caching to prevent regenerating the same mediaKeys
+const mediaKeyCache = new Map<string, string>();
 
-/**
- * Secondary cache that maps content URLs to mediaKeys
- * This helps identify identical content across different NFTs
- */
-const contentUrlToMediaKeyCache: Record<string, string> = {};
-
-/**
- * Debug mode toggle for mediaKey generation
- * Set to false in production for better performance
- */
-const DEBUG_MEDIA_KEYS = false;
-
-/**
- * Maximum cache size to prevent memory leaks
- */
-const MAX_CACHE_SIZE = 1000;
-
-// Track if playback is active to reduce logging
-let _isPlaybackActive = false;
-
-/**
- * Check if playback is currently active
- * Used to reduce logging during playback
- */
-export const isPlaybackActive = (): boolean => _isPlaybackActive;
-
-/**
- * Set the playback active state
- * @param active Whether playback is active
- */
-export const setPlaybackActive = (active: boolean): void => {
-  _isPlaybackActive = active;
-};
-
-/**
- * Normalize a URL to ensure consistent matching
- * Removes protocol, query params, and normalizes IPFS/Arweave URLs
- * @param url The URL to normalize
- * @returns Normalized URL string
- */
-export const normalizeUrl = (url: string): string => {
-  if (!url) return '';
-  
-  try {
-    // Handle IPFS URLs
-    if (url.startsWith('ipfs://')) {
-      const cid = url.replace('ipfs://', '');
-      return `ipfs-${cid}`;
-    }
-    
-    // Handle Arweave URLs
-    if (url.startsWith('ar://')) {
-      const txId = url.replace('ar://', '');
-      return `arweave-${txId}`;
-    }
-    
-    // For HTTP URLs, remove protocol and query params
-    if (url.startsWith('http://') || url.startsWith('https://')) {
-      try {
-        const urlObj = new URL(url);
-        return `${urlObj.hostname}${urlObj.pathname}`;
-      } catch (e) {
-        // If URL parsing fails, return the original
-        return url;
-      }
-    }
-    
-    return url;
-  } catch (e) {
-    // If any error occurs, return the original URL
-    return url;
-  }
-};
-
-/**
- * Generates a consistent media key for each NFT based on its unique properties
- */
-export function getMediaKey(nft: NFT): string {
-  // Create a cache key based on contract and tokenId
+export const getMediaKey = (nft: NFT): string => {
   const cacheKey = `${nft.contract}-${nft.tokenId}`;
   
-  // Return cached mediaKey if it exists
-  if (mediaKeyCache[cacheKey]) {
-    return mediaKeyCache[cacheKey];
+  if (mediaKeyCache.has(cacheKey)) {
+    return mediaKeyCache.get(cacheKey)!;
   }
   
-  // Generate a consistent key based on NFT properties
-  let keySource = '';
-  
-  // Use the actual media URL if available for content-based deduplication
-  const mediaUrl = nft.metadata?.animation_url || nft.metadata?.image || nft.image;
-  if (mediaUrl) {
-    keySource = normalizeUrl(mediaUrl);
-  }
-  
-  // Fallback to contract + tokenId if no media URL
-  if (!keySource) {
-    keySource = `${nft.contract}-${nft.tokenId}`;
-  }
-  
-  // Create a hash of the key source for consistency
-  const mediaKey = btoa(keySource).replace(/[^a-zA-Z0-9]/g, '').substring(0, 32);
-  
-  // Cache the result
-  mediaKeyCache[cacheKey] = mediaKey;
-  
-  // Prevent memory leaks by limiting cache size
-  if (Object.keys(mediaKeyCache).length > MAX_CACHE_SIZE) {
-    const firstKey = Object.keys(mediaKeyCache)[0];
-    delete mediaKeyCache[firstKey];
-  }
-  
+  const mediaKey = createSafeId(`${nft.contract}-${nft.tokenId}-${nft.animation_url || nft.image}`);
+  mediaKeyCache.set(cacheKey, mediaKey);
   return mediaKey;
-}
+};
 
 export function getDirectMediaUrl(url: string): string {
   if (!url) return '';
@@ -526,3 +424,25 @@ export function getDirectMediaUrl(url: string): string {
   // Return the URL directly without any processing
   return url;
 }
+
+// Function to check if audio/video playback is currently active
+// This is used to reduce logging noise during playback
+export const isPlaybackActive = (): boolean => {
+  // Check if any audio elements are currently playing
+  const audioElements = document.querySelectorAll('audio');
+  for (const audio of audioElements) {
+    if (!audio.paused && !audio.ended) {
+      return true;
+    }
+  }
+  
+  // Check if any video elements are currently playing
+  const videoElements = document.querySelectorAll('video');
+  for (const video of videoElements) {
+    if (!video.paused && !video.ended) {
+      return true;
+    }
+  }
+  
+  return false;
+};

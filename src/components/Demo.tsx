@@ -199,6 +199,7 @@ const DemoBase: React.FC = () => {
   const [recentSearches, setRecentSearches] = useState<SearchedUser[]>([]);
   const [isLiked, setIsLiked] = useState(false);
   const [userData, setUserData] = useState<FarcasterUser | null>(null);
+  const [isLoadingLikedNFTs, setIsLoadingLikedNFTs] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(document.createElement('video'));
 
   // Add this near your other state variables
@@ -263,6 +264,15 @@ const DemoBase: React.FC = () => {
   };
 
   // Call loadInitialData when fid changes
+  // ❌ REMOVE THIS DUPLICATE useEffect (around line 285)
+  // useEffect(() => {
+  //   const loadInitialData = async () => {
+  //     // ... duplicate code ...
+  //   };
+  //   loadInitialData();
+  // }, [fid]);
+  
+  // ✅ KEEP ONLY THIS ONE (around line 265)
   useEffect(() => {
     loadInitialData();
   }, [fid]);
@@ -654,7 +664,11 @@ const DemoBase: React.FC = () => {
   // Find where you initially load the liked NFTs
   useEffect(() => {
     const loadLikedNFTs = async () => {
-      if (fid) {
+      if (isLoadingLikedNFTs) return; // Prevent duplicate calls
+      if (!fid) return;
+      
+      setIsLoadingLikedNFTs(true);
+      try {
         const liked = await getLikedNFTs(fid);
         
         // CRITICAL: Apply our permanent blacklist using mediaKey (content-first approach)
@@ -664,11 +678,15 @@ const DemoBase: React.FC = () => {
         });
         
         setLikedNFTs(filteredLiked);
+      } catch (error) {
+        demoLogger.error('Error loading liked NFTs:', error);
+      } finally {
+        setIsLoadingLikedNFTs(false);
       }
     };
     
     loadLikedNFTs();
-  }, [fid, permanentlyRemovedNFTs]); // Add permanentlyRemovedNFTs as a dependency
+  }, [fid, permanentlyRemovedNFTs, isLoadingLikedNFTs]); // Add permanentlyRemovedNFTs as a dependency
 
   // Add this effect to monitor for problematic NFTs
   const checkProblematicNFTs = useCallback(() => {

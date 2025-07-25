@@ -200,6 +200,7 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
       // Pause audio and reset when unmounting
       audio.pause();
       audio.src = '';
+      audio.load(); // Reset the audio element
     };
   }, []);
 

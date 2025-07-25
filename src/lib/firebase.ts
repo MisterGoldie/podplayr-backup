@@ -38,6 +38,25 @@ const firebaseLogger = logger.getModuleLogger('firebase');
 const authLogger = logger.getModuleLogger('auth');
 const dataLogger = logger.getModuleLogger('data');
 
+// Call deduplication cache
+const callCache = new Map<string, Promise<any>>();
+const CACHE_DURATION = 1000; // 1 second
+
+// Wrapper function to deduplicate calls
+function deduplicateCall<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  if (callCache.has(key)) {
+    return callCache.get(key)!;
+  }
+  
+  const promise = fn();
+  callCache.set(key, promise);
+  
+  // Clear cache after duration
+  setTimeout(() => callCache.delete(key), CACHE_DURATION);
+  
+  return promise;
+}
+
 // Initialize Firebase with your config
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -1032,13 +1051,14 @@ export const cleanupLikes = async (fid: number) => {
 };
 
 // Get liked NFTs for a user
-export const getLikedNFTs = async (fid: number): Promise<NFT[]> => {
-  // First check if user ID is valid
-  if (!fid || fid <= 0) {
-    firebaseLogger.error('Invalid fid provided to getLikedNFTs:', fid);
-    return [];
-  }
-  try {
+export const getLikedNFTs = (fid: number): Promise<NFT[]> => {
+  return deduplicateCall(`getLikedNFTs-${fid}`, async () => {
+    // First check if user ID is valid
+    if (!fid || fid <= 0) {
+      firebaseLogger.error('Invalid fid provided to getLikedNFTs:', fid);
+      return [];
+    }
+    try {
     firebaseLogger.info('Getting liked NFTs for FID:', fid);
     
     // Get the user's likes directly without filtering by removed_likes
@@ -1199,10 +1219,11 @@ export const getLikedNFTs = async (fid: number): Promise<NFT[]> => {
 
     firebaseLogger.info(`Processed ${likedNFTs.length} liked NFTs after deduplication`);
     return likedNFTs;
-  } catch (error) {
-    firebaseLogger.error('Error getting liked NFTs:', error);
-    return [];
-  }
+    } catch (error) {
+      firebaseLogger.error('Error getting liked NFTs:', error);
+      return [];
+    }
+  });
 };
 
 // Toggle NFT like status globally
@@ -1505,7 +1526,6 @@ export const subscribeToRecentPlays = (fid: number, callback: (nfts: NFT[]) => v
         const mediaKey = getMediaKey(tempNFT);
         
         if (!mediaKey) {
-          firebaseLogger.warn(`[RECENT PLAYS] Missing mediaKey for NFT: ${playData.name}, skipping`);
           continue;
         }
         
@@ -1514,7 +1534,6 @@ export const subscribeToRecentPlays = (fid: number, callback: (nfts: NFT[]) => v
       
       // Skip if we've already processed this mediaKey in this snapshot
       if (processedMediaKeys.has(playData.mediaKey)) {
-        firebaseLogger.debug(`[RECENT PLAYS] Skipping duplicate mediaKey: ${playData.mediaKey.substring(0, 8)}...`);
         continue;
       }
       
@@ -1547,8 +1566,6 @@ export const subscribeToRecentPlays = (fid: number, callback: (nfts: NFT[]) => v
       // Store in our map
       nftByMediaKey.set(playData.mediaKey, nft);
       
-      firebaseLogger.debug(`[RECENT PLAYS] Added NFT to recently played: ${nft.name} (mediaKey: ${nft.mediaKey?.substring(0, 8) || 'undefined'}...)`);
-      
       // Stop once we have 8 unique NFTs by mediaKey
       if (nftByMediaKey.size >= 8) break;
     }
@@ -1556,7 +1573,7 @@ export const subscribeToRecentPlays = (fid: number, callback: (nfts: NFT[]) => v
     // Convert to array
     const recentNFTs = Array.from(nftByMediaKey.values());
     
-    firebaseLogger.info(`[RECENT PLAYS] Sending ${recentNFTs.length} recently played NFTs to UI`);
+    firebaseLogger.info(`Recent plays: ${recentNFTs.length} NFTs`);
     callback(recentNFTs);
   });
 };
@@ -1733,8 +1750,10 @@ export const fetchUserNFTs = async (fid: number): Promise<NFT[]> => {
             // Import the getMediaKey function dynamically to avoid circular dependencies
             const { getMediaKey } = require('../utils/media');
             // Generate and assign the mediaKey based on the content
-            nft.mediaKey = getMediaKey(nft);
-            firebaseLogger.info(`Generated mediaKey ${nft.mediaKey?.substring(0, 8)}... for NFT ${nft.contract}-${nft.tokenId}`);
+        nft.mediaKey = getMediaKey(nft);
+        if (!nft.mediaKey) {
+          firebaseLogger.warn(`Failed to generate mediaKey for NFT ${nft.contract}-${nft.tokenId}`);
+        }
           }
           return nft;
         });
@@ -1889,7 +1908,9 @@ export const fetchUserNFTs = async (fid: number): Promise<NFT[]> => {
           const { getMediaKey } = require('../utils/media');
           // Generate and assign the mediaKey based on the content
           nft.mediaKey = getMediaKey(nft);
-          firebaseLogger.debug(`Generated mediaKey ${nft.mediaKey?.substring(0, 8)}... for NFT ${nft.contract}-${nft.tokenId}`);
+          if (!nft.mediaKey) {
+            firebaseLogger.warn(`Failed to generate mediaKey for NFT ${nft.contract}-${nft.tokenId}`);
+          }
         }
         nftMap.set(key, nft);
       }
@@ -3127,5 +3148,12 @@ export async function getFollowerProfiles(targetFid: number): Promise<FollowedUs
 
 // Generate a unique, random media key for each NFT
 const generateMediaKey = (nft: NFT): string => {
-  return uuidv4();
+  const mediaKey = uuidv4();
+  
+  // Only log if there's an issue
+  if (!mediaKey) {
+    firebaseLogger.warn('Failed to generate mediaKey for NFT', nft.contract + '-' + nft.tokenId);
+  }
+  
+  return mediaKey;
 };
