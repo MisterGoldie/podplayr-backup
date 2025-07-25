@@ -1,5 +1,8 @@
 import React from 'react';
-import { useFarcasterContext } from '~/contexts/FarcasterContext';
+// Change from:
+// import { useFarcasterContext } from '~/contexts/FarcasterContext';
+// To:
+import { useFarcasterContext } from '~/app/providers';
 import { NFT } from '~/types/nft';
 import { useNFTLikeState } from '~/hooks/useNFTLikeState';
 import { useNFTPlayCount } from '~/hooks/useNFTPlayCount';

@@ -8,7 +8,10 @@ import { useNFTPreloader } from '../../hooks/useNFTPreloader';
 import FeaturedSection from '../sections/FeaturedSection';
 import RecentlyPlayed from '../RecentlyPlayed';
 import { getMediaKey } from '../../utils/media';
-import { useFarcasterContext } from '~/contexts/FarcasterContext';
+// Change from:
+// import { useFarcasterContext } from '~/contexts/FarcasterContext';
+// To:
+import { useFarcasterContext } from '~/app/providers';
 import NotificationHeader from '../NotificationHeader';
 import NFTNotification from '../NFTNotification';
 import { useNFTNotification } from '../../context/NFTNotificationContext';

@@ -1,7 +1,10 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useFarcasterContext } from '~/contexts/FarcasterContext';
+// Change from:
+// import { useFarcasterContext } from '~/contexts/FarcasterContext';
+// To:
+import { useFarcasterContext } from '~/app/providers';
 import type { NFT } from '~/types/nft';
 import { preloadAudio } from '~/utils/audioPreloader';
 import { NFTCard } from '../nft/NFTCard';

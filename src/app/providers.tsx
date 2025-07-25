@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useState } from 'react';
 import { isFarcasterMiniApp } from '../utils/platform';
 import { updatePodplayrFollowerCount } from '../lib/firebase';
 import { VideoPlayProvider } from '../contexts/VideoPlayContext';
@@ -183,3 +183,14 @@ export function Providers({ children }: { children: React.ReactNode }) {
     </UserFidContext.Provider>
   );
 }
+
+// Add this hook for backward compatibility
+// Fix the hook implementation
+export const useFarcasterContext = () => {
+  const context = useContext(FarcasterContext);
+  return {
+    isFarcaster: context.isFarcaster,
+    fid: context.user?.fid || null,
+    setFid: () => {}, // This would need to be implemented if needed
+  };
+};
