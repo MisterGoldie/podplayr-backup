@@ -10,12 +10,8 @@ interface BottomNavProps {
 }
 
 export const BottomNav: React.FC<BottomNavProps> = ({ currentView, onViewChange, isPlayerActive = false }) => {
-  const { isFarcaster } = useContext(FarcasterContext);
-
   return (
-    <nav className={`fixed left-0 right-0 z-50 bg-black border-t border-black transition-all duration-300 ${
-      isPlayerActive ? 'bottom-20' : 'bottom-0'
-    }`}>
+    <nav className="fixed left-0 right-0 bottom-0 z-[70] bg-black border-t border-black">
       <div className="flex items-center justify-around p-4">
         <button
           onClick={() => onViewChange('home')}

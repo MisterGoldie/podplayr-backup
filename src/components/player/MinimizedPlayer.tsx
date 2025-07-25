@@ -226,7 +226,7 @@ export const MinimizedPlayer: React.FC<MinimizedPlayerProps> = ({
     }, 400); // Match this to the animation duration
   };
 
-  const springTransition = 'transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)';
+  const springTransition = 'transform 0.3s cubic-bezier(0.33, 1, 0.68, 1)';
   const maxSwipeDistance = 100;
 
   // Enhanced play/pause handler that directly controls PiP video
@@ -448,7 +448,7 @@ export const MinimizedPlayer: React.FC<MinimizedPlayerProps> = ({
     <>
       {showInfo && <InfoPanel nft={nft} onClose={() => setShowInfo(false)} userFid={userFid} />}
       <div 
-        className="fixed bottom-20 left-0 right-0 bg-black border-t border-purple-400/20 h-20 z-[100] will-change-transform overflow-hidden"
+        className="fixed bottom-24 left-0 right-0 bg-black border-t border-purple-400/20 h-20 z-[100] will-change-transform overflow-hidden"
         style={{
           backgroundColor: '#000',
           transform: isAnimating ? 
@@ -480,8 +480,8 @@ export const MinimizedPlayer: React.FC<MinimizedPlayerProps> = ({
         </div>
         
         {/* Player content */}
-        <div className="container mx-auto h-full pt-2">
-          <div className="flex items-center justify-between h-[calc(100%-8px)] px-4 gap-4">
+        <div className="h-full pt-2 px-4 mx-auto max-w-screen-xl">
+          <div className="flex items-center justify-between h-[calc(100%-8px)] gap-4">
             {/* NFT Image and Info */}
             <div className="flex items-center gap-4 flex-1 min-w-0">
               <div 
@@ -602,4 +602,4 @@ export const MinimizedPlayer: React.FC<MinimizedPlayerProps> = ({
       </div>
     </>
   );
-}; 
+};

@@ -882,7 +882,11 @@ await handlePlayAudio(nft);
             isNFTLiked={isNFTLiked}
           />
         )}
-        <BottomNav currentView={currentViewKey} onViewChange={handleViewChange} />
+        <BottomNav 
+          currentView={currentViewKey} 
+          onViewChange={handleViewChange} 
+          isPlayerActive={!!currentPlayingNFT}
+        />
       </>
     );
   }
