@@ -297,6 +297,26 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
     }
   };
 
+  // Add state for image error handling
+  const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
+  
+  // Add this helper function to handle image errors
+  const handleImageError = (imageUrl: string) => {
+    setFailedImages(prev => new Set([...prev, imageUrl]));
+  };
+  
+  // Add this helper function to get safe image URL
+  const getSafeImageUrl = (user: any) => {
+    const originalUrl = user.pfp_url || (user.isENS ? '/defaultens.png' : `https://avatar.vercel.sh/${user.username}`);
+    
+    // If this image has failed before, use fallback immediately
+    if (failedImages.has(originalUrl)) {
+      return user.isENS ? '/defaultens.png' : '/default-nft.png';
+    }
+    
+    return originalUrl;
+  };
+
   // Add effect to force re-render when liked NFTs change
   useEffect(() => {
     if (likedNFTs) {
@@ -307,17 +327,18 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
   
   // Check if users are followed when search results or selected user changes
   useEffect(() => {
-    const checkFollowStatus = async () => {
+    const checkFollowStatuses = async () => {
       if (!effectiveUserFid) return;
-      
-      const newFollowedUsers: Record<number, boolean> = {};
       
       // Check follow status for search results
       if (searchResults && searchResults.length > 0) {
         for (const user of searchResults) {
           if (user.fid) {
             const isFollowed = await isUserFollowed(effectiveUserFid, user.fid);
-            newFollowedUsers[user.fid] = isFollowed;
+            setFollowedUsers(prev => ({
+              ...prev,
+              [user.fid]: isFollowed
+            }));
           }
         }
       }
@@ -325,7 +346,10 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
       // Check follow status for selected user
       if (selectedUser && selectedUser.fid) {
         const isFollowed = await isUserFollowed(effectiveUserFid, selectedUser.fid);
-        newFollowedUsers[selectedUser.fid] = isFollowed;
+        setFollowedUsers(prev => ({
+          ...prev,
+          [selectedUser.fid]: isFollowed
+        }));
       }
       
       // Check follow status for recent searches
@@ -333,16 +357,17 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
         for (const user of recentSearches) {
           if (user.fid) {
             const isFollowed = await isUserFollowed(effectiveUserFid, user.fid);
-            newFollowedUsers[user.fid] = isFollowed;
+            setFollowedUsers(prev => ({
+              ...prev,
+              [user.fid]: isFollowed
+            }));
           }
         }
       }
-      
-      setFollowedUsers(newFollowedUsers);
     };
     
-    checkFollowStatus();
-  }, [searchResults, selectedUser, recentSearches, effectiveUserFid]);
+    checkFollowStatuses();
+  }, [effectiveUserFid, searchResults, selectedUser, recentSearches]);
   
   // Handle follow/unfollow button click
   const handleFollowToggle = async (user: FarcasterUser, event: React.MouseEvent) => {
@@ -655,11 +680,12 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
                             {/* Profile image with improved styling */}
                             <div className="w-16 h-16 rounded-full overflow-hidden flex-shrink-0 relative ring-2 ring-purple-500/30 group-hover:ring-green-400/40 transition-all duration-300 shadow-md shadow-black/20">
                               <Image
-                                src={user.pfp_url || (user.isENS ? '/defaultens.png' : `https://avatar.vercel.sh/${user.username}`)}
+                                src={getSafeImageUrl(user)}
                                 alt={user.display_name || user.username}
                                 className="object-cover"
                                 fill
                                 sizes="64px"
+                                onError={() => handleImageError(user.pfp_url || (user.isENS ? '/defaultens.png' : `https://avatar.vercel.sh/${user.username}`))}
                               />
                             </div>
                             
@@ -813,11 +839,12 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
                             {/* Profile image with improved styling */}
                             <div className="w-16 h-16 rounded-full overflow-hidden flex-shrink-0 relative ring-2 ring-purple-500/30 group-hover:ring-green-400/40 transition-all duration-300 shadow-md shadow-black/20">
                               <Image
-                                src={user.pfp_url || (user.isENS ? '/defaultens.png' : '/default-nft.png')}
+                                src={getSafeImageUrl(user)}
                                 alt={user.display_name || user.username}
                                 className="object-cover"
                                 fill
                                 sizes="64px"
+                                onError={() => handleImageError(user.pfp_url || (user.isENS ? '/defaultens.png' : '/default-nft.png'))}
                               />
                             </div>
                             
