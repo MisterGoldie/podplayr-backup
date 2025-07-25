@@ -1,5 +1,5 @@
 import { useContext } from 'react';
-import { useFarcasterContext } from '../../contexts/FarcasterContext';
+import { FarcasterContext } from '../../app/providers'; // Changed from contexts/FarcasterContext
 import { motion } from 'framer-motion';
 import sdk from '@farcaster/miniapp-sdk';
 
@@ -17,7 +17,7 @@ const buttonVariants = {
 };
 
 export const BottomNav: React.FC<BottomNavProps> = ({ currentView, onViewChange, isPlayerActive }) => {
-  const { isFarcaster } = useFarcasterContext();
+  const { isFarcaster } = useContext(FarcasterContext); // Use useContext instead of useFarcasterContext
 
   // Haptic feedback function with detailed logging
   const triggerHaptic = async (intensity: 'light' | 'medium' | 'heavy' = 'medium') => {
