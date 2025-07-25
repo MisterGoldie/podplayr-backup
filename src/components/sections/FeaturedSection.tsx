@@ -131,7 +131,8 @@ const FeaturedSection: React.FC<FeaturedSectionProps> = ({
   userFid,
   nfts = FEATURED_NFTS
 }) => {
-  const { isFarcaster, fid } = useFarcasterContext();
+  // Remove the useFarcasterContext hook since we're using userFid prop
+  // const { isFarcaster, fid } = useFarcasterContext();
   const [preloaded, setPreloaded] = useState(false);
 
   useEffect(() => {
@@ -193,7 +194,7 @@ const FeaturedSection: React.FC<FeaturedSectionProps> = ({
                     currentlyPlaying={currentlyPlaying}
                     handlePlayPause={handlePlayPause}
                     onLikeToggle={() => onLikeToggle(nft)}
-                    userFid={fid?.toString() || undefined}
+                    userFid={userFid} // Use the userFid prop directly
                     isNFTLiked={() => isNFTLiked(nft)}
                     animationDelay={0.2 + (index * 0.05)}
                   />
