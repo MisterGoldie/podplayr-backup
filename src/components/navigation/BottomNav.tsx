@@ -56,7 +56,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({ currentView, onViewChange,
     
     // Trigger haptic feedback first for immediate response
     console.log('🔄 About to trigger haptic feedback...');
-    await triggerHaptic('medium');
+    await triggerHaptic('light');
     console.log('🔄 Haptic feedback call completed, now executing navigation...');
     
     // Then execute the navigation
