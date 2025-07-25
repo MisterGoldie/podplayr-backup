@@ -1,6 +1,7 @@
 import { useContext } from 'react';
-import { FarcasterContext } from '../../app/providers';
+import { useFarcasterContext } from '../../contexts/FarcasterContext';
 import { motion } from 'framer-motion';
+import sdk from '@farcaster/miniapp-sdk';
 
 type View = 'home' | 'explore' | 'library' | 'profile';
 
@@ -16,6 +17,32 @@ const buttonVariants = {
 };
 
 export const BottomNav: React.FC<BottomNavProps> = ({ currentView, onViewChange, isPlayerActive }) => {
+  const { isFarcaster } = useFarcasterContext();
+
+  // Haptic feedback function
+  const triggerHaptic = async (intensity: 'light' | 'medium' | 'heavy' = 'medium') => {
+    if (isFarcaster) {
+      try {
+        // Check if haptics are available and call them
+        if (sdk?.haptics?.impactOccurred) {
+          await sdk.haptics.impactOccurred(intensity);
+        }
+      } catch (error) {
+        // Silently handle haptic errors
+        console.debug('Haptic feedback failed:', error);
+      }
+    }
+  };
+
+  // Enhanced click handlers with haptic feedback
+  const handleViewChange = async (view: View) => {
+    // Trigger haptic feedback first for immediate response
+    await triggerHaptic('medium');
+    
+    // Then execute the navigation
+    onViewChange(view);
+  };
+
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-[110] bg-black/90 backdrop-blur-lg border-t border-purple-500/20 transition-all duration-300">
       <div className="flex justify-around items-center py-2">
@@ -23,7 +50,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({ currentView, onViewChange,
           variants={buttonVariants}
           whileTap="tap"
           whileHover="hover"
-          onClick={() => onViewChange('home')}
+          onClick={() => handleViewChange('home')}
           className={`flex flex-col items-center p-2 transition-colors duration-200 ${
             currentView === 'home' ? 'text-purple-400' : 'text-gray-400'
           }`}
@@ -38,7 +65,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({ currentView, onViewChange,
           variants={buttonVariants}
           whileTap="tap"
           whileHover="hover"
-          onClick={() => onViewChange('explore')}
+          onClick={() => handleViewChange('explore')}
           className={`flex flex-col items-center p-2 transition-colors duration-200 ${
             currentView === 'explore' ? 'text-purple-400' : 'text-gray-400'
           }`}
@@ -53,7 +80,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({ currentView, onViewChange,
           variants={buttonVariants}
           whileTap="tap"
           whileHover="hover"
-          onClick={() => onViewChange('library')}
+          onClick={() => handleViewChange('library')}
           className={`flex flex-col items-center p-2 transition-colors duration-200 ${
             currentView === 'library' ? 'text-purple-400' : 'text-gray-400'
           }`}
@@ -68,7 +95,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({ currentView, onViewChange,
           variants={buttonVariants}
           whileTap="tap"
           whileHover="hover"
-          onClick={() => onViewChange('profile')}
+          onClick={() => handleViewChange('profile')}
           className={`flex flex-col items-center p-2 transition-colors duration-200 ${
             currentView === 'profile' ? 'text-purple-400' : 'text-gray-400'
           }`}

@@ -390,15 +390,7 @@ const createSafeId = (url: string): string => {
 const mediaKeyCache = new Map<string, string>();
 
 export const getMediaKey = (nft: NFT): string => {
-  const cacheKey = `${nft.contract}-${nft.tokenId}`;
-  
-  if (mediaKeyCache.has(cacheKey)) {
-    return mediaKeyCache.get(cacheKey)!;
-  }
-  
-  const mediaKey = createSafeId(`${nft.contract}-${nft.tokenId}-${nft.animation_url || nft.image}`);
-  mediaKeyCache.set(cacheKey, mediaKey);
-  return mediaKey;
+  return `${nft.contract}-${nft.tokenId}`;
 };
 
 export function getDirectMediaUrl(url: string): string {

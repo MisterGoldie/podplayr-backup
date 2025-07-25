@@ -209,3 +209,16 @@ const FeaturedSection: React.FC<FeaturedSectionProps> = ({
 };
 
 export default FeaturedSection;
+
+// Remove these lines (216-224):
+// useEffect(() => {
+//   // Preload first 2 immediately
+//   const priorityNFTs = nfts.slice(0, 2);
+//   priorityNFTs.forEach(nft => preloadAudio(nft.audio));
+//   
+//   // Preload rest after 2 seconds
+//   setTimeout(() => {
+//     const remainingNFTs = nfts.slice(2);
+//     remainingNFTs.forEach(nft => preloadAudio(nft.audio));
+//   }, 2000);
+// }, [nfts]);
