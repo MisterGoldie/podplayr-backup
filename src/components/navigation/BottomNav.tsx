@@ -17,9 +17,7 @@ const buttonVariants = {
 
 export const BottomNav: React.FC<BottomNavProps> = ({ currentView, onViewChange, isPlayerActive }) => {
   return (
-    <nav className={`fixed bottom-0 left-0 right-0 z-40 bg-black/90 backdrop-blur-lg border-t border-purple-500/20 transition-all duration-300 ${
-      isPlayerActive ? 'mb-20' : 'mb-0'
-    }`}>
+    <nav className="fixed bottom-0 left-0 right-0 z-[110] bg-black/90 backdrop-blur-lg border-t border-purple-500/20 transition-all duration-300">
       <div className="flex justify-around items-center py-2">
         <motion.button
           variants={buttonVariants}
