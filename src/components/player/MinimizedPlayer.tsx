@@ -452,9 +452,8 @@ export const MinimizedPlayer: React.FC<MinimizedPlayerProps> = ({
     <>
       {showInfo && <InfoPanel nft={nft} onClose={() => setShowInfo(false)} userFid={userFid} />}
       <div 
-        className="fixed bottom-20 left-0 right-0 bg-black border-t border-purple-400/20 h-20 z-[100] will-change-transform overflow-hidden"
+        className="fixed bottom-20 left-0 right-0 bg-black/90 backdrop-blur-lg border-t border-purple-400/20 h-20 z-[100] will-change-transform overflow-hidden"
         style={{
-          backgroundColor: '#000',
           transform: isAnimating ? 
             (isMinimized ? 'translateY(0)' : 'translateY(100%)') : 
             'translateY(0)',
