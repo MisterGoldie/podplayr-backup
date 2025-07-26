@@ -233,7 +233,7 @@ export const MinimizedPlayer: React.FC<MinimizedPlayerProps> = ({
   // Enhanced play/pause handler that directly controls PiP video
   const handlePlayPauseWithPipSync = async () => {
     // Trigger haptic feedback first for immediate response
-    await triggerHaptic('medium', 'MinimizedPlayer');
+    await triggerHaptic('light', 'MinimizedPlayer');
     
     // First call the original handler to update app state
     onPlayPause();

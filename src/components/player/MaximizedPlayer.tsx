@@ -709,7 +709,9 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
                 onTouchMove={handleTouchMove}
                 onTouchEnd={handleTouchEnd}
                 onTouchCancel={handleTouchEnd}
-                onClick={(e) => {
+                onClick={async (e) => {
+                  // Trigger haptic for seek
+                  await triggerHaptic('light', 'MaximizedPlayer-Seek');
                   // For standard click handling (non-mobile)
                   const rect = e.currentTarget.getBoundingClientRect();
                   const percent = (e.clientX - rect.left) / rect.width;
@@ -755,7 +757,10 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
               <div className="flex justify-center items-center gap-12 mb-8 transform -translate-y-4">
                 {/* Previous Track */}
                 <button
-                  onClick={onNext}
+                  onClick={async () => {
+                    await triggerHaptic('light', 'MaximizedPlayer-Previous');
+                    if (onNext) onNext();
+                  }}
                   className="text-white hover:scale-110 transition-transform"
                   disabled={!onNext}
                 >
@@ -767,7 +772,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
                 {/* Play/Pause Button */}
                 <button
                   onClick={async () => {
-                    await triggerHaptic('medium', 'MaximizedPlayer');
+                    await triggerHaptic('light', 'MaximizedPlayer');
                     onPlayPause();
                   }}
                   className="w-20 h-20 rounded-full bg-purple-500 text-black flex items-center justify-center hover:scale-105 transition-transform"
@@ -785,7 +790,12 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
 
                 {/* Next Track */}
                 <button
-                  onClick={onPrevious}
+                  onClick={async () => {
+                    await triggerHaptic('light', 'MaximizedPlayer-Next');
+                    if (onPrevious) {
+                      onPrevious();
+                    }
+                  }}
                   className="text-white hover:scale-110 transition-transform"
                   disabled={!onPrevious}
                 >
