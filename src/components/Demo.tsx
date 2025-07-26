@@ -780,10 +780,36 @@ await handlePlayAudio(nft);
   };
 
   const isNFTLiked = (nft: NFT): boolean => {
-    return likedNFTs.some(liked => 
-      liked.contract === nft.contract && 
-      liked.tokenId === nft.tokenId
-    );
+    if (!nft) return false;
+    
+    // Get the mediaKey for the current NFT
+    const nftMediaKey = getMediaKey(nft);
+    
+    if (!nftMediaKey) {
+      console.warn('Could not generate mediaKey for NFT:', nft);
+      // Fallback to contract/tokenId comparison if mediaKey can't be generated
+      return nft.contract && nft.tokenId ? likedNFTs.some(
+        likedNFT => 
+          likedNFT.contract === nft.contract && 
+          likedNFT.tokenId === nft.tokenId
+      ) : false;
+    }
+    
+    // Primary check: Compare mediaKeys for content-based tracking
+    const mediaKeyMatch = likedNFTs.some(likedNFT => {
+      const likedMediaKey = likedNFT.mediaKey || getMediaKey(likedNFT);
+      return likedMediaKey === nftMediaKey;
+    });
+    
+    // Secondary check: Use contract/tokenId as fallback
+    const contractTokenMatch = nft.contract && nft.tokenId ? likedNFTs.some(
+      likedNFT => 
+        likedNFT.contract === nft.contract && 
+        likedNFT.tokenId === nft.tokenId
+    ) : false;
+    
+    // Return true if either match method succeeds
+    return mediaKeyMatch || contractTokenMatch;
   };
 
   // Add direct user selection handler

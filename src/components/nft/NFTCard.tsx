@@ -71,7 +71,9 @@ export const NFTCard: React.FC<NFTCardProps> = ({
 
   const handleLikeClick = (e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent triggering the card click
-    if (isLiked) {
+    // Use the prop function to check current state, fallback to hook state
+    const currentlyLiked = isNFTLiked ? isNFTLiked() : isLiked;
+    if (currentlyLiked) {
       handleUnlike(nft);
     } else {
       handleLike(nft);
@@ -101,6 +103,9 @@ export const NFTCard: React.FC<NFTCardProps> = ({
     }
   `;
 
+  // Use the prop function to determine liked state, fallback to hook state
+  const displayIsLiked = isNFTLiked ? isNFTLiked() : isLiked;
+
   return (
     <>
       <style>{animationKeyframes}</style>
@@ -124,7 +129,7 @@ export const NFTCard: React.FC<NFTCardProps> = ({
               onClick={handleLikeClick}
               className={`absolute top-2 right-2 ${smallCard ? 'w-8 h-8' : 'w-10 h-10'} flex items-center justify-center text-red-500 transition-all duration-300 hover:scale-125 z-10`}
             >
-              {isLiked ? (
+              {displayIsLiked ? (
                 <svg xmlns="http://www.w3.org/2000/svg" height={smallCard ? "20" : "24"} viewBox="0 -960 960 960" width={smallCard ? "20" : "24"} fill="currentColor">
                   <path d="m480-120-58-52q-101-91-167-157T150-447.5Q111-500 95.5-544T80-634q0-94 63-157t157-63q52 0 99 22t81 62q34-40 81-62t99-22q94 0 157 63t63 157q0 46-15.5 90T810-447.5Q771-395 705-329T538-172l-58 52Z"/>
                 </svg>

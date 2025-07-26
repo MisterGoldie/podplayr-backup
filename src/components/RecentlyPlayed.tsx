@@ -402,6 +402,7 @@ export default React.memo(RecentlyPlayed, (prevProps, nextProps) => {
   // 2. currentlyPlaying changes (different NFT playing)
   // 3. isPlaying changes (play state changes)
   // 4. recentlyAddedNFT changes (new NFT was added to the recently played list)
+  // 5. isNFTLiked function changes (liked NFTs updated)
   
   const userFidEqual = prevProps.userFid === nextProps.userFid;
   const currentlyPlayingEqual = prevProps.currentlyPlaying === nextProps.currentlyPlaying;
@@ -415,9 +416,12 @@ export default React.memo(RecentlyPlayed, (prevProps, nextProps) => {
     (prevProps.recentlyAddedNFT && nextProps.recentlyAddedNFT && 
      prevProps.recentlyAddedNFT.current === nextProps.recentlyAddedNFT.current); // same current value
   
+  // NEW: Check if isNFTLiked function has changed (when liked NFTs are loaded)
+  const isNFTLikedEqual = prevProps.isNFTLiked === nextProps.isNFTLiked;
+  
   // Return true if all are equal (no re-render needed)
   const shouldSkipRender = userFidEqual && currentlyPlayingEqual && 
-                           isPlayingEqual && recentlyAddedNFTEqual;
+                           isPlayingEqual && recentlyAddedNFTEqual && isNFTLikedEqual;
   
   // Log why we're re-rendering or not
   if (!shouldSkipRender) {
@@ -426,6 +430,7 @@ export default React.memo(RecentlyPlayed, (prevProps, nextProps) => {
       currentlyPlayingChanged: !currentlyPlayingEqual,
       isPlayingChanged: !isPlayingEqual,
       recentlyAddedNFTChanged: !recentlyAddedNFTEqual,
+      isNFTLikedChanged: !isNFTLikedEqual,
       recentlyAddedValue: nextProps.recentlyAddedNFT?.current?.substring(0, 8) || 'none'
     });
   }
