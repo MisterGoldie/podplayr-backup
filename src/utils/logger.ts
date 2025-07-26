@@ -24,27 +24,27 @@ const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 // Set this to true to enable logs in production (normally should be false)
 const FORCE_LOGS_IN_PRODUCTION = false;
 
-// Master switch to enable/disable all logging - ENABLED for development
-export let DEBUG_MODE = true; // Enabled for development
+// Master switch to enable/disable all logging - DISABLED for production
+export let DEBUG_MODE = false; // Changed from true to false
 
-// Enable log levels
+// Enable log levels - only keep errors and warnings
 const ENABLED_LEVELS = {
-  debug: true,
-  info: true,
-  warn: true,
-  error: true,
+  debug: false,    // Changed from true
+  info: false,     // Changed from true  
+  warn: true,      // Keep warnings
+  error: true,     // Keep errors
 };
 
-// Enable logs for specific modules (can be customized)
+// Enable logs for specific modules - disable the noisy ones
 const ENABLED_MODULES: Record<string, boolean> = {
-  'nft': true,        // NFT-related logs
-  'media': true,      // Media handling logs
-  'firebase': true,   // Firebase logs
-  'auth': true,       // Authentication logs
-  'player': true,     // Audio/video player logs
-  'data': true,       // Data loading logs
-  'ui': true,         // UI related logs
-  'default': true,    // Unspecified module logs
+  'nft': false,        // Changed from true - very noisy
+  'media': false,      // Changed from true
+  'firebase': false,   // Changed from true - extremely noisy
+  'auth': true,        // Keep auth logs
+  'player': false,     // Changed from true
+  'data': false,       // Changed from true
+  'ui': false,         // Changed from true
+  'default': false,    // Changed from true
 };
 
 // HELPER FUNCTIONS
@@ -138,16 +138,13 @@ const disableAllLogs = () => {
   DEBUG_MODE = false;
   ENABLED_LEVELS.debug = false;
   ENABLED_LEVELS.info = false;
-  ENABLED_LEVELS.warn = false;
-  ENABLED_LEVELS.error = false;
+  ENABLED_LEVELS.warn = false;  // Also disable warnings if you want complete silence
+  ENABLED_LEVELS.error = false; // Also disable errors if you want complete silence
   
-  // We're not overriding console methods anymore to allow logs to appear
-  // Prevent modal dialogs from appearing
-  if (typeof window !== 'undefined') {
-    window.alert = () => {};
-    window.confirm = () => false;
-    window.prompt = () => null;
-  }
+  // Disable all modules
+  Object.keys(ENABLED_MODULES).forEach(module => {
+    ENABLED_MODULES[module] = false;
+  });
 };
 
 /**
@@ -226,7 +223,8 @@ export const debugLog = (...args: any[]) => {
 };
 
 // IMMEDIATELY disable all logs regardless of environment for demo
-disableAllLogs();
+// Remove or comment out this line that calls disableAllLogs
+// disableAllLogs(); // Comment this out since the function is now working
 
 export default logger;
 
