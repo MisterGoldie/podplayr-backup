@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNFTPlayCount } from '../../hooks/useNFTPlayCount';
-import { useNFTLikeState } from '../../hooks/useNFTLikeState';
+import { useNFTLikes } from '../../hooks/useNFTLikes';
+import { useLikes } from '../../hooks/useLikes'; // Add this import
 import { useNFTTopPlayed } from '../../hooks/useNFTTopPlayed';
 import type { NFT } from '../../types/user';
 import { getMediaKey } from '../../utils/media';
@@ -13,9 +14,13 @@ interface InfoPanelProps {
 
 const InfoPanel: React.FC<InfoPanelProps> = ({ nft, onClose, userFid = 0 }) => {
   const { playCount, loading, realCountIncrease } = useNFTPlayCount(nft);
-  const { isLiked, likesCount, isLoading: likesLoading } = useNFTLikeState(nft, userFid);
+  const { likesCount, isLoading: likesLoading } = useNFTLikes(nft);
+  const { isNFTLiked } = useLikes(userFid); // Add this hook
   const { hasBeenInTopPlayed, loading: topPlayedLoading } = useNFTTopPlayed(nft);
   const [isClosing, setIsClosing] = useState(false);
+  
+  // Get the user's like status for this NFT
+  const isLiked = isNFTLiked(nft); // Replace the placeholder with actual logic
   
   // State to track animation of play count
   const [isPlayCountAnimating, setIsPlayCountAnimating] = useState(false);
@@ -178,4 +183,10 @@ const InfoPanel: React.FC<InfoPanelProps> = ({ nft, onClose, userFid = 0 }) => {
   );
 };
 
-export default InfoPanel; 
+export default InfoPanel;
+
+// Remove these lines:
+// For the isLiked state, we need to check if the user has liked this NFT
+// You'll need to add logic to determine if the current user has liked this NFT
+// This could be done by checking the user's likes collection or using a different hook
+// const isLiked = false; // Placeholder - you may need to implement user-specific like checking

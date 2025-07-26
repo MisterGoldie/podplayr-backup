@@ -401,7 +401,9 @@ const mediaKeyCache = new Map<string, string>();
 
 export const getMediaKey = (nft: UserNFT): string => {
   // Create a deterministic key based on NFT properties
-  const nftIdentifier = `${nft.contract}-${nft.tokenId}`;
+  // NORMALIZE the tokenId to ensure consistency
+  const normalizedTokenId = nft.tokenId?.toString().replace(/^0x+/, '0x') || '';
+  const nftIdentifier = `${nft.contract}-${normalizedTokenId}`;
   
   // Check cache first
   if (mediaKeyCache.has(nftIdentifier)) {
@@ -410,7 +412,7 @@ export const getMediaKey = (nft: UserNFT): string => {
   
   // Generate deterministic mediaKey based on NFT properties
   const mediaKey = createHash('sha256')
-    .update(`${nft.contract}-${nft.tokenId}`)
+    .update(`${nft.contract}-${normalizedTokenId}`)
     .digest('hex')
     .substring(0, 32); // Keep it shorter but still unique
   

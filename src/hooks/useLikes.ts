@@ -9,12 +9,6 @@ import { logger } from '../utils/logger';
 // Define a type for our likes record to avoid TypeScript errors
 type LikesRecord = { [mediaKey: string]: boolean };
 
-// Generate a unique, random media key for each NFT
-// Remove lines 12-14:
-// const getMediaKey = (nft: NFT): string => {
-//   return uuidv4();
-// };
-
 // Add import at top:
 import { getMediaKey } from '../utils/media';
 
@@ -48,39 +42,8 @@ export const useLikes = (userFid: number) => {
     }
   }, []);
 
-  // Protect the like state from being accidentally reset
-  useEffect(() => {
-    // EMERGENCY FIX: Block any attempts to reset liked status after initial load
-    const originalSetLikedMediaKeys = setLikedMediaKeys;
-    
-    // Override the state setter to prevent certain updates
-    const protectedSetLikedMediaKeys: typeof setLikedMediaKeys = (newValueOrUpdater) => {
-      // If it's a function updater, let it through
-      if (typeof newValueOrUpdater === 'function') {
-        originalSetLikedMediaKeys(newValueOrUpdater);
-        return;
-      }
-      
-      // If direct value, only allow additions, never removals
-      originalSetLikedMediaKeys(prevLikes => {
-        // Create merged state that preserves all existing likes
-        const mergedState: LikesRecord = { ...prevLikes };
-        
-        // Only add new likes, never remove existing ones
-        Object.entries(newValueOrUpdater as LikesRecord).forEach(([key, isLiked]) => {
-          if (isLiked === true) {
-            mergedState[key] = true;
-          }
-          // Ignore false values - don't allow unlikes through this path
-        });
-        
-        return mergedState;
-      });
-    };
-    
-    // @ts-ignore - Replace the setter with our protected version
-    setLikedMediaKeys = protectedSetLikedMediaKeys;
-  }, []);
+  // Remove the entire problematic useEffect block (lines 48-82)
+  // The "protection" logic was causing the compilation error
 
   // Fetch liked NFTs from Firebase
   const fetchLikedNfts = useCallback(async () => {
