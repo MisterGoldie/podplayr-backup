@@ -1123,7 +1123,7 @@ export const getLikedNFTs = (fid: number): Promise<NFT[]> => {
             // Skip if we've already seen this NFT (by contract-tokenId)
             const nftKey = `${globalData.nftContract}-${globalData.tokenId}`.toLowerCase();
             if (seenNFTKeys.has(nftKey)) {
-              firebaseLogger.info(`Skipping duplicate NFT: ${globalData.name} (${nftKey})`);
+              firebaseLogger.debug(`Skipping duplicate NFT: ${globalData.name} (${nftKey})`);
               return null;
             }
             seenNFTKeys.add(nftKey);
