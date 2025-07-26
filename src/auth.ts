@@ -10,6 +10,9 @@ declare module "next-auth" {
   }
 }
 
+// Blocked FIDs - add FIDs here to block access
+const BLOCKED_FIDS = new Set([247462]);
+
 export const authOptions: AuthOptions = {
     // Configure one or more authentication providers
   providers: [
@@ -56,6 +59,12 @@ export const authOptions: AuthOptions = {
 
         if (!success) {
           return null;
+        }
+
+        // Check if FID is blocked
+        if (BLOCKED_FIDS.has(fid)) {
+          console.log(`🚫 Blocked FID ${fid} attempted to sign in`);
+          return null; // Deny access
         }
 
         return {
