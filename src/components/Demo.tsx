@@ -270,51 +270,56 @@ const DemoBase: React.FC = () => {
     setIsPlayerMinimized(true);
   }, []);
 
-  // Update loadInitialData to use Firebase context
-  const loadInitialData = async () => {
-    if (!fid) {
-      demoLogger.warn('⚠️ No userFid available for initial data load');
+  // Update the context usage
+  // Around line 142 - Remove the duplicate fid declaration
+  // Keep only this line:
+  const { isFidReady } = useContext(UserFidContext); // Remove duplicate fid declaration since it's already declared above
+  
+  // Remove this duplicate line around line 274:
+  // const { fid, isFidReady } = useContext(UserFidContext); // DELETE THIS LINE
+  
+  // Also consolidate the duplicate loadInitialData useEffect
+  // Keep only this version around line 280:
+  useEffect(() => {
+    // Only load data when FID context is fully ready
+    if (!isFidReady) {
+      demoLogger.info('⏳ Waiting for FID context to be ready...');
       return;
     }
-
-    try {
-      demoLogger.info('🔄 Starting initial data load with userFid:', fid);
-      
-      // Use featuredNFTs from context instead of fetching
-      if (featuredNFTs.length > 0) {
-        demoLogger.info(`Found ${featuredNFTs.length} featured NFTs from context`);
+    
+    const loadInitialData = async () => {
+      if (!fid) {
+        demoLogger.warn('⚠️ No userFid available for initial data load');
+        return;
       }
-
-      // Use recentSearches from context
-      if (firebaseRecentSearches.length > 0) {
-        demoLogger.info(`📜 Recent searches loaded: ${firebaseRecentSearches.length}`);
-      }
-
-      // Load user's NFTs
-      const userNFTs = await fetchUserNFTs(fid); // ✅ CORRECT - use fetchUserNFTs which handles FID properly
-      const mediaNFTs = userNFTs.filter(nft => nft.metadata?.image || nft.image);
-      nftLogger.info(`Found ${mediaNFTs.length} media NFTs out of ${userNFTs.length} total NFTs`);
-      
-      setUserNFTs(userNFTs);
-      setFilteredNFTs(mediaNFTs);
-    } catch (error) {
-      demoLogger.error('Error loading initial data:', error);
-    }
-  };
-
-  // Call loadInitialData when fid changes
-  // ❌ REMOVE THIS DUPLICATE useEffect (around line 285)
-  // useEffect(() => {
-  //   const loadInitialData = async () => {
-  //     // ... duplicate code ...
-  //   };
-  //   loadInitialData();
-  // }, [fid]);
   
-  // ✅ KEEP ONLY THIS ONE (around line 265)
-  useEffect(() => {
+      try {
+        demoLogger.info('🔄 Starting initial data load with userFid:', fid);
+  
+        // Load all user-specific data in parallel
+        const [recentSearches, likedNFTs, userNFTs] = await Promise.all([
+          getRecentSearches(fid),
+          getLikedNFTs(fid),
+          fetchUserNFTs(fid)
+        ]);
+  
+        demoLogger.info('📜 Recent searches loaded:', recentSearches.length);
+        demoLogger.info('❤️ Liked NFTs loaded:', likedNFTs.length);
+  
+        const mediaNFTs = userNFTs.filter(nft => nft.metadata?.image || nft.image);
+        nftLogger.info(`Found ${mediaNFTs.length} media NFTs out of ${userNFTs.length} total NFTs`);
+  
+        setUserNFTs(userNFTs);
+        setFilteredNFTs(mediaNFTs);
+      } catch (error) {
+        demoLogger.error('❌ Error loading initial data:', error);
+      }
+    };
+  
     loadInitialData();
-  }, [fid]);
+  }, [fid, isFidReady]);
+  
+  // Remove the duplicate useEffect around line 330-357 that also calls loadInitialData
 
   // Fix the useAudioPlayer destructuring (around line 250)
   const {

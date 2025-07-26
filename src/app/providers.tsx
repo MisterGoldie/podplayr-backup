@@ -12,8 +12,10 @@ import { ConnectionProvider } from '../context/ConnectionContext';
 export const UserFidContext = createContext<{
   fid?: number;
   setFid: (fid: number | undefined) => void;
+  isFidReady: boolean;
 }>({
   setFid: () => {},
+  isFidReady: false,
 });
 
 // Enhanced context interfaces
@@ -68,8 +70,9 @@ export const FarcasterContext = createContext<{
 export function Providers({ children }: { children: React.ReactNode }) {
   const [fid, setFid] = useState<number>();
   const [isFarcaster, setIsFarcaster] = useState(false);
+  const [isFidReady, setIsFidReady] = useState(false);
   
-  // ADD MISSING STATE VARIABLES
+  // Add missing state variables
   const [userContext, setUserContext] = useState<FarcasterUserContext | null>(null);
   const [clientContext, setClientContext] = useState<FarcasterClientContext | null>(null);
   const [locationContext, setLocationContext] = useState<FarcasterLocationContext | null>(null);
@@ -139,19 +142,22 @@ export function Providers({ children }: { children: React.ReactNode }) {
               });
             }
             
-            // Set initial profile image
-            if (sdkUser.pfpUrl) {
-              // Profile image is now correctly stored in userContext.pfp
-            }
+            // Mark FID as ready after all context is set
+            setIsFidReady(true);
           } else {
             console.warn('⚠️ No FID found in Farcaster context');
+            setIsFidReady(true);
           }
+        } else {
+          // For non-Farcaster environments, mark as ready immediately
+          setIsFidReady(true);
         }
       } catch (error) {
         console.error('❌ Error initializing Farcaster context:', error);
+        setIsFidReady(true); // Mark as ready even on error
       }
     }
-    
+
     initializeFarcasterContext();
   }, []);
   
@@ -163,7 +169,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
   }, [fid]);
 
   return (
-    <UserFidContext.Provider value={{ fid, setFid }}>
+    <UserFidContext.Provider value={{ fid, setFid, isFidReady }}>
       <FarcasterContext.Provider value={{ 
         isFarcaster, 
         user: userContext,
@@ -185,7 +191,6 @@ export function Providers({ children }: { children: React.ReactNode }) {
 }
 
 // Add this hook for backward compatibility
-// Fix the hook implementation
 export const useFarcasterContext = () => {
   const context = useContext(FarcasterContext);
   return {
