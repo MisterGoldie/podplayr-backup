@@ -521,18 +521,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
   return (
     <>
       <div className="fixed inset-0 z-[100] bg-black will-change-transform flex flex-col" style={{ backfaceVisibility: 'hidden' }}>
-        {/* Add small minimize button above BottomNav */}
-        <div className="fixed bottom-20 right-2 z-[200]">
-          <button 
-            onClick={handleMinimizeToggle}
-            className="text-purple-400 hover:text-purple-300 p-2 transition-colors touch-manipulation"
-            style={{position: 'relative', zIndex: 1000}}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" height="20" viewBox="0 -960 960 960" width="20" fill="currentColor">
-              <path d="M480-345 240-585l56-56 184 184 184-184 56 56-240 240Z"/>
-            </svg>
-          </button>
-        </div>
+        {/* Remove the minimize button above BottomNav */}
         
         {/* Main Content */}
         <div className="flex-1 flex flex-col overflow-hidden">

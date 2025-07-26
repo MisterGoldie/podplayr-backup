@@ -9,6 +9,7 @@ interface BottomNavProps {
   currentView: View;
   onViewChange: (view: View) => void;
   isPlayerActive?: boolean;
+  isPlayerMinimized?: boolean;
 }
 
 const buttonVariants = {
@@ -16,8 +17,13 @@ const buttonVariants = {
   hover: { scale: 1.05 }
 };
 
-export const BottomNav: React.FC<BottomNavProps> = ({ currentView, onViewChange, isPlayerActive }) => {
+export const BottomNav: React.FC<BottomNavProps> = ({ currentView, onViewChange, isPlayerActive, isPlayerMinimized }) => {
   const { isFarcaster } = useContext(FarcasterContext); // Use useContext instead of useFarcasterContext
+
+  // Hide the bottom nav when player is active and maximized
+  if (isPlayerActive && !isPlayerMinimized) {
+    return null;
+  }
 
   // Haptic feedback function with detailed logging
   const triggerHaptic = async (intensity: 'light' | 'medium' | 'heavy' = 'medium') => {

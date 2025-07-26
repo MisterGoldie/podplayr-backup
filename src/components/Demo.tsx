@@ -948,6 +948,7 @@ await handlePlayAudio(nft);
           currentView={currentViewKey} 
           onViewChange={handleViewChange} 
           isPlayerActive={!!currentPlayingNFT}
+          isPlayerMinimized={isPlayerMinimized}
         />
       </>
     );
