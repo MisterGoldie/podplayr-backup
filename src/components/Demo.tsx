@@ -932,6 +932,9 @@ await handlePlayAudio(nft);
     else if (currentPage.isProfile || currentPage.isUserProfile) currentViewKey = 'profile';
   
     const handleViewChange = (view: 'home' | 'explore' | 'library' | 'profile') => {
+      // Reset selectedUser when switching views to clear explore state
+      setSelectedUser(null);
+      setUserNFTs([]);
       setCurrentPage({
         isHome: view === 'home',
         isExplore: view === 'explore',
@@ -971,7 +974,12 @@ await handlePlayAudio(nft);
             isSearching={isSearching}
             handlePlayPause={handlePlayPause}
             isLoadingNFTs={isLoading}
-            onBack={() => setCurrentPage(prev => ({ ...prev, isExplore: false, isHome: true }))}
+            onBack={() => {
+              // Reset selectedUser when going back from explore view
+              setSelectedUser(null);
+              setUserNFTs([]);
+              setCurrentPage(prev => ({ ...prev, isExplore: false, isHome: true }));
+            }}
             publicCollections={[]}
             recentSearches={recentSearches}
             handleUserSelect={handleUserSelect}
@@ -1035,7 +1043,12 @@ await handlePlayAudio(nft);
             currentlyPlaying={currentlyPlaying}
             handlePlayPause={handlePlayPause}
             onReset={onReset}
-            onBack={() => setCurrentPage(prev => ({ ...prev, isUserProfile: false, isHome: true }))}
+            onBack={() => {
+              // Reset selectedUser and userNFTs when going back from user profile
+              setSelectedUser(null);
+              setUserNFTs([]);
+              setCurrentPage(prev => ({ ...prev, isUserProfile: false, isHome: true }));
+            }}
             currentUserFid={fid || 0}
             onLikeToggle={onLikeToggle}
             isNFTLiked={isNFTLiked}
