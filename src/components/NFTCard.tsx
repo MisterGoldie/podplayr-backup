@@ -31,6 +31,24 @@ export const NFTCard: React.FC<NFTCardProps> = ({
     }
   };
 
+  const handleLikeClick = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    // Trigger haptic feedback
+    // Import and use a haptic feedback library or implement the function
+    // For now, commenting out until haptic feedback is implemented
+    // await triggerHaptic('light', 'NFTCard-Like');
+    
+    if (nft.isLiked) {
+      // TODO: Implement handleUnlike function or import it
+      console.log('Unlike NFT:', nft.id);
+    } else {
+      // TODO: Implement handleLike function or import it
+      console.log('Like NFT:', nft.id);
+    }
+  };
+
   return (
     <div 
       className={`relative rounded-lg overflow-hidden cursor-pointer transition-transform duration-200 ${isPlaying ? 'scale-105 shadow-lg' : 'hover:scale-102'}`}
@@ -65,4 +83,4 @@ export const NFTCard: React.FC<NFTCardProps> = ({
       )}
     </div>
   );
-}; 
+};
