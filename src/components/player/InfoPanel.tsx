@@ -69,10 +69,17 @@ const InfoPanel: React.FC<InfoPanelProps> = ({ nft, onClose, userFid = 0 }) => {
           isClosing ? 'animate-slide-down' : 'animate-slide-up'
         }`}
       >
-        {/* Header */}
-        <div className="flex justify-between items-start mb-4">
-          <div className="flex-1">
-            <h2 className="text-purple-300 font-mono text-base font-semibold">{nft.name}</h2>
+        {/* Enhanced Header */}
+        <div className="flex items-start gap-3 mb-4">
+          <div className="w-12 h-12 rounded-lg overflow-hidden border border-purple-400/30 flex-shrink-0">
+            <img 
+              src={nft.image || nft.metadata?.image || '/default-nft.png'} 
+              alt={nft.name}
+              className="w-full h-full object-cover"
+            />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h2 className="text-purple-300 font-mono text-base font-semibold truncate">{nft.name}</h2>
             <div className="flex items-center gap-2 mt-1">
               <div 
                 className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full transition-all duration-300 ${isPlayCountAnimating ? 'animate-count-updated' : 'bg-purple-500/10'}`}
@@ -142,6 +149,42 @@ const InfoPanel: React.FC<InfoPanelProps> = ({ nft, onClose, userFid = 0 }) => {
             </div>
           )}
 
+          {/* Properties */}
+          {nft.metadata?.properties && Object.keys(nft.metadata.properties).length > 0 && (
+            <div className="bg-black/30 rounded-lg p-3 border border-purple-400/10">
+              <h3 className="text-purple-300 font-mono text-xs uppercase tracking-wider mb-3">Properties</h3>
+              <div className="space-y-2">
+                {Object.entries(nft.metadata.properties).map(([key, value]) => (
+                  <div key={key} className="flex justify-between items-center">
+                    <span className="text-purple-400 text-xs font-mono capitalize">{key}</span>
+                    <span className="text-gray-300 text-xs">{String(value)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Quick Actions */}
+          <div className="bg-black/30 rounded-lg p-3 border border-purple-400/10">
+            <h3 className="text-purple-300 font-mono text-xs uppercase tracking-wider mb-3">Quick Actions</h3>
+            <div className="flex gap-2">
+              <button 
+                onClick={() => window.open(`https://opensea.io/assets/${nft.network || 'ethereum'}/${nft.contract}/${nft.tokenId}`, '_blank')}
+                className="flex-1 bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 text-xs font-mono py-2 px-3 rounded-md transition-colors border border-purple-400/20"
+              >
+                View on OpenSea
+              </button>
+              {(nft.network === 'ethereum' || !nft.network) && (
+                <button 
+                  onClick={() => window.open(`https://etherscan.io/token/${nft.contract}?a=${nft.tokenId}`, '_blank')}
+                  className="flex-1 bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 text-xs font-mono py-2 px-3 rounded-md transition-colors border border-purple-400/20"
+                >
+                  Etherscan
+                </button>
+              )}
+            </div>
+          </div>
+
           {/* Contract and Token ID */}
           <div className="bg-black/30 rounded-lg p-3 border border-purple-400/10 overflow-hidden space-y-3">
             {/* Contract */}
@@ -184,9 +227,3 @@ const InfoPanel: React.FC<InfoPanelProps> = ({ nft, onClose, userFid = 0 }) => {
 };
 
 export default InfoPanel;
-
-// Remove these lines:
-// For the isLiked state, we need to check if the user has liked this NFT
-// You'll need to add logic to determine if the current user has liked this NFT
-// This could be done by checking the user's likes collection or using a different hook
-// const isLiked = false; // Placeholder - you may need to implement user-specific like checking
