@@ -11,7 +11,7 @@
     "vercel-build": "node vercel-build.js && next build"
   },
   "dependencies": {
-    "@coinbase/onchainkit": "^0.38.13",
+    "@coinbase/onchainkit": "^0.38.17",
     "@emotion/react": "^11.14.0",
     "@ensdomains/ensjs": "^4.0.2",
     "@farcaster/auth-client": "^0.3.0",
