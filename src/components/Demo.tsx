@@ -128,6 +128,26 @@ interface RecentSearch {
   timestamp: number;
 }
 
+// Add this helper function after the imports and before the DemoBase component
+const deduplicateNFTsByMediaKey = (nfts: NFT[]): NFT[] => {
+  const uniqueNFTs = new Map<string, NFT>();
+  
+  nfts.forEach(nft => {
+    const mediaKey = getMediaKey(nft);
+    if (!uniqueNFTs.has(mediaKey)) {
+      uniqueNFTs.set(mediaKey, nft);
+    } else {
+      // If we already have this mediaKey, keep the one with more complete metadata
+      const existing = uniqueNFTs.get(mediaKey)!;
+      if (nft.metadata && (!existing.metadata || Object.keys(nft.metadata).length > Object.keys(existing.metadata).length)) {
+        uniqueNFTs.set(mediaKey, nft);
+      }
+    }
+  });
+  
+  return Array.from(uniqueNFTs.values());
+};
+
 const DemoBase: React.FC = () => {
   // CRITICAL: Force ENABLE all logs for debugging
   logger.setDebugMode(true);
@@ -880,7 +900,9 @@ await handlePlayAudio(nft);
       setSelectedUser(user);
       // Load user's NFTs
       const nfts = await fetchUserNFTs(user.fid);
-      setUserNFTs(nfts);
+      // Apply the same deduplication logic as ProfileView
+      const deduplicatedNFTs = deduplicateNFTsByMediaKey(nfts);
+      setUserNFTs(deduplicatedNFTs);
       // FIX: Turn off explore mode when navigating to user profile
       setCurrentPage(prev => ({ 
         ...prev, 
@@ -993,7 +1015,7 @@ await handlePlayAudio(nft);
                 client: farcasterClient,
                 location: farcasterLocation
               }}
-              nfts={likedNFTs}
+              nfts={filteredNFTs}
               handlePlayAudio={handlePlayNFT}
               isPlaying={isPlaying}
               currentlyPlaying={currentlyPlaying}

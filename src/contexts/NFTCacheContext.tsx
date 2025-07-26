@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
-import { fetchUserNFTs } from '../lib/nft';
+import { fetchUserNFTs } from '../lib/firebase'; // Changed from '../lib/nft' to '../lib/firebase'
 import type { NFT } from '../types/user';
 import { logger } from '../utils/logger';
 
