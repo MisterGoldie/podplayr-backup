@@ -2,6 +2,7 @@ import React from 'react';
 import { NFT } from '../../types/user';
 import { NFTCard } from './NFTCard';
 import { getMediaKey } from '../../utils/media';
+import { NFTImage } from '../media/NFTImage'; // Add this import
 
 interface UserProfileNFTGridProps {
   nfts: NFT[];
@@ -57,10 +58,13 @@ export const UserProfileNFTGrid: React.FC<UserProfileNFTGridProps> = ({
             <div key={uniqueKey} className="w-40 h-40 flex-shrink-0 relative group cursor-pointer" onClick={() => onPlayNFT(nft)}>
               {/* NFT Image */}
               <div className="w-full h-full rounded-lg overflow-hidden bg-gray-800/20 shadow-lg">
-                <img
+                <NFTImage
+                  nft={nft}
                   src={nft.image || nft.metadata?.image || '/default-nft.png'}
                   alt={nft.name}
                   className="w-full h-full object-cover"
+                  width={160}
+                  height={160}
                   loading="lazy"
                 />
                 
