@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNFTPlayCount } from '../../hooks/useNFTPlayCount';
 import { useNFTLikes } from '../../hooks/useNFTLikes';
-import { useLikes } from '../../hooks/useLikes'; // Add this import
+import { useLikes } from '../../hooks/useLikes';
 import { useNFTTopPlayed } from '../../hooks/useNFTTopPlayed';
 import type { NFT } from '../../types/user';
 import { getMediaKey } from '../../utils/media';
+import sdk from '@farcaster/miniapp-sdk';
 
 interface InfoPanelProps {
   nft: NFT;
@@ -169,14 +170,14 @@ const InfoPanel: React.FC<InfoPanelProps> = ({ nft, onClose, userFid = 0 }) => {
             <h3 className="text-purple-300 font-mono text-xs uppercase tracking-wider mb-3">Quick Actions</h3>
             <div className="flex gap-2">
               <button 
-                onClick={() => window.open(`https://opensea.io/assets/${nft.network || 'ethereum'}/${nft.contract}/${nft.tokenId}`, '_blank')}
+                onClick={() => handleOpenUrl(`https://opensea.io/assets/${nft.network || 'ethereum'}/${nft.contract}/${nft.tokenId}`)}
                 className="flex-1 bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 text-xs font-mono py-2 px-3 rounded-md transition-colors border border-purple-400/20"
               >
                 View on OpenSea
               </button>
               {(nft.network === 'ethereum' || !nft.network) && (
                 <button 
-                  onClick={() => window.open(`https://etherscan.io/token/${nft.contract}?a=${nft.tokenId}`, '_blank')}
+                  onClick={() => handleOpenUrl(`https://etherscan.io/token/${nft.contract}?a=${nft.tokenId}`)}
                   className="flex-1 bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 text-xs font-mono py-2 px-3 rounded-md transition-colors border border-purple-400/20"
                 >
                   Etherscan
@@ -227,3 +228,22 @@ const InfoPanel: React.FC<InfoPanelProps> = ({ nft, onClose, userFid = 0 }) => {
 };
 
 export default InfoPanel;
+
+const handleOpenUrl = async (url: string) => {
+  try {
+    // Check if we're in a Farcaster mini-app environment
+    const isInMiniApp = await sdk.isInMiniApp();
+    
+    if (isInMiniApp) {
+      // Use Farcaster SDK to open URL
+      await sdk.actions.openUrl(url);
+    } else {
+      // Fallback to regular window.open for web environment
+      window.open(url, '_blank');
+    }
+  } catch (error) {
+    console.error('Error opening URL:', error);
+    // Fallback to window.open if SDK fails
+    window.open(url, '_blank');
+  }
+};
