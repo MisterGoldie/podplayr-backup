@@ -656,8 +656,8 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
                           trackUserSearch(user.username, effectiveUserFid);
                         }
                         
-                        // Directly initiate wallet search without showing intermediate profile view
-                        handleUserSelect(user);
+                        // FIX: Use handleDirectUserSelect to navigate to UserProfileView
+                        handleDirectUserSelect(user);
                       }}
                       className="group relative bg-gradient-to-br from-gray-900/80 to-gray-800/60 backdrop-blur-sm rounded-xl overflow-hidden shadow-lg shadow-black/30 hover:shadow-green-900/20 transition-all duration-300 cursor-pointer border border-gray-700/40 hover:border-green-400/40"
                     >

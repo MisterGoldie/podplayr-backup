@@ -858,7 +858,12 @@ await handlePlayAudio(nft);
       // Implementation of handleDirectUserSelect
       demoLogger.info(`Selected user: ${user.username}`);
       setSelectedUser(user);
-      setCurrentPage(prev => ({ ...prev, isUserProfile: true }));
+      // FIX: Turn off explore mode when navigating to user profile
+      setCurrentPage(prev => ({ 
+        ...prev, 
+        isExplore: false,
+        isUserProfile: true 
+      }));
     } catch (error) {
       demoLogger.error('Error selecting user:', error);
       setError('Error selecting user');
@@ -876,7 +881,12 @@ await handlePlayAudio(nft);
       // Load user's NFTs
       const nfts = await fetchUserNFTs(user.fid);
       setUserNFTs(nfts);
-      setCurrentPage(prev => ({ ...prev, isUserProfile: true }));
+      // FIX: Turn off explore mode when navigating to user profile
+      setCurrentPage(prev => ({ 
+        ...prev, 
+        isExplore: false,
+        isUserProfile: true 
+      }));
     } catch (error) {
       demoLogger.error('Error selecting user:', error);
       setError('Error selecting user');
