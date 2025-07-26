@@ -6,6 +6,7 @@ import type { NFT } from '../../types/user';
 // Dynamic import for Farcaster SDK - will use miniapp-sdk in mini-app environment
 import { getNftCdnUrl, preloadNftMedia } from '../../utils/cdn';
 import { logger } from '../../utils/logger';
+import { triggerHaptic } from '../../utils/haptics';
 
 // Fix the MaximizedPlayerProps interface to include isAnimating
 // export interface MaximizedPlayerProps {
@@ -765,7 +766,10 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
 
                 {/* Play/Pause Button */}
                 <button
-                  onClick={onPlayPause}
+                  onClick={async () => {
+                    await triggerHaptic('medium', 'MaximizedPlayer');
+                    onPlayPause();
+                  }}
                   className="w-20 h-20 rounded-full bg-purple-500 text-black flex items-center justify-center hover:scale-105 transition-transform"
                 >
                   {isPlaying ? (

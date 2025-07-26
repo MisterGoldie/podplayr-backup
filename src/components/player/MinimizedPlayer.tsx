@@ -4,6 +4,7 @@ import type { NFT } from '../../types/user';
 import InfoPanel from './InfoPanel';
 import { logger } from '../../utils/logger';
 import { FEATURED_NFTS } from '../sections/FeaturedSection';
+import { triggerHaptic } from '../../utils/haptics';
 
 // Create a dedicated logger for the MinimizedPlayer
 const playerLogger = logger.getModuleLogger('minimizedPlayer');
@@ -230,7 +231,10 @@ export const MinimizedPlayer: React.FC<MinimizedPlayerProps> = ({
   const maxSwipeDistance = 100;
 
   // Enhanced play/pause handler that directly controls PiP video
-  const handlePlayPauseWithPipSync = () => {
+  const handlePlayPauseWithPipSync = async () => {
+    // Trigger haptic feedback first for immediate response
+    await triggerHaptic('medium', 'MinimizedPlayer');
+    
     // First call the original handler to update app state
     onPlayPause();
     
