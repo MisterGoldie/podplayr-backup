@@ -77,7 +77,6 @@ export const uploadProfileBackground = async (fid: number, file: File): Promise<
     
     console.log('Updated Firestore with new background URL');
     return downloadUrl;
-
   } catch (error) {
     // Log detailed error information
     const errorInfo = {
@@ -102,4 +101,3 @@ export const uploadProfileBackground = async (fid: number, file: File): Promise<
     }
   }
 };
-//

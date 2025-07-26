@@ -547,10 +547,31 @@ const DemoBase: React.FC = () => {
     }
 
     try {
-      // Call the existing toggleLikeNFT function from firebase
-      await toggleLikeNFT(nft, fid);
-      // Update the liked state
-      setIsLiked(!isLiked);
+      // Get current like state before toggling
+      const mediaKey = getMediaKey(nft);
+      const wasLiked = likedNFTs.some(likedNFT => {
+        const likedMediaKey = likedNFT.mediaKey || getMediaKey(likedNFT);
+        return likedMediaKey === mediaKey;
+      });
+      
+      // Call toggleLikeNFT and get the new like state
+      const newLikeState = await toggleLikeNFT(nft, fid);
+      
+      // Update local state based on the new like state
+      if (newLikeState) {
+        // NFT is now liked - add to local state if not already there
+        if (!wasLiked) {
+          setLikedNFTs(prev => [...prev, nft]);
+        }
+        setIsLiked(true);
+      } else {
+        // NFT is now unliked - remove from local state
+        setLikedNFTs(prev => prev.filter(likedNFT => {
+          const likedMediaKey = likedNFT.mediaKey || getMediaKey(likedNFT);
+          return likedMediaKey !== mediaKey;
+        }));
+        setIsLiked(false);
+      }
     } catch (error) {
       console.error('Error toggling like:', error);
     }
