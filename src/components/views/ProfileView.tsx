@@ -124,6 +124,9 @@ const ProfileView: React.FC<ProfileViewProps> = ({
     return isLoggedIn;
   };
 
+  // Add this before the useEffect
+  const userFid = React.useMemo(() => farcasterContext.user?.fid, [farcasterContext.user?.fid]);
+
   useEffect(() => {
     const loadNFTs = async () => {
       if (!isUserLoggedIn()) {
@@ -131,8 +134,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({
         return;
       }
       
-      // Safe access to user.fid with null check
-      const userFid = farcasterContext?.user?.fid;
+      // ✅ Use the memoized userFid instead of farcasterContext?.user?.fid
       if (!userFid) {
         console.log('🚫 FID is undefined even though user is logged in');
         return;
@@ -140,8 +142,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({
       
       console.log('🔄 Checking NFT cache for FID:', userFid);
       
-      // Check if we need to refresh the cache
-      const needsRefresh = !lastUpdated || Date.now() - lastUpdated > 30 * 60 * 1000; // 30 minutes
+      const needsRefresh = !lastUpdated || Date.now() - lastUpdated > 30 * 60 * 1000;
       
       try {
         setIsLoading(true);
@@ -149,20 +150,17 @@ const ProfileView: React.FC<ProfileViewProps> = ({
         
         if (needsRefresh || cachedNFTs.length === 0) {
           console.log('📡 Cache expired or empty, refreshing NFTs...');
-          await refreshUserNFTs(userFid);
+          await refreshUserNFTs(userFid); // ✅ Use memoized userFid here
         } else {
           console.log('✨ Using cached NFTs:', {
             count: cachedNFTs.length,
             lastUpdated: new Date(lastUpdated).toLocaleTimeString()
           });
+          
+          const deduplicatedNFTs = deduplicateNFTsByMediaKey(cachedNFTs);
+          console.log(`Deduplicated ${cachedNFTs.length} NFTs to ${deduplicatedNFTs.length} unique NFTs`);
+          onNFTsLoaded(deduplicatedNFTs);
         }
-        
-        // Deduplicate NFTs by mediaKey before passing them to the grid
-        const deduplicatedNFTs = deduplicateNFTsByMediaKey(cachedNFTs);
-        console.log(`Deduplicated ${cachedNFTs.length} NFTs to ${deduplicatedNFTs.length} unique NFTs`);
-        
-        // Use the deduplicated NFTs
-        onNFTsLoaded(deduplicatedNFTs);
       } catch (err) {
         console.error('❌ Error loading NFTs:', err);
         setError(err instanceof Error ? err.message : 'Failed to load NFTs');
@@ -171,9 +169,19 @@ const ProfileView: React.FC<ProfileViewProps> = ({
       }
     };
 
-    console.log('🎯 ProfileView useEffect triggered with FID:', farcasterContext.user?.fid);
+    // ✅ Use the memoized userFid in the console log too
+    console.log('🎯 ProfileView useEffect triggered with FID:', userFid);
     loadNFTs();
-  }, [farcasterContext.user?.fid, onNFTsLoaded, cachedNFTs, lastUpdated, refreshUserNFTs]);
+  }, [userFid]); // Use memoized FID
+
+  // ✅ Separate effect to handle cache updates
+  useEffect(() => {
+    if (cachedNFTs.length > 0) {
+      const deduplicatedNFTs = deduplicateNFTsByMediaKey(cachedNFTs);
+      console.log(`Cache updated: Deduplicated ${cachedNFTs.length} NFTs to ${deduplicatedNFTs.length} unique NFTs`);
+      onNFTsLoaded(deduplicatedNFTs);
+    }
+  }, [cachedNFTs]); // ✅ Remove onNFTsLoaded from dependencies
 
   useEffect(() => {
     const loadLikedNFTs = async () => {
@@ -194,7 +202,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({
   // Handle follow status changes to update counts immediately
   const handleFollowStatusChange = (newFollowStatus: boolean, targetFid: number) => {
     // If viewing your own profile, update the following count
-    if (farcasterContext?.user?.fid === targetFid) return; // Don't update if the user followed themselves (shouldn't happen)
+    if (userFid === targetFid) return; // ✅ Use memoized userFid instead of farcasterContext?.user?.fid
     
     if (newFollowStatus) {
       // Increment following count when a user follows someone
@@ -208,11 +216,11 @@ const ProfileView: React.FC<ProfileViewProps> = ({
   // Fetch app-specific follower and following counts
   useEffect(() => {
     const fetchFollowCounts = async () => {
-      if (farcasterContext?.user?.fid) {
+      if (userFid) {
         try {
           // Special case for PODPLAYR account (FID: 1014485)
           // Update the follower count to reflect all users in the system
-          if (farcasterContext.user.fid === 1014485) {
+          if (userFid === 1014485) {
             console.log('PODPlayr account detected - updating follower count');
             // Update PODPLAYR follower count based on all users in the system
             const totalUsers = await updatePodplayrFollowerCount();
@@ -221,8 +229,8 @@ const ProfileView: React.FC<ProfileViewProps> = ({
             console.log(`Updated PODPlayr follower count: ${totalUsers} followers`);
           } else {
             // Regular user - get counts from our app's database
-            const followerCount = await getFollowersCount(farcasterContext.user.fid);
-            const followingCount = await getFollowingCount(farcasterContext.user.fid);
+            const followerCount = await getFollowersCount(userFid);
+            const followingCount = await getFollowingCount(userFid);
             
             // Update state with the counts
             setAppFollowerCount(followerCount);
@@ -245,7 +253,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({
     const intervalId = setInterval(fetchFollowCounts, 30000); // Refresh every 30 seconds
     
     return () => clearInterval(intervalId); // Clean up on unmount
-  }, [farcasterContext?.user?.fid]);
+  }, [userFid]); // ✅ Use memoized userFid instead of farcasterContext?.user?.fid
 
   // This function checks if an NFT is liked using the mediaKey approach
   const isNFTLiked = (nft: NFT, ignoreCurrentPage?: boolean): boolean => {
@@ -354,9 +362,9 @@ const ProfileView: React.FC<ProfileViewProps> = ({
       
       // If there was an error, revert the optimistic UI update
       // by refreshing the liked NFTs
-      if (farcasterContext?.user?.fid) {
+      if (userFid) {
         try {
-          const liked = await getLikedNFTs(farcasterContext.user.fid);
+          const liked = await getLikedNFTs(userFid);
           setLikedNFTs(liked);
         } catch (e) {
           console.error('Error refreshing liked NFTs after error:', e);
