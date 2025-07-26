@@ -178,37 +178,27 @@ export const subscribeToLikedNFTs = (fid: number, callback: (nfts: NFT[]) => voi
     return () => {};
   }
 
-  // Get real-time updates from user's likes subcollection with mediaKey as document ID
+  // Get real-time updates from user's likes subcollection
   const likesRef = collection(db, 'users', fid.toString(), 'likes');
-  const q = query(likesRef, orderBy('timestamp', 'desc')); // Newest first
+  const q = query(likesRef, orderBy('timestamp', 'desc'));
   
-  firebaseLogger.info(`Subscribing to liked NFTs for user ${fid} using mediaKey-based approach`);
+  firebaseLogger.info(`Subscribing to liked NFTs for user ${fid}`);
   
-  // Set up the real-time listener
+  // Set up the real-time listener with immediate callback
   const unsubscribe = onSnapshot(q, async (snapshot) => {
     try {
+      // Provide immediate empty array if no data
       if (snapshot.empty) {
-        firebaseLogger.info(`No liked NFTs found in mediaKey collection for user ${fid}`);
-        // Try to migrate old likes if none found in new format
-        await cleanupLikes(fid).then(result => {
-          const migratedCount = result?.migratedCount || 0;
-          if (migratedCount > 0) {
-            firebaseLogger.info(`Migrated ${migratedCount} likes, should see an update soon`);
-          } else {
-            // If nothing to migrate, return empty array
-            callback([]);
-          }
-        });
+        callback([]);
         return;
       }
       
-      // Transform the documents into NFT objects
+      // Transform documents to NFTs quickly
       const likedNFTs: NFT[] = snapshot.docs.map(doc => {
         const data = doc.data();
-        const mediaKey = doc.id; // The document ID is the mediaKey
+        const mediaKey = doc.id;
         
-        // Construct a complete NFT object
-        const nft: NFT = {
+        return {
           mediaKey,
           contract: data.contract,
           tokenId: data.tokenId,
@@ -216,20 +206,12 @@ export const subscribeToLikedNFTs = (fid: number, callback: (nfts: NFT[]) => voi
           description: data.description || '',
           image: data.image || '',
           audio: data.audioUrl || '',
-          // Include metadata
-          metadata: data.metadata || {}
-        };
-        
-        // Include any other fields from data
-        return {
-          ...data,
-          ...nft
+          metadata: data.metadata || {},
+          ...data
         } as NFT;
       });
       
-      // We no longer need to check for permanently removed NFTs
-      // Simply return all NFTs in the user's likes collection
-      firebaseLogger.info(`Found ${likedNFTs.length} liked NFTs for user ${fid} using mediaKey-based approach`);
+      firebaseLogger.info(`Found ${likedNFTs.length} liked NFTs for user ${fid}`);
       callback(likedNFTs);
     } catch (error) {
       firebaseLogger.error('Error in liked NFTs subscription:', error);

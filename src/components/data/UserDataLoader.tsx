@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { searchUsers, getLikedNFTs } from '../../lib/firebase';
 import { subscribeToLikedNFTs } from '../../lib/firebase/likes';
 import { fetchUserNFTsFromAlchemy } from '../../lib/alchemy';
+import { getMediaKey } from '../../utils/media';
 import type { NFT, FarcasterUser } from '../../types/user';
 
 const NFT_CACHE_KEY = 'podplayr_nft_cache_';
@@ -114,7 +115,25 @@ export const UserDataLoader: React.FC<UserDataLoaderProps> = ({
           timestamp: Date.now()
         }));
 
-        onNFTsLoaded(allNFTs);
+        // After loading NFTs, immediately check their like status
+        const nftsWithLikeStatus = allNFTs.map(nft => {
+          const mediaKey = getMediaKey(nft);
+          const cachedLikes = localStorage.getItem('podplayr_liked_media_keys');
+          let isLiked = false;
+          
+          if (cachedLikes) {
+            try {
+              const mediaKeys = JSON.parse(cachedLikes) as string[];
+              isLiked = mediaKeys.includes(mediaKey);
+            } catch (error) {
+              console.error('Error parsing cached likes:', error);
+            }
+          }
+          
+          return { ...nft, mediaKey, isLikedCached: isLiked };
+        });
+        
+        onNFTsLoaded(nftsWithLikeStatus);
 
         // Initial load of liked NFTs (for backward compatibility)
         console.log('Loading liked NFTs initially...');
@@ -122,11 +141,16 @@ export const UserDataLoader: React.FC<UserDataLoaderProps> = ({
         console.log('Liked NFTs loaded initially:', likedNFTs.length);
         onLikedNFTsLoaded(likedNFTs);
         
-        // Set up real-time subscription to liked NFTs
+        // Remove the initial getLikedNFTs call and use only subscription
+        // Set up real-time subscription to liked NFTs (this will provide initial data too)
         console.log('Setting up real-time subscription to liked NFTs...');
         const unsubscribeLikes = subscribeToLikedNFTs(userFid, (updatedLikedNFTs: NFT[]) => {
-          console.log('Real-time liked NFTs update received:', updatedLikedNFTs.length);
+          console.log('Liked NFTs update received:', updatedLikedNFTs.length);
           onLikedNFTsLoaded(updatedLikedNFTs);
+          
+          // Update localStorage cache for next time
+          const mediaKeys = updatedLikedNFTs.map(nft => nft.mediaKey || getMediaKey(nft)).filter(Boolean);
+          localStorage.setItem('podplayr_liked_media_keys', JSON.stringify(mediaKeys));
         });
         
         // Return cleanup function

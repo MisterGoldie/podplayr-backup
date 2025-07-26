@@ -317,14 +317,6 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
     return originalUrl;
   };
 
-  // Add effect to force re-render when liked NFTs change
-  useEffect(() => {
-    if (likedNFTs) {
-      console.log('ExploreView: likedNFTs changed, triggering refresh');
-      setRefreshTrigger(prev => prev + 1);
-    }
-  }, [likedNFTs]);
-  
   // Check if users are followed when search results or selected user changes
   useEffect(() => {
     const checkFollowStatuses = async () => {

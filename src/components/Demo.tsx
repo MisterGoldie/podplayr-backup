@@ -154,6 +154,26 @@ const DemoBase: React.FC = () => {
     }
   }, [fid]);
   
+  // Load liked NFTs from localStorage immediately for instant UI updates
+  useEffect(() => {
+    const loadCachedLikes = () => {
+      try {
+        const cachedLikes = localStorage.getItem('podplayr_liked_media_keys');
+        if (cachedLikes) {
+          const mediaKeys = JSON.parse(cachedLikes) as string[];
+          // Create temporary NFT objects for immediate UI feedback
+          const tempLikedNFTs = mediaKeys.map(mediaKey => ({ mediaKey } as NFT));
+          setLikedNFTs(tempLikedNFTs);
+          console.log(`Loaded ${mediaKeys.length} liked NFTs from cache for instant UI`);
+        }
+      } catch (error) {
+        console.error('Error loading cached likes:', error);
+      }
+    };
+    
+    loadCachedLikes();
+  }, []);
+  
   // 2. State Hooks
   const [currentPage, setCurrentPage] = useState<PageState>({
     isHome: true,
@@ -808,29 +828,27 @@ await handlePlayAudio(nft);
     
     if (!nftMediaKey) {
       console.warn('Could not generate mediaKey for NFT:', nft);
-      // Fallback to contract/tokenId comparison if mediaKey can't be generated
-      return nft.contract && nft.tokenId ? likedNFTs.some(
-        likedNFT => 
-          likedNFT.contract === nft.contract && 
-          likedNFT.tokenId === nft.tokenId
-      ) : false;
+      return false;
     }
     
-    // Primary check: Compare mediaKeys for content-based tracking
-    const mediaKeyMatch = likedNFTs.some(likedNFT => {
+    // First check localStorage for instant response
+    try {
+      const cachedLikes = localStorage.getItem('podplayr_liked_media_keys');
+      if (cachedLikes) {
+        const mediaKeys = JSON.parse(cachedLikes) as string[];
+        if (mediaKeys.includes(nftMediaKey)) {
+          return true;
+        }
+      }
+    } catch (error) {
+      console.error('Error checking cached likes:', error);
+    }
+    
+    // Fallback to likedNFTs state
+    return likedNFTs.some(likedNFT => {
       const likedMediaKey = likedNFT.mediaKey || getMediaKey(likedNFT);
       return likedMediaKey === nftMediaKey;
     });
-    
-    // Secondary check: Use contract/tokenId as fallback
-    const contractTokenMatch = nft.contract && nft.tokenId ? likedNFTs.some(
-      likedNFT => 
-        likedNFT.contract === nft.contract && 
-        likedNFT.tokenId === nft.tokenId
-    ) : false;
-    
-    // Return true if either match method succeeds
-    return mediaKeyMatch || contractTokenMatch;
   };
 
   // Add direct user selection handler
