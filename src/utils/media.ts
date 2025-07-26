@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { NFT } from '../types/user';
+import { NFT as UserNFT } from '../types/user';
 import { getCdnUrl, CDN_CONFIG } from './cdn';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -58,13 +58,13 @@ export const extractIPFSHash = (url: string): string | null => {
 };
 
 // Check if an NFT is using the same URL for both image and audio
-export const isAudioUrlUsedAsImage = (nft: NFT, imageUrl: string): boolean => {
+export const isAudioUrlUsedAsImage = (nft: UserNFT, imageUrl: string): boolean => {
   if (!imageUrl) return false;
   
   // Get all possible audio URLs
   const audioUrls = [
     nft?.audio,
-    nft?.metadata?.audio,
+    (nft?.metadata as any)?.audio,
     nft?.metadata?.animation_url
   ].filter(Boolean);
   
@@ -387,10 +387,45 @@ const createSafeId = (url: string): string => {
  * Maps NFT contract+tokenId to its calculated mediaKey
  */
 // Add caching to prevent regenerating the same mediaKeys
+// Remove duplicate declaration since mediaKeyCache is already declared below
+
+/**
+ * Generate a unique mediaKey for an NFT
+ * Uses UUID to ensure each NFT has a unique identifier for tracking
+ */
+import { createHash } from 'crypto';
+// uuidv4 is already imported at the top of the fil
+
+// Cache for consistent mediaKey generation
 const mediaKeyCache = new Map<string, string>();
 
-export const getMediaKey = (nft: NFT): string => {
-  return `${nft.contract}-${nft.tokenId}`;
+export const getMediaKey = (nft: UserNFT): string => {
+  // Create a deterministic key based on NFT properties
+  const nftIdentifier = `${nft.contract}-${nft.tokenId}`;
+  
+  // Check cache first
+  if (mediaKeyCache.has(nftIdentifier)) {
+    return mediaKeyCache.get(nftIdentifier)!;
+  }
+  
+  // Generate deterministic mediaKey based on NFT properties
+  const mediaKey = createHash('sha256')
+    .update(`${nft.contract}-${nft.tokenId}`)
+    .digest('hex')
+    .substring(0, 32); // Keep it shorter but still unique
+  
+  // Cache the result
+  mediaKeyCache.set(nftIdentifier, mediaKey);
+  
+  return mediaKey;
+};
+
+export const generateNewMediaKey = (): string => {
+  return uuidv4();
+};
+
+export const validateMediaKey = (mediaKey: string): boolean => {
+  return typeof mediaKey === 'string' && mediaKey.length > 0;
 };
 
 export function getDirectMediaUrl(url: string): string {

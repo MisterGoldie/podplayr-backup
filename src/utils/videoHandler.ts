@@ -2,9 +2,13 @@ import { v4 as uuidv4 } from 'uuid';
 import type { NFT } from '../types/user';
 
 // Generate a unique, random media key for each NFT
-const getMediaKey = (nft: NFT): string => {
-  return uuidv4();
-};
+// Remove lines 5-7:
+// const getMediaKey = (nft: NFT): string => {
+//   return uuidv4();
+// };
+
+// Add import:
+import { getMediaKey } from './media';
 
 // Get optimized video URL (now just returns the original animation_url)
 export const getOptimizedVideoUrl = (nft: NFT): string => {

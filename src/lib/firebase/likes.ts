@@ -27,11 +27,9 @@ import {
 import type { NFT } from '../../types/user';
 import { db, firebaseLogger } from './config';
 import { v4 as uuidv4 } from 'uuid';
+import { getMediaKey } from '../../utils/media';
 
-// Generate a unique, random media key for each NFT
-const getMediaKey = (nft: NFT): string => {
-  return uuidv4();
-};
+
 
 // Clean up old likes and migrate to new mediaKey-based format
 export const cleanupLikes = async (fid: number) => {

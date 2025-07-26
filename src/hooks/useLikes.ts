@@ -4,14 +4,19 @@ import { db } from '../lib/firebase';
 import { NFT } from '../types/user';
 import { v4 as uuidv4 } from 'uuid';
 import { logger } from '../utils/logger';
+// Import already exists below - removing duplicate
 
 // Define a type for our likes record to avoid TypeScript errors
 type LikesRecord = { [mediaKey: string]: boolean };
 
 // Generate a unique, random media key for each NFT
-const getMediaKey = (nft: NFT): string => {
-  return uuidv4();
-};
+// Remove lines 12-14:
+// const getMediaKey = (nft: NFT): string => {
+//   return uuidv4();
+// };
+
+// Add import at top:
+import { getMediaKey } from '../utils/media';
 
 /**
  * Hook for managing NFT like state using mediaKey-based tracking

@@ -226,7 +226,9 @@ export const preloadNftMedia = async (nft: NFT): Promise<void> => {
   }
 };
 
-// Generate a unique, random media key for each NFT
-const generateMediaKey = (nft: NFT): string => {
-  return uuidv4();
-};
+// Remove the custom generateMediaKey function at the end
+// const generateMediaKey = (nft: NFT): string => {
+//   return uuidv4();
+// };
+
+// The file already imports and uses getMediaKey correctly

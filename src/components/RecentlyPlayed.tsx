@@ -211,16 +211,14 @@ const RecentlyPlayed: React.FC<RecentlyPlayedProps> = ({
   
   // CRITICAL: Update local recently played when currentPlayingNFT changes
   useEffect(() => {
-    if (currentPlayingNFT && !processedMediaKeys.current.has(currentPlayingNFT.mediaKey || getMediaKey(currentPlayingNFT))) {
-      const mediaKey = currentPlayingNFT.mediaKey || getMediaKey(currentPlayingNFT);
+    if (currentPlayingNFT && !processedMediaKeys.current.has(getMediaKey(currentPlayingNFT))) {
+      // ALWAYS use getMediaKey() - never use existing mediaKey property
+      const mediaKey = getMediaKey(currentPlayingNFT);
       processedMediaKeys.current.add(mediaKey);
-      
-      recentlyPlayedLogger.info(`📢 CRITICAL: Current playing NFT updated: ${currentPlayingNFT.name}`);
-      recentlyPlayedLogger.info(`📢 CRITICAL: Using mediaKey: ${mediaKey}`);
       
       setLocalRecentlyPlayed(prev => {
         const newNFT = { ...currentPlayingNFT, mediaKey, addedToRecentlyPlayed: true, addedToRecentlyPlayedAt: Date.now() };
-        const filtered = prev.filter(nft => (nft.mediaKey || getMediaKey(nft)) !== mediaKey);
+        const filtered = prev.filter(nft => getMediaKey(nft) !== mediaKey);
         const updatedList = [newNFT, ...filtered].slice(0, 8);
         saveToLocalStorage(updatedList);
         return updatedList;

@@ -22,9 +22,13 @@ import { db, firebaseLogger } from './config';
 import { v4 as uuidv4 } from 'uuid';
 
 // Generate a unique, random media key for each NFT
-const getMediaKey = (nft: NFT): string => {
-  return uuidv4();
-};
+// Remove lines 25-27:
+// const getMediaKey = (nft: NFT): string => {
+//   return uuidv4();
+// };
+
+// Add import:
+import { getMediaKey } from '../../utils/media';
 
 // Track NFT play and update play count globally
 export const trackNFTPlay = async (nft: NFT, fid: number) => {

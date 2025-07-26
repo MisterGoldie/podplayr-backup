@@ -1,6 +1,7 @@
 import { NFT } from '../types/user';
 import { v4 as uuidv4 } from 'uuid';
 import { logger } from '../utils/logger';
+// getMediaKey is already imported at the bottom of the file
 
 // Create a dedicated logger for like state management
 const likeLogger = {
@@ -319,6 +320,10 @@ export const observeLikeChanges = (callback: () => void): () => void => {
 };
 
 // Generate a unique, random media key for each NFT
-const getMediaKey = (nft: NFT): string => {
-  return uuidv4();
-};
+// Remove lines 322-324:
+// const getMediaKey = (nft: NFT): string => {
+//   return uuidv4();
+// };
+
+// Add import at top:
+import { getMediaKey } from '../utils/media';

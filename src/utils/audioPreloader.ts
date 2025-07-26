@@ -16,15 +16,16 @@ interface GatewayTest {
 }
 
 // Generate a unique, random media key for each NFT
-const generateMediaKey = (nft: NFT): string => {
-  return uuidv4();
-};
+// Remove the custom generateMediaKey function
+// const generateMediaKey = (nft: NFT): string => {
+//   return uuidv4();
+// };
 
 // Cache audio metadata using mediaKey as the identifier
 export const cacheAudioMetadata = async (nft: NFT, audioElement: HTMLAudioElement | null) => {
   if (!audioElement || !nft) return;
   
-  const mediaKey = generateMediaKey(nft);
+  const mediaKey = getMediaKey(nft);
   try {
     const metadata: AudioMetadata = {
       duration: audioElement.duration,
@@ -43,7 +44,7 @@ export const getCachedAudioMetadata = (nft: NFT): AudioMetadata | null => {
   if (!nft) return null;
   
   try {
-    const mediaKey = generateMediaKey(nft);
+    const mediaKey = getMediaKey(nft);
     const cached = localStorage.getItem(`audio-cache-${mediaKey}`);
     return cached ? JSON.parse(cached) : null;
   } catch (error) {
@@ -70,7 +71,7 @@ export const testGatewaySpeeds = async (urls: string[]): Promise<GatewayTest[]> 
 
 // Get the fastest gateway for a given NFT
 export const getFastestGateway = async (nft: NFT): Promise<string | null> => {
-  const mediaKey = generateMediaKey(nft);
+  const mediaKey = getMediaKey(nft);
   const url = nft.audio || nft.metadata?.animation_url;
   if (!url) return null;
 

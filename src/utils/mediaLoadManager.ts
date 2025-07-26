@@ -350,6 +350,10 @@ class MediaLoadManager {
 export const mediaLoadManager = MediaLoadManager.getInstance();
 
 // Generate a unique, random media key for each NFT
-const getMediaKey = (nft: NFT): string => {
-  return uuidv4();
-};
+// Remove lines 353-355:
+// const getMediaKey = (nft: NFT): string => {
+//   return uuidv4();
+// };
+
+// Add import:
+import { getMediaKey } from './media';

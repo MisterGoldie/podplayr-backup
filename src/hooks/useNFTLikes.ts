@@ -4,9 +4,13 @@ import type { NFT } from '../types/user';
 import { v4 as uuidv4 } from 'uuid';
 
 // Generate a unique, random media key for each NFT
-const getMediaKey = (nft: NFT): string => {
-  return uuidv4();
-};
+// Remove lines 7-9:
+// const getMediaKey = (nft: NFT): string => {
+//   return uuidv4();
+// };
+
+// Add import:
+import { getMediaKey } from '../utils/media';
 
 export const useNFTLikes = (nft: NFT | null) => {
   const [likesCount, setLikesCount] = useState<number>(0);

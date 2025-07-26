@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { getFirestore, doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
 import type { NFT } from '../types/user';
-import { isPlaybackActive } from '../utils/media';
+import { isPlaybackActive, getMediaKey } from '../utils/media';
 import { v4 as uuidv4 } from 'uuid';
 
 // Create a logger specifically for like state management with playback awareness
@@ -24,9 +24,10 @@ const likeStateLogger = {
 const activeListeners = new Map<string, number>();
 
 // Generate a unique, random media key for each NFT
-const generateMediaKey = (nft: NFT): string => {
-  return uuidv4();
-};
+// Remove the custom generateMediaKey function and use the centralized one
+// const generateMediaKey = (nft: NFT): string => {
+//   return uuidv4();
+// };
 
 export const useNFTLikeState = (nft: NFT | null, fid: number | null) => {
   const [isLiked, setIsLiked] = useState<boolean>(false);
@@ -52,7 +53,7 @@ export const useNFTLikeState = (nft: NFT | null, fid: number | null) => {
       return;
     }
     
-    const mediaKey = generateMediaKey(nft);
+    const mediaKey = getMediaKey(nft);
     mediaKeyRef.current = mediaKey;
     
     // Create a cache key for this NFT/user combination

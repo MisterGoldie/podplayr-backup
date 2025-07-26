@@ -2,6 +2,7 @@ import { Alchemy, Network, Nft, NftTokenType } from 'alchemy-sdk';
 import type { NFT, NFTFile, NFTMetadata } from '../types/user';
 import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
+import { getMediaKey } from '../utils/media';
 
 const baseConfig = {
   apiKey: process.env.NEXT_PUBLIC_ALCHEMY_API_KEY,
@@ -153,10 +154,20 @@ const isMediaNFT = (metadata: NFTMetadata, animationUrl?: string): { hasAudio: b
   return { hasAudio, isVideo, isAnimation };
 };
 
+// Remove lines 157-168 (the commented out function and the duplicate definition):
 // Generate a unique, random media key for each NFT
-const getMediaKey = (url: string) => {
-  return uuidv4();
-};
+// Remove lines 157-159 and 207-209:
+// const getMediaKey = (url: string) => {
+//   return uuidv4();
+// };
+
+// Replace with import:
+// import { getMediaKey as getMediaKeyFromUtils } from '../utils/media';
+
+// Update usage from getMediaKey(audioUrl) to getMediaKey(nft)
+// const getMediaKey = (url: string) => {
+//   return uuidv4();
+// };
 
 export const fetchUserNFTsFromAlchemy = async (address: string): Promise<NFT[]> => {
   console.log('=== START MULTI-NETWORK NFT FETCH ===');
@@ -203,13 +214,9 @@ export const fetchUserNFTsFromAlchemy = async (address: string): Promise<NFT[]> 
         // Ensure mediaKey is assigned for media NFTs
         const audioUrl = nft.audio || nft.metadata?.animation_url;
         if (audioUrl) {
-          // Generate mediaKey from the audio URL
-          const getMediaKey = (url: string) => {
-            const hash = crypto.createHash('md5').update(url).digest('hex');
-            return hash;
-          };
-          nft.mediaKey = getMediaKey(audioUrl);
-          console.log(`Generated mediaKey ${nft.mediaKey} for NFT ${nft.contract}-${nft.tokenId}`);
+          // Use the centralized getMediaKey function
+          nft.mediaKey = getMediaKey(nft);
+          console.log(`Generated mediaKey ${nft.mediaKey?.substring(0, 8)}... for NFT ${nft.contract}-${nft.tokenId}`);
         }
       }
       nftMap.set(key, nft);
@@ -413,17 +420,9 @@ const fetchFromNetwork = async (address: string, client: Alchemy, network: strin
         
         // Generate mediaKey for this NFT if it has audio content
         if (hasAudio) {
-          // Generate mediaKey from the audio URL
-          const getMediaKey = (url: string) => {
-            const hash = crypto.createHash('md5').update(url).digest('hex');
-            return hash;
-          };
-          
-          const audioUrl = nft.audio || nft.metadata?.animation_url;
-          if (audioUrl) {
-            nft.mediaKey = getMediaKey(audioUrl);
-            console.log(`Generated mediaKey ${nft.mediaKey?.substring(0, 8)}... for NFT ${nft.contract}-${nft.tokenId}`);
-          }
+          // Use the centralized getMediaKey function instead of custom MD5
+          nft.mediaKey = getMediaKey(nft);
+          console.log(`Generated mediaKey ${nft.mediaKey?.substring(0, 8)}... for NFT ${nft.contract}-${nft.tokenId}`);
         }
         
         return nft;

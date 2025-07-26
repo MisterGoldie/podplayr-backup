@@ -1,16 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { getFirestore, doc, onSnapshot, DocumentSnapshot } from 'firebase/firestore';
 import type { NFT } from '../types/user';
-import { v4 as uuidv4 } from 'uuid';
 import { logger } from '../utils/logger';
+import { getMediaKey } from '../utils/media';
 
 // Create a dedicated logger for this module
 const playCountLogger = logger.getModuleLogger('playCount');
-
-// Generate a unique, random media key for each NFT
-const getMediaKey = (nft: NFT): string => {
-  return uuidv4();
-};
 
 export const useNFTPlayCount = (nft: NFT | null, shouldFetch: boolean = true) => {
   const [playCount, setPlayCount] = useState<number>(0);

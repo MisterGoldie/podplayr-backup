@@ -1559,8 +1559,14 @@ export const subscribeToRecentPlays = (fid: number, callback: (nfts: NFT[]) => v
           name: playData.collection || 'Unknown Collection'
         },
         network: playData.network || 'ethereum',
-        // Always store the mediaKey in the NFT object
-        mediaKey: playData.mediaKey
+        // ALWAYS generate fresh mediaKey using centralized function
+        // This ensures consistency across all components
+        mediaKey: getMediaKey({
+          contract: playData.nftContract,
+          tokenId: playData.tokenId,
+          name: playData.name || 'Untitled NFT',
+          image: playData.image || ''
+        } as NFT)
       };
       
       // Store in our map
@@ -3145,15 +3151,3 @@ export async function getFollowerProfiles(targetFid: number): Promise<FollowedUs
     return [];
   }
 }
-
-// Generate a unique, random media key for each NFT
-const generateMediaKey = (nft: NFT): string => {
-  const mediaKey = uuidv4();
-  
-  // Only log if there's an issue
-  if (!mediaKey) {
-    firebaseLogger.warn('Failed to generate mediaKey for NFT', nft.contract + '-' + nft.tokenId);
-  }
-  
-  return mediaKey;
-};

@@ -80,11 +80,12 @@ const preloadBatch = async (nfts: NFT[], imageMap: Map<string, HTMLImageElement>
   return imageMap;
 };
 
-// Generate a unique, random media key for each NFT
-const generateMediaKey = (nft: NFT): string => {
-  return uuidv4();
-};
+// Remove the custom generateMediaKey function
+// const generateMediaKey = (nft: NFT): string => {
+//   return uuidv4();
+// };
 
+// The file already imports and uses getMediaKey correctly in most places
 export const useNFTPreloader = (nfts: NFT[]) => {
   const [preloadedImages, setPreloadedImages] = useState<Map<string, HTMLImageElement>>(new Map());
   const [isLoading, setIsLoading] = useState(true);
