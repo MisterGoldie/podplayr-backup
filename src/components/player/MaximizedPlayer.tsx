@@ -756,13 +756,13 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
               </div>
 
               {/* Time Display - KEEP THIS */}
-              <div className="flex justify-between text-gray-400 text-xs font-mono mb-4">
+              <div className="flex justify-between text-gray-400 text-xs font-mono mb-2">
                 <span>{formatTime(Math.floor(isActivelyScrubbingBar && scrubPosition !== null ? scrubPosition : progress))}</span>
                 <span>{formatTime(Math.floor(duration))}</span>
               </div>
 
               {/* Playback Controls */}
-              <div className="flex justify-center items-center gap-12 mb-8">
+              <div className="flex justify-center items-center gap-12 mb-8 transform -translate-y-4">
                 {/* Previous Track */}
                 <button
                   onClick={onNext}
