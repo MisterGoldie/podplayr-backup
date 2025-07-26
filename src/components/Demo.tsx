@@ -1035,7 +1035,7 @@ await handlePlayAudio(nft);
             currentlyPlaying={currentlyPlaying}
             handlePlayPause={handlePlayPause}
             onReset={onReset}
-            onBack={() => setCurrentPage(prev => ({ ...prev, isUserProfile: false }))}
+            onBack={() => setCurrentPage(prev => ({ ...prev, isUserProfile: false, isHome: true }))}
             currentUserFid={fid || 0}
             onLikeToggle={onLikeToggle}
             isNFTLiked={isNFTLiked}
