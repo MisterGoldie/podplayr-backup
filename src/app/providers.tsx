@@ -7,15 +7,18 @@ import { VideoPlayProvider } from '../contexts/VideoPlayContext';
 import { NFTNotificationProvider } from '../context/NFTNotificationContext';
 import { PlayerProvider } from '../contexts/PlayerContext';
 import { ConnectionProvider } from '../context/ConnectionContext';
+import { useMiniKit } from '@coinbase/onchainkit/minikit';
 
 // Create a context for the user's Farcaster ID
 export const UserFidContext = createContext<{
   fid?: number;
   setFid: (fid: number | undefined) => void;
   isFidReady: boolean;
+  environment: 'farcaster' | 'coinbase' | 'web';
 }>({
   setFid: () => {},
   isFidReady: false,
+  environment: 'web',
 });
 
 // Enhanced context interfaces
@@ -24,7 +27,7 @@ export interface FarcasterUserContext {
   username?: string;
   displayName?: string;
   pfp?: string;
-  bio?: string;
+  bio?: string; // This is already optional, which is correct
   location?: {
     placeId?: string;
     description?: string;
@@ -54,28 +57,39 @@ export interface FarcasterLocationContext {
   };
 }
 
-// Enhanced Farcaster context
-export const FarcasterContext = createContext<{
+// Enhanced context that supports both Farcaster and MiniKit
+export const UnifiedContext = createContext<{
   isFarcaster: boolean;
+  isMiniKit: boolean;
+  environment: 'farcaster' | 'coinbase' | 'web';
   user: FarcasterUserContext | null;
   client: FarcasterClientContext | null;
   location: FarcasterLocationContext | null;
+  miniKitContext?: any;
 }>({
   isFarcaster: false,
+  isMiniKit: false,
+  environment: 'web',
   user: null,
   client: null,
   location: null,
 });
 
-export function Providers({ children }: { children: React.ReactNode }) {
+// Inner provider that has access to MiniKit
+function InnerProviders({ children }: { children: React.ReactNode }) {
   const [fid, setFid] = useState<number>();
   const [isFarcaster, setIsFarcaster] = useState(false);
   const [isFidReady, setIsFidReady] = useState(false);
+  const [environment, setEnvironment] = useState<'farcaster' | 'coinbase' | 'web'>('web');
   
   // Add missing state variables
   const [userContext, setUserContext] = useState<FarcasterUserContext | null>(null);
   const [clientContext, setClientContext] = useState<FarcasterClientContext | null>(null);
   const [locationContext, setLocationContext] = useState<FarcasterLocationContext | null>(null);
+
+  // Get MiniKit context
+  const { context: miniKitContext } = useMiniKit();
+  const [isMiniKit, setIsMiniKit] = useState(false);
 
   // Update PODPLAYR follower count when the app starts
   useEffect(() => {
@@ -92,33 +106,76 @@ export function Providers({ children }: { children: React.ReactNode }) {
     updatePodplayrCount();
   }, []);
   
-  // CRITICAL: Get Farcaster user context and environment detection
+  // Initialize environment detection using MiniKit context
   useEffect(() => {
-    async function initializeFarcasterContext() {
+    async function initializeEnvironmentContext() {
       try {
+        // Check MiniKit context first (Coinbase environment)
+        if (miniKitContext) {
+          console.log('🔍 MiniKit context detected:', miniKitContext);
+          setIsMiniKit(true);
+          setEnvironment('coinbase');
+          
+          // Extract user data from MiniKit context
+          if (miniKitContext.user?.fid) {
+            console.log('🔑 Setting user FID from MiniKit context:', miniKitContext.user.fid);
+            setFid(miniKitContext.user.fid);
+            
+            setUserContext({
+              fid: miniKitContext.user.fid,
+              username: miniKitContext.user.username,
+              displayName: miniKitContext.user.displayName,
+              pfp: miniKitContext.user.pfpUrl,
+              bio: (miniKitContext.user as any).bio,
+            });
+            
+            // Set client context from MiniKit
+            if (miniKitContext.client) {
+              setClientContext({
+                clientFid: miniKitContext.client.clientFid || miniKitContext.user.fid,
+                added: miniKitContext.client.added || false,
+                safeAreaInsets: miniKitContext.client.safeAreaInsets,
+              });
+            }
+            
+            // Set location context from MiniKit
+            if (miniKitContext.location) {
+              setLocationContext({
+                type: typeof miniKitContext.location === 'string' 
+                  ? miniKitContext.location 
+                  : miniKitContext.location.type || 'unknown',
+              });
+            }
+          }
+          
+          setIsFidReady(true);
+          return;
+        }
+        
+        // Fall back to Farcaster detection
         const isInMiniApp = await isFarcasterMiniApp();
         setIsFarcaster(isInMiniApp);
         
-        console.log(`🚨 App is ${isInMiniApp ? 'RUNNING in Farcaster mini-app' : 'NOT in Farcaster mini-app'}`);
-        
         if (isInMiniApp) {
+          setEnvironment('farcaster');
+          console.log('🚨 App is RUNNING in Farcaster mini-app');
+          
           const { sdk } = await import('@farcaster/miniapp-sdk');
           const context = await sdk.context;
           
-          console.log('🔍 FULL USER CONTEXT:', context);
+          console.log('🔍 FULL FARCASTER CONTEXT:', context);
           
           // Extract comprehensive user data
           if (context?.user?.fid) {
-            console.log('🔑 Setting user FID from SDK context:', context.user.fid);
+            console.log('🔑 Setting user FID from Farcaster SDK context:', context.user.fid);
             setFid(context.user.fid);
             
-            // Set comprehensive user context - use type assertion to tell TypeScript this is SDK context
             const sdkUser = context.user as any;
             setUserContext({
               fid: sdkUser.fid,
               username: sdkUser.username,
               displayName: sdkUser.displayName,
-              pfp: sdkUser.pfpUrl, // Use pfpUrl instead of pfp
+              pfp: sdkUser.pfpUrl,
               bio: sdkUser.bio,
               location: sdkUser.location
             });
@@ -135,46 +192,48 @@ export function Providers({ children }: { children: React.ReactNode }) {
             
             // Set location context
             if (context.location) {
-              const sdkLocation = context.location as any; // Type assertion
+              const sdkLocation = context.location as any;
               setLocationContext({
                 type: sdkLocation.type,
-                cast: sdkLocation.cast // This should work with type assertion
+                cast: sdkLocation.cast
               });
             }
-            
-            // Mark FID as ready after all context is set
-            setIsFidReady(true);
           } else {
             console.warn('⚠️ No FID found in Farcaster context');
-            setIsFidReady(true);
           }
         } else {
-          // For non-Farcaster environments, mark as ready immediately
-          setIsFidReady(true);
+          console.log('🌐 App is running in WEB environment');
+          setEnvironment('web');
         }
+        
+        setIsFidReady(true);
       } catch (error) {
-        console.error('❌ Error initializing Farcaster context:', error);
-        setIsFidReady(true); // Mark as ready even on error
+        console.error('❌ Error initializing environment context:', error);
+        setEnvironment('web');
+        setIsFidReady(true);
       }
     }
 
-    initializeFarcasterContext();
-  }, []);
+    initializeEnvironmentContext();
+  }, [miniKitContext]);
   
   // Ensure user follows PODPlayr whenever they have a valid FID
   useEffect(() => {
     if (fid) {
-      console.log('🔑 User has FID:', fid);
+      console.log(`🔑 User has FID: ${fid} in ${environment} environment`);
     }
-  }, [fid]);
+  }, [fid, environment]);
 
   return (
-    <UserFidContext.Provider value={{ fid, setFid, isFidReady }}>
-      <FarcasterContext.Provider value={{ 
+    <UserFidContext.Provider value={{ fid, setFid, isFidReady, environment }}>
+      <UnifiedContext.Provider value={{ 
         isFarcaster, 
+        isMiniKit,
+        environment,
         user: userContext,
         client: clientContext,
-        location: locationContext
+        location: locationContext,
+        miniKitContext
       }}>
         <VideoPlayProvider>
           <PlayerProvider>
@@ -185,17 +244,32 @@ export function Providers({ children }: { children: React.ReactNode }) {
             </NFTNotificationProvider>
           </PlayerProvider>
         </VideoPlayProvider>
-      </FarcasterContext.Provider>
+      </UnifiedContext.Provider>
     </UserFidContext.Provider>
   );
 }
 
-// Add this hook for backward compatibility
+export function Providers({ children }: { children: React.ReactNode }) {
+  return (
+    <InnerProviders>
+      {children}
+    </InnerProviders>
+  );
+}
+
+// Updated hooks
 export const useFarcasterContext = () => {
-  const context = useContext(FarcasterContext);
+  const context = useContext(UnifiedContext);
   return {
     isFarcaster: context.isFarcaster,
     fid: context.user?.fid || null,
-    setFid: () => {}, // This would need to be implemented if needed
+    setFid: () => {},
   };
 };
+
+export const useUnifiedContext = () => {
+  return useContext(UnifiedContext);
+};
+
+// Legacy export for backward compatibility
+export const FarcasterContext = UnifiedContext;

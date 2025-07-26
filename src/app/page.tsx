@@ -22,7 +22,19 @@ const frame = {
 };
 
 export default function Home() {
-  const { setFrameReady, isFrameReady } = useMiniKit();
+  // Get full MiniKit context as per Base documentation
+  const { context, setFrameReady, isFrameReady } = useMiniKit();
+
+  // Log the MiniKit context for debugging
+  useEffect(() => {
+    if (context) {
+      console.log('🔍 MiniKit Context:', {
+        userFid: context.user?.fid,
+        clientAdded: context.client?.added,
+        location: context.location
+      });
+    }
+  }, [context]);
 
   // The setFrameReady() function is called when your mini-app is ready to be shown
   useEffect(() => {
