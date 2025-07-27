@@ -147,7 +147,7 @@ const NotificationHeader: React.FC<NotificationHeaderProps> = memo(({
   return (
     <header 
       className={`fixed top-0 left-0 right-0 h-16 flex items-center justify-center z-50 transition-all duration-700 ease-out ${
-        isBackgroundVisible ? getStyles() : 'bg-black border-b border-black'
+        isBackgroundVisible ? getStyles() : 'bg-black/90 backdrop-blur-lg border-b border-purple-500/20'
       }`}
     >
       {/* Container for both logo and notification */}
@@ -206,4 +206,4 @@ const NotificationHeader: React.FC<NotificationHeaderProps> = memo(({
   );
 });
 
-export default NotificationHeader; 
+export default NotificationHeader;
