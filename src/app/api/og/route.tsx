@@ -1,9 +1,41 @@
 import { ImageResponse } from 'next/og';
 import { NextRequest } from 'next/server';
-import { getNFTMetadata } from '../../../lib/nft';
-import { baseAlchemy, ethAlchemy } from '../../../lib/alchemy';
+import { Alchemy, Network } from 'alchemy-sdk';
 
 export const runtime = 'edge';
+
+// Initialize Alchemy clients directly in this file
+const baseAlchemy = new Alchemy({
+  apiKey: process.env.NEXT_PUBLIC_ALCHEMY_API_KEY,
+  network: Network.BASE_MAINNET,
+});
+
+const ethAlchemy = new Alchemy({
+  apiKey: process.env.NEXT_PUBLIC_ALCHEMY_API_KEY,
+  network: Network.ETH_MAINNET,
+});
+
+// Simple media URL processor for Edge Runtime
+const processMediaUrl = (url?: string): string => {
+  if (!url) return '';
+  
+  // Handle IPFS URLs
+  if (url.startsWith('ipfs://')) {
+    return `https://nftstorage.link/ipfs/${url.slice(7)}`;
+  }
+  
+  // Handle Arweave URLs
+  if (url.startsWith('ar://')) {
+    return `https://arweave.net/${url.slice(5)}`;
+  }
+  
+  // Handle direct Arweave hashes
+  if (url.match(/^[a-zA-Z0-9_-]{43}$/)) {
+    return `https://arweave.net/${url}`;
+  }
+  
+  return url;
+};
 
 export async function GET(request: NextRequest) {
   try {
@@ -18,8 +50,7 @@ export async function GET(request: NextRequest) {
     // Fetch NFT metadata if contract and tokenId are provided
     if (contract && tokenId) {
       try {
-        console.log('=== DEBUGGING ALCHEMY API DIRECTLY ===');
-        console.log('Original params:', { contract, tokenId });
+        console.log('Fetching NFT metadata for:', { contract, tokenId });
         
         // Try multiple token ID formats
         const tokenIdFormats = [
@@ -28,61 +59,40 @@ export async function GET(request: NextRequest) {
           tokenId.startsWith('0x') ? parseInt(tokenId, 16).toString() : tokenId, // Convert hex to decimal
         ];
         
-        console.log('Trying token ID formats:', tokenIdFormats);
-        
-        // Try direct Alchemy API calls to see raw response
+        // Try both networks
         for (const network of ['ethereum', 'base']) {
           const client = network === 'base' ? baseAlchemy : ethAlchemy;
-          console.log(`\n--- Trying ${network.toUpperCase()} network ---`);
           
           for (const testTokenId of tokenIdFormats) {
             try {
-              console.log(`Testing tokenId format: ${testTokenId}`);
               const rawResponse = await client.nft.getNftMetadata(contract, testTokenId);
-              
-              console.log('RAW ALCHEMY RESPONSE:', {
-                tokenId: rawResponse.tokenId,
-                tokenType: rawResponse.tokenType,
-                title: rawResponse.title,
-                description: rawResponse.description,
-                rawMetadata: rawResponse.raw?.metadata,
-                rawError: rawResponse.raw?.error,
-                contract: rawResponse.contract,
-                media: rawResponse.media
-              });
               
               // Check if we got valid metadata
               if (rawResponse.raw?.metadata && Object.keys(rawResponse.raw.metadata).length > 0) {
-                console.log('✅ Found valid metadata!');
-                
                 // Extract image from raw metadata
                 const metadata = rawResponse.raw.metadata;
-                nftImage = metadata.image || 
-                          metadata.image_url ||
-                          metadata.properties?.image ||
-                          metadata.properties?.visual?.url ||
-                          '';
-                          
-                console.log('Extracted image URL:', nftImage);
+                nftImage = processMediaUrl(
+                  metadata.image || 
+                  metadata.image_url ||
+                  metadata.properties?.image ||
+                  metadata.properties?.visual?.url
+                );
                 
                 if (nftImage) {
+                  console.log('Found NFT image:', nftImage);
                   break; // Found image, stop trying
                 }
-              } else {
-                console.log('❌ Empty or invalid metadata');
               }
             } catch (error) {
-              console.log(`Error with tokenId ${testTokenId}:`, error.message);
+              console.log(`Error with tokenId ${testTokenId}:`, (error as Error).message);
             }
           }
           
           if (nftImage) break; // Found image, stop trying networks
         }
         
-        console.log('Final image URL:', nftImage);
-        
       } catch (error) {
-        console.error('Error in direct Alchemy debugging:', error);
+        console.error('Error fetching NFT metadata:', error);
       }
     }
 
