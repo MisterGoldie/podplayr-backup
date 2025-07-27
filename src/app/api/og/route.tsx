@@ -149,7 +149,7 @@ export async function GET(request: NextRequest) {
               if (imageUrl) {
                 nftImage = await processMediaUrlServer(imageUrl);
                 // Use collection name if available, fallback to NFT name, then fallback title
-                nftTitle = nft.collection?.name || nft.name || nft.metadata?.name || fallbackTitle;
+                nftTitle = nft.name || nft.metadata?.name || nft.collection?.name || fallbackTitle;
                 nftDescription = nft.description || nft.metadata?.description || fallbackDescription;
                 console.log('✅ Found NFT data via Alchemy:', {
                   image: nftImage,

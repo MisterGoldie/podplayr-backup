@@ -44,8 +44,8 @@ export const FEATURED_NFTS: NFT[] = [
   {
     name: 'ACYL RADIO - Topia Hour',
     image: 'https://arweave.net/rGhe8lAX2D9hrbOKeoozySiZvVsSnJqblZ7ofZ2ADnY',
-    contract: '0x79428737e60a8a8db494229638eaa5e52874b6fb',
-    tokenId: '79428737ea',
+    contract: '0xA59Fa4555264B256fD43cd51B5794348F859dA51',
+    tokenId: '8',
     audio: 'https://arweave.net/YV3PQYn-NAX3cC6t6yhlmMtSzZ_SxIcAb3Np6SKBCuQ',
     metadata: {
       animation_url: 'https://arweave.net/YV3PQYn-NAX3cC6t6yhlmMtSzZ_SxIcAb3Np6SKBCuQ',
@@ -58,8 +58,8 @@ export const FEATURED_NFTS: NFT[] = [
   {
     name: 'ACYL RADIO - WILL01',
     image: 'https://bafybeie7mejoxle27ki56vxmzebb67kcrttu54stlin74xowaq5ugu3sdi.ipfs.w3s.link/COMPRESSEDWILL%20RADIO%20-min.gif',
-    contract: '0x79428737e60a8a8db494229638eaa5e52874b6fb',
-    tokenId: '79428737e6',
+    contract: '0xA59Fa4555264B256fD43cd51B5794348F859dA51',
+    tokenId: '3',
     audio: 'https://arweave.net/FXMkBkgV79p3QIL8589uh68-sKuXbmuBzQwvWH10v74',
     metadata: {
       animation_url: 'https://arweave.net/FXMkBkgV79p3QIL8589uh68-sKuXbmuBzQwvWH10v74',
@@ -72,8 +72,8 @@ export const FEATURED_NFTS: NFT[] = [
   {
     name: 'ACYL RADIO - Chili Sounds 🌶️',
     image: 'https://bafybeibvxzzzzitvejioqkhfpic5rjixrffgkr4jw46bidxnmdgbfvjynu.ipfs.w3s.link/COMPRESSED.gif',
-    contract: '0x79428737e60a8a8db494229638eaa5e52874b6fb',
-    tokenId: '79428737e8',
+    contract: '0xA59Fa4555264B256fD43cd51B5794348F859dA51',
+    tokenId: '5',
     audio: 'https://arweave.net/GujXDFCEk4FmJl9b_TlofLEmx_YnY_LRSB2aSY8AcRg',
     metadata: {
       animation_url: 'https://arweave.net/GujXDFCEk4FmJl9b_TlofLEmx_YnY_LRSB2aSY8AcRg',
@@ -86,8 +86,8 @@ export const FEATURED_NFTS: NFT[] = [
   {
     name: 'Salem Tries - The Forest EP1',
     image: 'https://arweave.net/QxJXPOfv_BXT3m2-o75f_x5wOssE7xE5seTVeKB1PI4',
-    contract: '0x79428737e60a8a8db494229638eaa5e52874b6fb',
-    tokenId: '79428737e7',
+    contract: '0xA59Fa4555264B256fD43cd51B5794348F859dA51',
+    tokenId: '6',
     audio: 'https://arweave.net/Df6hOV1--hsJBtTL1cEbhBkRZuggxSpR9eM0DXsdcv0',
     metadata: {
       animation_url: 'https://arweave.net/Df6hOV1--hsJBtTL1cEbhBkRZuggxSpR9eM0DXsdcv0',
@@ -100,8 +100,8 @@ export const FEATURED_NFTS: NFT[] = [
   {
     name: 'Group (Think) Love',
     image: 'https://arweave.net/F_5sg4RBg3kKQnuvHFhbX8fh4eB7xdlsk_VaTJNK7EI',
-    contract: '0x79428737e60a8a8db494229638eaa5e52874b6fb',
-    tokenId: '79428737e9',
+    contract: '0xA59Fa4555264B256fD43cd51B5794348F859dA51',
+    tokenId: '7',
     audio: 'https://arweave.net/KPKrKgdACqggYesQqRCR4MeLWDlpR6i16xL-Q_e35q4',
     metadata: {
       animation_url: 'https://arweave.net/KPKrKgdACqggYesQqRCR4MeLWDlpR6i16xL-Q_e35q4',
