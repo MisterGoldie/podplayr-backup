@@ -874,22 +874,31 @@ await handlePlayAudio(nft);
 
   // Add direct user selection handler
   const handleDirectUserSelect = async (user: FarcasterUser) => {
-    setIsLoading(true);
     try {
-      // Implementation of handleDirectUserSelect
       demoLogger.info(`Selected user: ${user.username}`);
       setSelectedUser(user);
-      // FIX: Turn off explore mode when navigating to user profile
+      
+      // Navigate to user profile view IMMEDIATELY
       setCurrentPage(prev => ({ 
         ...prev, 
         isExplore: false,
         isUserProfile: true 
       }));
+      
+      // Load user's NFTs in the background (don't await)
+      fetchUserNFTs(user.fid).then(nfts => {
+        demoLogger.info(`Loaded ${nfts.length} NFTs for user ${user.username}`);
+        
+        // Apply the same deduplication logic as ProfileView
+        const deduplicatedNFTs = deduplicateNFTsByMediaKey(nfts);
+        setUserNFTs(deduplicatedNFTs);
+      }).catch(error => {
+        demoLogger.error('Error loading NFTs for user:', error);
+        setError('Error loading NFTs');
+      });
     } catch (error) {
       demoLogger.error('Error selecting user:', error);
       setError('Error selecting user');
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -899,12 +908,16 @@ await handlePlayAudio(nft);
     try {
       demoLogger.info(`Selecting user: ${user.username}`);
       setSelectedUser(user);
+      
       // Load user's NFTs
       const nfts = await fetchUserNFTs(user.fid);
+      demoLogger.info(`Loaded ${nfts.length} NFTs for user ${user.username}`);
+      
       // Apply the same deduplication logic as ProfileView
       const deduplicatedNFTs = deduplicateNFTsByMediaKey(nfts);
       setUserNFTs(deduplicatedNFTs);
-      // FIX: Turn off explore mode when navigating to user profile
+      
+      // Navigate to user profile view
       setCurrentPage(prev => ({ 
         ...prev, 
         isExplore: false,
@@ -976,6 +989,7 @@ await handlePlayAudio(nft);
             handlePlayPause={handlePlayPause}
             isLoadingNFTs={isLoading}
             onBack={() => {
+              demoLogger.info('Navigating back from explore view');
               // Reset selectedUser when going back from explore view
               setSelectedUser(null);
               setUserNFTs([]);
@@ -1045,6 +1059,7 @@ await handlePlayAudio(nft);
             handlePlayPause={handlePlayPause}
             onReset={onReset}
             onBack={() => {
+              demoLogger.info('Navigating back from user profile');
               // Reset selectedUser and userNFTs when going back from user profile
               setSelectedUser(null);
               setUserNFTs([]);
