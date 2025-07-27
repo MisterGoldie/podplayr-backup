@@ -192,12 +192,18 @@ const FeaturedSection: React.FC<FeaturedSectionProps> = ({
                 <div key={nft.contract + '-' + nft.tokenId} className="flex-shrink-0 w-[200px]">
                   <NFTCard
                     nft={nft}
-                    onPlay={async (nft) => onPlayNFT(nft)}
+                    onPlay={async (nft) => {
+                      // Fix: Pass queue context when playing from Featured section
+                      await onPlayNFT(nft, {
+                        queue: nfts,
+                        queueType: 'featured'
+                      });
+                    }}
                     isPlaying={isPlaying && currentlyPlaying === nft.contract + '-' + nft.tokenId}
                     currentlyPlaying={currentlyPlaying}
                     handlePlayPause={handlePlayPause}
                     onLikeToggle={() => onLikeToggle(nft)}
-                    userFid={userFid} // Use the userFid prop directly
+                    userFid={userFid}
                     isNFTLiked={() => isNFTLiked(nft)}
                     animationDelay={0.2 + (index * 0.05)}
                   />
