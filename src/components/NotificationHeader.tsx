@@ -1,7 +1,6 @@
 import React, { useState, useEffect, memo } from 'react';
 import Image from 'next/image';
 
-// Update the NotificationType to remove 'connection'
 type NotificationType = 'success' | 'info' | 'warning' | 'error' | 'profile';
 
 interface NotificationHeaderProps {
@@ -14,10 +13,9 @@ interface NotificationHeaderProps {
   icon?: React.ReactNode;
   logo?: string;
   onReset?: () => void;
-  onLogoClick?: () => void; // New prop for logo click to go home
+  onLogoClick?: () => void;
 }
 
-// Use memo to prevent unnecessary re-renders
 const NotificationHeader: React.FC<NotificationHeaderProps> = memo(({
   show,
   onHide,
@@ -28,36 +26,29 @@ const NotificationHeader: React.FC<NotificationHeaderProps> = memo(({
   icon,
   logo = '/fontlogo.png',
   onReset,
-  onLogoClick, // Add the new prop
+  onLogoClick,
 }) => {
-  // Remove console.log in production
   if (process.env.NODE_ENV !== 'production') {
-    // Only log when props actually change
     React.useEffect(() => {
       console.log('NotificationHeader Props:', { show, type, message, highlightText });
     }, [show, type, message, highlightText]);
   }
   
-  // Use separate states for background and content to stagger transitions
   const [isBackgroundVisible, setIsBackgroundVisible] = useState(show);
   const [isContentVisible, setIsContentVisible] = useState(show);
   
-  // Smoother transition handling with staggered timing
   useEffect(() => {
     if (show) {
-      // When showing, change background first, then content
       setIsBackgroundVisible(true);
       const timer = setTimeout(() => setIsContentVisible(true), 50);
       return () => clearTimeout(timer);
     } else {
-      // When hiding, change content first, then background
       setIsContentVisible(false);
       const timer = setTimeout(() => setIsBackgroundVisible(false), 200);
       return () => clearTimeout(timer);
     }
   }, [show]);
   
-  // Auto-hide functionality
   useEffect(() => {
     if (show && autoHideDuration && autoHideDuration > 0) {
       const timer = setTimeout(() => {
@@ -68,7 +59,6 @@ const NotificationHeader: React.FC<NotificationHeaderProps> = memo(({
     }
   }, [show, autoHideDuration, onHide]);
   
-  // Get appropriate styles for different notification types
   const getStyles = () => {
     switch(type) {
       case 'success':
@@ -77,9 +67,6 @@ const NotificationHeader: React.FC<NotificationHeaderProps> = memo(({
         return 'bg-yellow-600 border-b border-yellow-700';
       case 'error':
         return 'bg-red-600 border-b border-red-700';
-      // Remove this case:
-      // case 'connection':
-      //   return 'bg-purple-600 border-b border-purple-700';
       case 'profile':
         return 'bg-orange-500 border-b border-orange-600';
       default:
@@ -87,7 +74,6 @@ const NotificationHeader: React.FC<NotificationHeaderProps> = memo(({
     }
   };
   
-  // Get default icon if none provided
   const getDefaultIcon = () => {
     switch(type) {
       case 'success':
@@ -115,7 +101,6 @@ const NotificationHeader: React.FC<NotificationHeaderProps> = memo(({
           </svg>
         );
       case 'profile':
-        // No icon for profile notifications
         return null;
       default:
         return (
@@ -126,14 +111,11 @@ const NotificationHeader: React.FC<NotificationHeaderProps> = memo(({
     }
   };
 
-  // Force logo visible when notification is hidden, but don't interfere with animations
   useEffect(() => {
     if (!show) {
-      // Wait for animations to complete before forcing logo visibility
       const timer = setTimeout(() => {
         console.log('🟢 FORCING LOGO VISIBLE IN NOTIFICATION HEADER');
         
-        // Find ALL logo images in this component and force them to be visible
         const logoImages = document.querySelectorAll('.logo-image');
         logoImages.forEach(logo => {
           (logo as HTMLElement).style.opacity = '1';

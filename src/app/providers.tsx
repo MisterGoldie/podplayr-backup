@@ -6,8 +6,6 @@ import { updatePodplayrFollowerCount } from '../lib/firebase';
 import { VideoPlayProvider } from '../contexts/VideoPlayContext';
 import { NFTNotificationProvider } from '../context/NFTNotificationContext';
 import { PlayerProvider } from '../contexts/PlayerContext';
-// Remove this line:
-// import { ConnectionProvider } from '../context/ConnectionContext';
 import { useMiniKit } from '@coinbase/onchainkit/minikit';
 
 // Create a context for the user's Farcaster ID

@@ -1,13 +1,10 @@
 import React, { createContext, useContext, useState, ReactNode } from 'react';
 import { NFT } from '../types/user';
 
-// Update the NotificationType to remove 'connection'
 type NotificationType = 'like' | 'unlike';
 
 interface NFTNotificationContextType {
   showNotification: (type: NotificationType, nft: NFT) => void;
-  // Remove this line:
-  // showConnectionNotification: (username: string, likedCount?: number) => void;
   hideNotification: () => void;
   isVisible: boolean;
   notificationType: NotificationType | null;
@@ -29,7 +26,6 @@ interface NFTNotificationProviderProps {
 }
 
 export const NFTNotificationProvider: React.FC<NFTNotificationProviderProps> = ({ children }) => {
-  // Initialize with explicitly false visibility and null type to prevent showing on startup
   const [isVisible, setIsVisible] = useState<boolean>(false);
   const [notificationType, setNotificationType] = useState<NotificationType | null>(null);
   const [nftName, setNftName] = useState<string>('');
@@ -52,31 +48,6 @@ export const NFTNotificationProvider: React.FC<NFTNotificationProviderProps> = (
     setIsVisible(true);
     console.log('🚨🚨 NOTIFICATION VISIBLE NOW:', { type, name: nft.name });
   };
-  
-  // New function to show connection notifications with optional liked count
-  const showConnectionNotification = (username: string, likedCount?: number) => {
-    const displayName = likedCount ? `${username} (×${likedCount})` : username;
-    console.log('💜 Showing CONNECTION notification for:', displayName);
-    
-    // Clear any existing timeout
-    if (timeoutId) {
-      clearTimeout(timeoutId);
-      setTimeoutId(null);
-    }
-
-    // Set notification data
-    setNotificationType(null); // Reset notification type since 'connection' is no longer a valid type
-    setNftName(displayName); // Use the formatted username as the highlight text
-    
-    // Show notification immediately
-    setIsVisible(true);
-    console.log('🚨🚨 CONNECTION NOTIFICATION VISIBLE NOW for:', displayName);
-
-    // DO NOT auto-hide connection notifications
-    // They will stay visible until the user navigates away
-    // or explicitly hides them by clicking back
-    console.log('💜 Connection notification will stay visible until user navigates away');
-  };
 
   const hideNotification = () => {
     setIsVisible(false);
@@ -92,14 +63,10 @@ export const NFTNotificationProvider: React.FC<NFTNotificationProviderProps> = (
     }, 700); // Wait for animation to finish
   };
 
-  // Remove the entire showConnectionNotification function (lines ~50-75)
-
   return (
     <NFTNotificationContext.Provider
       value={{
         showNotification,
-        // Remove this line:
-        // showConnectionNotification,
         hideNotification,
         isVisible,
         notificationType,
