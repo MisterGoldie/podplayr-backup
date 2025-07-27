@@ -52,12 +52,34 @@ export async function GET(request: NextRequest) {
       try {
         console.log('Fetching NFT metadata for:', { contract, tokenId });
         
-        // Try multiple token ID formats
-        const tokenIdFormats = [
-          tokenId, // Original
-          tokenId.startsWith('0x') ? tokenId.slice(2) : tokenId, // Remove 0x prefix
-          tokenId.startsWith('0x') ? parseInt(tokenId, 16).toString() : tokenId, // Convert hex to decimal
-        ];
+        // Improved token ID format handling
+        const tokenIdFormats = [];
+        
+        // If it looks like a hex string (contains letters), convert it
+        if (/[a-fA-F]/.test(tokenId)) {
+          // Try as hex with 0x prefix
+          const hexWithPrefix = tokenId.startsWith('0x') ? tokenId : `0x${tokenId}`;
+          try {
+            const decimalValue = BigInt(hexWithPrefix).toString();
+            tokenIdFormats.push(decimalValue);
+            console.log(`Converted hex ${tokenId} to decimal: ${decimalValue}`);
+          } catch (e) {
+            console.log('Failed to convert hex to decimal:', e);
+          }
+          
+          // For hex strings, also try with 0x prefix
+          if (!tokenId.startsWith('0x')) {
+            tokenIdFormats.push(`0x${tokenId}`);
+          }
+        } else {
+          // For non-hex strings, try original and with 0x prefix removal
+          tokenIdFormats.push(
+            tokenId, // Original
+            tokenId.startsWith('0x') ? tokenId.slice(2) : tokenId, // Remove 0x prefix
+          );
+        }
+        
+        console.log('Trying token ID formats:', tokenIdFormats);
         
         // Try both networks
         for (const network of ['ethereum', 'base']) {
