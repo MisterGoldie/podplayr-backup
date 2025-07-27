@@ -104,7 +104,7 @@ export async function GET(request: NextRequest) {
     const contract = searchParams.get('contract');
     const tokenId = searchParams.get('tokenId');
     const fallbackTitle = searchParams.get('title') || 'PODPLAYR';
-    const fallbackDescription = searchParams.get('description') || 'Listen to NFTs on PODPLAYR';
+    const fallbackDescription = searchParams.get('description') || 'Experience on PODPLAYR';
 
     let nftImage = '';
     let nftTitle = fallbackTitle;
@@ -148,7 +148,8 @@ export async function GET(request: NextRequest) {
               const imageUrl = nft.image || nft.metadata?.image;
               if (imageUrl) {
                 nftImage = await processMediaUrlServer(imageUrl);
-                nftTitle = nft.name || nft.metadata?.name || fallbackTitle;
+                // Use collection name if available, fallback to NFT name, then fallback title
+                nftTitle = nft.collection?.name || nft.name || nft.metadata?.name || fallbackTitle;
                 nftDescription = nft.description || nft.metadata?.description || fallbackDescription;
                 console.log('✅ Found NFT data via Alchemy:', {
                   image: nftImage,
@@ -168,11 +169,14 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Get the base URL for absolute image paths
+    const baseUrl = new URL(request.url).origin;
+
     return new ImageResponse(
       (
         <div
           style={{
-            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            background: 'linear-gradient(to bottom, #1E1525 0%, #2D1B69 50%, #4B0082 100%)',
             width: '100%',
             height: '100%',
             display: 'flex',
@@ -182,8 +186,32 @@ export async function GET(request: NextRequest) {
             fontFamily: 'Inter, sans-serif',
             color: 'white',
             padding: '40px',
+            position: 'relative',
           }}
         >
+          {/* PODPLAYR Logo in top right corner */}
+          <div
+            style={{
+              position: 'absolute',
+              top: '20px',
+              right: '20px',
+              display: 'flex',
+            }}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={`${baseUrl}/podlogo.png`}
+              alt="PODPLAYR Logo"
+              width="80"
+              height="80"
+              style={{
+                width: '80px',
+                height: '80px',
+                objectFit: 'contain',
+              }}
+            />
+          </div>
+
           {/* NFT Image with proper error handling */}
           {nftImage && (
             <div
@@ -228,22 +256,12 @@ export async function GET(request: NextRequest) {
             </div>
           )}
           
+          {/* NFT Title - now the largest text right below image */}
           <div
             style={{
               fontSize: '72px',
               fontWeight: 'bold',
               marginBottom: '20px',
-              textAlign: 'center',
-              display: 'flex',
-            }}
-          >
-            🎵 PODPLAYR
-          </div>
-          <div
-            style={{
-              fontSize: '36px',
-              fontWeight: '600',
-              marginBottom: '16px',
               textAlign: 'center',
               maxWidth: '800px',
               display: 'flex',
@@ -251,6 +269,7 @@ export async function GET(request: NextRequest) {
           >
             {nftTitle}
           </div>
+          
           <div
             style={{
               fontSize: '24px',
@@ -262,19 +281,6 @@ export async function GET(request: NextRequest) {
           >
             {nftDescription}
           </div>
-          {contract && tokenId && (
-            <div
-              style={{
-                fontSize: '18px',
-                opacity: 0.6,
-                marginTop: '20px',
-                fontFamily: 'monospace',
-                display: 'flex',
-              }}
-            >
-              {contract.slice(0, 6)}...{contract.slice(-4)} #{tokenId}
-            </div>
-          )}
         </div>
       ),
       {

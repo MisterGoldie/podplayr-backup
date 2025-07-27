@@ -94,6 +94,10 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
       image: imageUrl || '',
       audio: audioUrl || '',
       hasValidAudio: !!audioUrl,
+      collection: {
+        name: metadata.contract?.name || '',
+        image: metadata.contract?.openSeaMetadata?.imageUrl || ''
+      },
       metadata: {
         ...metadata.raw.metadata,
         image: imageUrl || '',
