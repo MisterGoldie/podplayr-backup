@@ -275,11 +275,23 @@ const HomeView: React.FC<HomeViewProps> = ({
                               onPlay={async (nft) => {
                                 homeLogger.debug(`Play button clicked for NFT in Top Played: ${nft.name}`);
                                 try {
-                                  // Pass all top played NFTs as the queue context
-                                  await onPlayNFT(nft, {
-                                    queue: topPlayedNFTs.map(item => item.nft),
-                                    queueType: 'topPlayed'
-                                  });
+                                  // When playing from Top Played section
+                                  onPlayNFT(nft, { 
+                                    queue: topPlayedNFTs.map(item => item.nft), 
+                                    queueType: 'topPlayed' 
+                                  })
+                                  
+                                  // When playing from Recently Played section  
+                                  onPlayNFT(nft, { 
+                                    queue: recentlyPlayedNFTs, 
+                                    queueType: 'recentlyPlayed' 
+                                  })
+                                  
+                                  // When playing from Featured section
+                                  onPlayNFT(nft, { 
+                                    queue: featuredNfts,
+                                    queueType: 'featured' 
+                                  })
                                 } catch (error) {
                                   homeLogger.error('Error playing NFT from Top Played:', error);
                                 }

@@ -627,7 +627,10 @@ const ProfileView: React.FC<ProfileViewProps> = ({
               currentlyPlaying={currentlyPlaying}
               isPlaying={isPlaying}
               handlePlayPause={handlePlayPause}
-              onPlayNFT={handlePlayAudio}
+              onPlayNFT={(nft: NFT) => {
+                // Fix: Pass queue context when playing from profile
+handlePlayAudio(nft);
+              }}
               onLikeToggle={handleNFTLikeToggle}
               isNFTLiked={isNFTLiked}
               userFid={farcasterContext?.user?.fid}

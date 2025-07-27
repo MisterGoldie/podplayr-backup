@@ -175,6 +175,30 @@ const DemoBase: React.FC = () => {
     }
   }, [fid]);
   
+  // Move currentPage state declaration here, before its first usage
+  const [currentPage, setCurrentPage] = useState<PageState>({
+    isHome: true,
+    isExplore: false,
+    isLibrary: false,
+    isProfile: false,
+    isUserProfile: false
+  });
+  
+  // Add this debugging function near the top of the component
+  const debugWindowNftList = () => {
+    console.log('🔍 Window.nftList status:', {
+      exists: !!window.nftList,
+      length: window.nftList?.length || 0,
+      currentPage,
+      firstFew: window.nftList?.slice(0, 3).map(nft => nft.name) || []
+    });
+  };
+
+  // Call this function whenever the page changes
+  useEffect(() => {
+    debugWindowNftList();
+  }, [currentPage]);
+  
   // Load liked NFTs from localStorage immediately for instant UI updates
   useEffect(() => {
     const loadCachedLikes = () => {
@@ -196,13 +220,6 @@ const DemoBase: React.FC = () => {
   }, []);
   
   // 2. State Hooks
-  const [currentPage, setCurrentPage] = useState<PageState>({
-    isHome: true,
-    isExplore: false,
-    isLibrary: false,
-    isProfile: false,
-    isUserProfile: false
-  });
   
   // Track where the user navigated from when going to a user profile
   const [navigationSource, setNavigationSource] = useState<NavigationSource>({
@@ -813,15 +830,27 @@ const DemoBase: React.FC = () => {
 
   // Add these functions before renderCurrentView
   const handlePlayNFT = useCallback(async (nft: NFT, context?: { queue?: NFT[], queueType?: string }) => {
-  // Check if this is a different NFT by comparing the currently playing identifier
-  if (!currentlyPlaying || currentlyPlaying !== `${nft.contract}-${nft.tokenId}`) {
-  // New NFT - start with minimized player and play audio
-  setIsPlayerMinimized(true);
-await handlePlayAudio(nft);
-  } else {
-  // Same NFT - just ensure player is minimized without restarting audio
-  setIsPlayerMinimized(true);
-  }
+    // Check if this is a different NFT by comparing the currently playing identifier
+    if (!currentlyPlaying || currentlyPlaying !== `${nft.contract}-${nft.tokenId}`) {
+      // New NFT - start with minimized player and play audio
+      setIsPlayerMinimized(true);
+      
+      // Set the queue context if provided
+      if (context?.queue && context?.queueType) {
+        console.log('🎵 Setting NFT queue:', {
+          queueType: context.queueType,
+          queueLength: context.queue.length,
+          currentNFT: nft.name
+        });
+        // Set window.nftList for backward compatibility with useAudioPlayer
+        window.nftList = context.queue;
+      }
+      
+      await handlePlayAudio(nft);
+    } else {
+      // Same NFT - just ensure player is minimized without restarting audio
+      setIsPlayerMinimized(true);
+    }
   }, [handlePlayAudio, currentlyPlaying]);
 
   const handlePlayPause = () => {

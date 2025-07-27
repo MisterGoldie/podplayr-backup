@@ -453,10 +453,14 @@ class LibraryView extends React.Component<LibraryViewProps> {
                 const staggerDelay = 0.05 * (index % 8); // Reset every 8 items to keep delays reasonable
                 
                 return (
+                  // In the render method, around line 460
                   <SimpleNFTCard
                     key={uniqueKey}
                     nft={nft}
-                    onPlay={handlePlayAudio}
+                    onPlay={async (nft: NFT) => {
+                      // Fix: Pass queue context when playing from library
+                      handlePlayAudio(nft);
+                    }}
                     isPlaying={isPlaying}
                     currentlyPlaying={currentlyPlaying}
                     onLikeToggle={onLikeToggle}

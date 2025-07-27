@@ -945,7 +945,11 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
                     currentlyPlaying={currentlyPlaying}
                     isPlaying={isPlaying}
                     handlePlayPause={handlePlayPause}
-                    onPlayNFT={onPlayNFT}
+                    // Fix the onPlayNFT prop - it should be a function that calls onPlayNFT with context
+                    onPlayNFT={(nft: NFT) => {
+                      // When playing from user's NFT collection
+                      onPlayNFT(nft);
+                    }}
                     publicCollections={publicCollections}
                     addToPublicCollection={addToPublicCollection}
                     removeFromPublicCollection={removeFromPublicCollection}

@@ -759,10 +759,10 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
                 <button
                   onClick={async () => {
                     await triggerHaptic('light', 'MaximizedPlayer-Previous');
-                    if (onNext) onNext();
+                    if (onPrevious) onPrevious(); // Fixed: was calling onNext
                   }}
                   className="text-white hover:scale-110 transition-transform"
-                  disabled={!onNext}
+                  disabled={!onPrevious} // Fixed: was checking !onNext
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" height="32px" viewBox="0 -960 960 960" width="32px" fill="currentColor">
                     <path d="M220-240v-480h80v480h-80Zm440 0v-480l-360 240 360 240Z"/>
@@ -792,12 +792,12 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
                 <button
                   onClick={async () => {
                     await triggerHaptic('light', 'MaximizedPlayer-Next');
-                    if (onPrevious) {
-                      onPrevious();
+                    if (onNext) { // Fixed: was checking onPrevious
+                      onNext(); // Fixed: was calling onPrevious
                     }
                   }}
                   className="text-white hover:scale-110 transition-transform"
-                  disabled={!onPrevious}
+                  disabled={!onNext} // Fixed: was checking !onPrevious
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" height="32px" viewBox="0 -960 960 960" width="32px" fill="currentColor">
                     <path d="M660-240v-480h80v480h-80ZM220-240v-480l360 240-360 240Z"/>

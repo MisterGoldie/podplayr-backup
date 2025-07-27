@@ -933,11 +933,20 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
   
   // Now define handlePlayNext and handlePlayPrevious which use handlePlayAudio
   const handlePlayNext = useCallback(async () => {
-    if (!currentPlayingNFT) return;
+    console.log('🔥 NEXT BUTTON PRESSED!');
+    console.log('Current playing NFT:', currentPlayingNFT?.name);
+    console.log('Current queue length:', currentQueue.length);
+    console.log('Window.nftList length:', window.nftList?.length || 0);
+    
+    if (!currentPlayingNFT) {
+      console.log('❌ No current playing NFT');
+      return;
+    }
     
     // Use the current queue that was set when the NFT was played
     // instead of relying on window.nftList
     if (currentQueue.length === 0) {
+      console.log('❌ No queue available for next track');
       audioLogger.debug('No queue available for next track');
       return;
     }
@@ -950,9 +959,11 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
       (nft: NFT) => nft.contract === currentPlayingNFT.contract && nft.tokenId === currentPlayingNFT.tokenId
     );
 
+    console.log('Current index in queue:', currentIndex);
     audioLogger.info('Current index in queue:', currentIndex);
 
     if (currentIndex === -1) {
+      console.log('❌ Current NFT not found in queue');
       audioLogger.debug('Current NFT not found in queue');
       return;
     }
@@ -961,6 +972,7 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
     const nextIndex = (currentIndex + 1) % currentQueue.length;
     const nextNFT = currentQueue[nextIndex];
 
+    console.log('✅ Playing next NFT:', nextNFT?.name, 'at index:', nextIndex);
     audioLogger.info('Playing next NFT:', nextNFT.name, 'at index:', nextIndex);
     
     if (nextNFT) {
@@ -970,13 +982,21 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
   }, [currentPlayingNFT, handlePlayAudio, currentQueue, queueType]);
 
   const handlePlayPrevious = useCallback(async () => {
-    if (!currentPlayingNFT) return;
+    console.log('🔥 PREVIOUS BUTTON PRESSED!');
+    console.log('Current playing NFT:', currentPlayingNFT?.name);
+    
+    if (!currentPlayingNFT) {
+      console.log('❌ No current playing NFT');
+      return;
+    }
     
     // Get the current queue from window.nftList which is set by the Demo component
     // based on the current page/category
     const currentPageQueue = window.nftList || [];
+    console.log('Window.nftList length:', currentPageQueue.length);
     
     if (!currentPageQueue.length) {
+      console.log('❌ No queue available for previous track');
       audioLogger.debug('No queue available for previous track');
       return;
     }
@@ -988,9 +1008,11 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
       (nft: NFT) => nft.contract === currentPlayingNFT.contract && nft.tokenId === currentPlayingNFT.tokenId
     );
 
+    console.log('Current index in queue:', currentIndex);
     audioLogger.info('Current index in queue:', currentIndex);
 
     if (currentIndex === -1) {
+      console.log('❌ Current NFT not found in queue');
       audioLogger.debug('Current NFT not found in queue');
       return;
     }
@@ -999,6 +1021,7 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
     const prevIndex = (currentIndex - 1 + currentPageQueue.length) % currentPageQueue.length;
     const prevNFT = currentPageQueue[prevIndex];
 
+    console.log('✅ Playing previous NFT:', prevNFT?.name, 'at index:', prevIndex);
     audioLogger.info('Playing previous NFT:', prevNFT.name, 'at index:', prevIndex);
     
     if (prevNFT) {

@@ -1,11 +1,12 @@
-'use client';
+// Remove this line:
+// 'use client';
 import React, { useContext, useRef, useEffect, useState } from 'react';
 import { MinimizedPlayer } from './MinimizedPlayer';
 import { MaximizedPlayer } from './MaximizedPlayer';
 import type { NFT } from '../../types/user';
 import { UserFidContext } from '../../app/providers';
 import { useNFTLikeState } from '../../hooks/useNFTLikeState';
-import { setPlaybackActive } from '../../utils/media';
+import { isPlaybackActive } from '../../utils/media';
 import { useNFTQueue } from './hooks/useNFTQueue';
 
 interface PlayerProps {
@@ -47,13 +48,13 @@ export const Player: React.FC<PlayerProps> = ({
   // Fix: useNFTLikeState expects (nft, fid) parameters, not an object
   const { isLiked: nftIsLiked, toggleLike } = useNFTLikeState(nft, typeof userFid === 'number' ? userFid : null);
 
-  // Fix: useNFTQueue expects onPlayNFT parameter, not currentNFT
-  const { handlePlayNext, handlePlayPrevious } = useNFTQueue({
-    onPlayNFT: async (nextNft: NFT) => {
-      // This will be handled by the parent component
-      console.log('Playing next NFT:', nextNft.name);
-    }
-  });
+  // REMOVE this useNFTQueue hook - we should use the props instead
+  // const { handlePlayNext, handlePlayPrevious } = useNFTQueue({
+  //   onPlayNFT: async (nextNft: NFT) => {
+  //     // This will be handled by the parent component
+  //     console.log('Playing next NFT:', nextNft.name);
+  //   }
+  // });
 
   // Simplified minimize toggle that doesn't interfere with audio
   const handleMinimizeToggle = () => {
@@ -67,8 +68,8 @@ export const Player: React.FC<PlayerProps> = ({
         nft={nft}
         isPlaying={isPlaying}
         onPlayPause={onPlayPause}
-        onNext={() => handlePlayNext(nft)}
-        onPrevious={() => handlePlayPrevious(nft)}
+        onNext={onNext}  // Use the prop directly
+        onPrevious={onPrevious}  // Use the prop directly
         onMinimizeToggle={handleMinimizeToggle}
         progress={progress}
         duration={duration}
@@ -91,8 +92,8 @@ export const Player: React.FC<PlayerProps> = ({
       isAnimating={false}
       isPlaying={isPlaying}
       onPlayPause={onPlayPause}
-      onNext={() => handlePlayNext(nft)}
-      onPrevious={() => handlePlayPrevious(nft)}
+      onNext={onNext}  // Use the prop directly
+      onPrevious={onPrevious}  // Use the prop directly
       onMinimizeToggle={handleMinimizeToggle}
       progress={progress}
       duration={duration}
