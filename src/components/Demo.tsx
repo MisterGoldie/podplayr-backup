@@ -24,7 +24,8 @@ import {
   searchUsers,
   toggleLikeNFT,
   fetchUserNFTs,
-  getRecentSearches
+  getRecentSearches,
+  subscribeToRecentSearches
 } from '../lib/firebase';
 import { fetchUserNFTsFromAlchemy } from '../lib/alchemy';
 import type { NFT, FarcasterUser, SearchedUser, UserContext, LibraryViewProps, ProfileViewProps, NFTFile, NFTPlayData, GroupedNFT } from '../types/user';
@@ -381,28 +382,24 @@ const DemoBase: React.FC = () => {
   });
 
   useEffect(() => {
-    const loadInitialData = async () => {
-      demoLogger.info('🔄 Starting initial data load with userFid:', fid);
-      
-      try {
-        // Load recent searches regardless of FID
-        const recentSearches = await getRecentSearches(fid);
-        demoLogger.info('📜 Recent searches loaded:', recentSearches.length);
-        setRecentSearches(recentSearches);
-        
-        // Only load user-specific data if we have a FID
-        if (fid) {
-          const likedNFTs = await getLikedNFTs(fid);
-          demoLogger.info('❤️ Liked NFTs loaded:', likedNFTs.length);
-        } else {
-          demoLogger.warn('⚠️ No userFid available for initial data load');
-        }
-      } catch (error) {
-        demoLogger.error('❌ Error loading initial data:', error);
-      }
-    };
+    if (!fid) {
+      demoLogger.warn('⚠️ No userFid available for recent searches subscription');
+      return;
+    }
 
-    loadInitialData();
+    demoLogger.info('🔄 Setting up recent searches subscription for FID:', fid);
+    
+    // Set up real-time subscription to recent searches
+    const unsubscribe = subscribeToRecentSearches(fid, (searches) => {
+      demoLogger.info('📜 Recent searches updated:', searches.length);
+      setRecentSearches(searches);
+    });
+
+    // Cleanup subscription on unmount or FID change
+    return () => {
+      demoLogger.info('🧹 Cleaning up recent searches subscription');
+      unsubscribe();
+    };
   }, [fid]);
 
   // User data loading is now handled by UserDataLoader component
