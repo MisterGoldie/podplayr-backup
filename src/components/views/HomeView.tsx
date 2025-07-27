@@ -280,18 +280,6 @@ const HomeView: React.FC<HomeViewProps> = ({
                                     queue: topPlayedNFTs.map(item => item.nft), 
                                     queueType: 'topPlayed' 
                                   })
-                                  
-                                  // When playing from Recently Played section  
-                                  onPlayNFT(nft, { 
-                                    queue: recentlyPlayedNFTs, 
-                                    queueType: 'recentlyPlayed' 
-                                  })
-                                  
-                                  // When playing from Featured section
-                                  onPlayNFT(nft, { 
-                                    queue: featuredNfts,
-                                    queueType: 'featured' 
-                                  })
                                 } catch (error) {
                                   homeLogger.error('Error playing NFT from Top Played:', error);
                                 }

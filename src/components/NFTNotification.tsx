@@ -6,25 +6,15 @@ import { useNFTNotification } from '../context/NFTNotificationContext';
 
 interface NFTNotificationProps {
   onReset?: () => void;
-  showConnectionBanner?: boolean;
-  connectionUsername?: string;
-  onHideConnection?: () => void;
+  // Remove connection-related props
 }
 
 const NFTNotification: React.FC<NFTNotificationProps> = ({ 
-  onReset, 
-  showConnectionBanner = false,
-  connectionUsername = '',
-  onHideConnection
+  onReset
 }) => {
   const { isVisible, hideNotification, notificationType, nftName } = useNFTNotification();
   const [animationKey, setAnimationKey] = useState(0);
   
-  // Debug logs for connection banner
-  useEffect(() => {
-    console.log(`🔍 CONNECTION BANNER: show=${showConnectionBanner}, username=${connectionUsername}`);
-  }, [showConnectionBanner, connectionUsername]);
-
   // Force re-render of component when notification becomes visible
   // This ensures animation plays every time with no delay
   useEffect(() => {
@@ -73,12 +63,7 @@ const NFTNotification: React.FC<NFTNotificationProps> = ({
           message: 'Removed from library',
           highlightText: nftName ? nftName.replace(/\s*[×Xx]\s*$/, '') : ''
         };
-      case 'connection':
-        return {
-          type: 'connection',
-          message: 'Connection with',
-          highlightText: nftName || ''
-        };
+      // Remove connection case
       default:
         return null;
     }
@@ -94,7 +79,7 @@ const NFTNotification: React.FC<NFTNotificationProps> = ({
           type={notificationProps.type as any}
           message={notificationProps.message}
           highlightText={notificationProps.highlightText}
-          autoHideDuration={notificationType === 'connection' ? undefined : 4000} // No auto-hide for connection notifications
+          autoHideDuration={4000} // Remove connection check
           onLogoClick={onReset}
           key={animationKey}
         />
@@ -102,13 +87,6 @@ const NFTNotification: React.FC<NFTNotificationProps> = ({
       <style jsx>{`
         .notification-wrapper {
           position: relative;
-          z-index: 9999;
-        }
-        .connection-banner {
-          position: fixed;
-          top: 0;
-          left: 0;
-          right: 0;
           z-index: 9999;
         }
       `}</style>
