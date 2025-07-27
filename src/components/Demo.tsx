@@ -388,6 +388,7 @@ const DemoBase: React.FC = () => {
         // Load recent searches regardless of FID
         const recentSearches = await getRecentSearches(fid);
         demoLogger.info('📜 Recent searches loaded:', recentSearches.length);
+        setRecentSearches(recentSearches);
         
         // Only load user-specific data if we have a FID
         if (fid) {
