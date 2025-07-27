@@ -3,7 +3,7 @@
 import React, { useRef, useEffect, useState } from 'react';
 
 interface AdPlayerProps {
-  onAdComplete: () => void;
+  onAdComplete?: () => void;
   key?: string;
 }
 
@@ -44,7 +44,7 @@ const AD_CONFIG = [
   {
     video: '/podballad1.mp4',
     url: 'https://farcaster.xyz/miniapps/MBTyTK95-Yif/podball',
-    title: 'PODball',
+    title: 'PODball'
   },
   {
     video: '/podplayrad1.mp4',
@@ -106,7 +106,7 @@ export const AdPlayer: React.FC<AdPlayerProps> = ({ onAdComplete }) => {
     if (!video) return;
 
     const handleEnded = () => {
-      onAdComplete();
+      onAdComplete?.();
     };
 
     const handleTimeUpdate = () => {
@@ -190,11 +190,15 @@ export const AdPlayer: React.FC<AdPlayerProps> = ({ onAdComplete }) => {
       </div>
       {/* Ad link container - only show if the ad has a URL */}
       {selectedAd.url && (
-        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 bg-purple-900/90 rounded-lg overflow-hidden border border-purple-500/30">
+        <div className={`absolute left-1/2 -translate-x-1/2 bg-purple-900/90 rounded-lg overflow-hidden border border-purple-500/30 ${
+          videoOrientation === 'portrait' ? 'bottom-32' : 'bottom-8'
+        }`}>
           <div className="flex items-center space-x-3 p-3">
             <div className="flex-1">
               <p className="text-white text-sm font-medium">{selectedAd.title}</p>
-              <p className="text-gray-400 text-xs">{selectedAd.domain}</p>
+              {selectedAd.domain && (
+                <p className="text-gray-400 text-xs">{selectedAd.domain}</p>
+              )}
             </div>
             <a
               href={selectedAd.url}
