@@ -17,7 +17,50 @@ const baseAlchemy = new Alchemy({
 export const getNFTMetadata = async (contract: string, tokenId: string, network: 'base' | 'ethereum' = 'ethereum'): Promise<NFT> => {
   try {
     const client = network === 'base' ? baseAlchemy : ethAlchemy;
-    const metadata = await client.nft.getNftMetadata(contract, tokenId);
+    
+    // Handle different tokenId formats - try multiple formats like the OpenGraph API does
+    const tokenIdFormats = [];
+    
+    // If tokenId contains hex characters, try converting to decimal
+    if (/[a-fA-F]/.test(tokenId)) {
+      const hexWithPrefix = tokenId.startsWith('0x') ? tokenId : `0x${tokenId}`;
+      try {
+        const decimalValue = BigInt(hexWithPrefix).toString();
+        tokenIdFormats.push(decimalValue);
+      } catch (e) {
+        console.log('Failed to convert hex to decimal:', e);
+      }
+      
+      // Also try with 0x prefix if not already present
+      if (!tokenId.startsWith('0x')) {
+        tokenIdFormats.push(`0x${tokenId}`);
+      }
+    } else {
+      // For non-hex tokenIds, try as-is and with/without 0x prefix
+      tokenIdFormats.push(
+        tokenId,
+        tokenId.startsWith('0x') ? tokenId.slice(2) : tokenId,
+      );
+    }
+    
+    let metadata;
+    let lastError;
+    
+    // Try each tokenId format until one works
+    for (const testTokenId of tokenIdFormats) {
+      try {
+        metadata = await client.nft.getNftMetadata(contract, testTokenId);
+        console.log(`✅ Successfully fetched metadata with tokenId format: ${testTokenId}`);
+        break;
+      } catch (error) {
+        console.log(`❌ Failed with tokenId format ${testTokenId}:`, (error as Error).message);
+        lastError = error;
+      }
+    }
+    
+    if (!metadata) {
+      throw lastError || new Error('Failed to fetch metadata with any tokenId format');
+    }
 
     // Process media URLs
     const audioUrl = processMediaUrl(
@@ -30,11 +73,13 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
       metadata.raw.metadata?.properties?.soundContent?.url
     );
 
+    // Around line 70-80, update the imageUrl processing:
     const imageUrl = processMediaUrl(
       metadata.raw.metadata?.image ||
       metadata.raw.metadata?.image_url ||
       metadata.raw.metadata?.properties?.image ||
-      metadata.raw.metadata?.properties?.visual?.url
+      metadata.raw.metadata?.properties?.visual?.url ||
+      metadata.contract?.openSeaMetadata?.imageUrl  // ADD THIS LINE!
     );
 
     // Ensure contract address is lowercase

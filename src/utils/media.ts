@@ -1,3 +1,5 @@
+"use client";
+
 import { useState } from 'react';
 import { NFT as UserNFT } from '../types/user';
 import { getCdnUrl, CDN_CONFIG } from './cdn';

@@ -16,7 +16,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   const frame = {
     version: 'vNext',
-    image: nft.metadata?.image || `${appUrl}/api/og?contract=${contract}&tokenId=${tokenId}`,
+    // Always use OpenGraph API - it has the robust image processing logic
+    image: `${appUrl}/api/og?contract=${contract}&tokenId=${tokenId}`,
     title: nft.name || 'PODPLAYR',
     description: nft.description || 'Listen to this NFT on PODPlayr',
     buttons: [{
@@ -58,7 +59,8 @@ export default async function NFTFramePage({ params }: Props) {
     <div className="flex min-h-screen flex-col items-center justify-center p-4">
       <div className="max-w-lg w-full">
         <img 
-          src={nft.metadata?.image || `${appUrl}/api/og?contract=${contract}&tokenId=${tokenId}`}
+          // Use OpenGraph API for consistent image processing
+          src={`${appUrl}/api/og?contract=${contract}&tokenId=${tokenId}`}
           alt={nft.name || 'NFT Image'}
           className="w-full h-auto rounded-lg shadow-lg"
         />
