@@ -21,6 +21,7 @@ interface PlayerWithAdsProps {
   isLiked?: boolean;
   onPictureInPicture?: () => void;
   onPlayNFT: (nft: NFT) => Promise<void>;
+  onAdStateChange?: (isAdPlaying: boolean) => void;
 }
 
 export const PlayerWithAds: React.FC<PlayerWithAdsProps> = (props) => {
@@ -72,33 +73,17 @@ export const PlayerWithAds: React.FC<PlayerWithAdsProps> = (props) => {
     }
   }, [props.nft, props.isPlaying, playCount, playsAfterAd, hasShownFirstAd, incrementPlayCount]);
 
-  // Force pause content if ad is showing and handle nav and header visibility
+  // Notify parent component about ad state changes
   useEffect(() => {
-    // Get specific elements we need to hide during ad display (NOT BottomNav)
-    const topNav = document.querySelector('nav:not([class*="bottom"])') as HTMLElement; // Cast to HTMLElement
-    const headers = document.querySelectorAll('header');
-    
+    if (props.onAdStateChange) {
+      props.onAdStateChange(showAd);
+    }
+
     if (showAd) {
-      // Hide top navigation only (not BottomNav)
-      if (topNav) topNav.style.display = 'none';
-      
-      // Hide all headers
-      headers.forEach(header => {
-        (header as HTMLElement).style.display = 'none'; // Cast to HTMLElement
-      });
-      
       // Pause the main content if it's playing
       if (props.isPlaying) props.onPlayPause();
-    } else {
-      // Show top navigation when ad is not showing
-      if (topNav) topNav.style.display = 'flex';
-      
-      // Show all headers
-      headers.forEach(header => {
-        (header as HTMLElement).style.display = 'flex'; // Cast to HTMLElement
-      });
     }
-  }, [showAd, props.isPlaying, props.onPlayPause]);
+  }, [showAd, props.onAdStateChange, props.isPlaying, props.onPlayPause]);
 
   const handleAdComplete = () => {
     setShowAd(false);
@@ -106,16 +91,13 @@ export const PlayerWithAds: React.FC<PlayerWithAdsProps> = (props) => {
     resetPlayCount();
     setPlaysAfterAd(0);
     
-    // Restore nav and headers (but not BottomNav which should always be visible)
-    const topNav = document.querySelector('nav:not([class*="bottom"])') as HTMLElement; // Cast to HTMLElement
-    const headers = document.querySelectorAll('header');
+    // Notify parent that ad is no longer playing
+    if (props.onAdStateChange) {
+      props.onAdStateChange(false);
+    }
     
-    if (topNav) topNav.style.display = 'flex';
-    headers.forEach(header => {
-      (header as HTMLElement).style.display = 'flex'; // Cast to HTMLElement
-    });
-    
-    props.onPlayPause(); // Resume the main content
+    // Resume the main content
+    props.onPlayPause();
   };
 
   // Don't render anything until ad is complete if we're showing an ad
@@ -132,4 +114,4 @@ export const PlayerWithAds: React.FC<PlayerWithAdsProps> = (props) => {
   }
   
   return <Player {...playerProps} nft={props.nft} />;
-}
+};

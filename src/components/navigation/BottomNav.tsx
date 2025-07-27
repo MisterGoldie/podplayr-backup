@@ -10,18 +10,20 @@ interface BottomNavProps {
   onViewChange: (view: View) => void;
   isPlayerActive?: boolean;
   isPlayerMinimized?: boolean;
+  isAdPlaying?: boolean; // Add this new prop
 }
 
-const buttonVariants = {
-  tap: { scale: 0.95 },
-  hover: { scale: 1.05 }
-};
+export const BottomNav: React.FC<BottomNavProps> = ({ 
+  currentView, 
+  onViewChange, 
+  isPlayerActive, 
+  isPlayerMinimized, 
+  isAdPlaying 
+}) => {
+  const { isFarcaster } = useContext(FarcasterContext);
 
-export const BottomNav: React.FC<BottomNavProps> = ({ currentView, onViewChange, isPlayerActive, isPlayerMinimized }) => {
-  const { isFarcaster } = useContext(FarcasterContext); // Use useContext instead of useFarcasterContext
-
-  // Hide the bottom nav when player is active and maximized
-  if (isPlayerActive && !isPlayerMinimized) {
+  // Hide the bottom nav when player is active and maximized OR when ad is playing
+  if ((isPlayerActive && !isPlayerMinimized) || isAdPlaying) {
     return null;
   }
 
@@ -74,7 +76,10 @@ export const BottomNav: React.FC<BottomNavProps> = ({ currentView, onViewChange,
     <nav className="fixed bottom-0 left-0 right-0 z-[110] bg-black/90 backdrop-blur-lg border-t border-purple-500/20 transition-all duration-300">
       <div className="flex justify-around items-center py-2">
         <motion.button
-          variants={buttonVariants}
+          variants={{
+            tap: { scale: 0.95 },
+            hover: { scale: 1.05 }
+          }}
           whileTap="tap"
           whileHover="hover"
           onClick={() => {
@@ -92,7 +97,10 @@ export const BottomNav: React.FC<BottomNavProps> = ({ currentView, onViewChange,
         </motion.button>
 
         <motion.button
-          variants={buttonVariants}
+          variants={{
+            tap: { scale: 0.95 },
+            hover: { scale: 1.05 }
+          }}
           whileTap="tap"
           whileHover="hover"
           onClick={() => {
@@ -110,7 +118,10 @@ export const BottomNav: React.FC<BottomNavProps> = ({ currentView, onViewChange,
         </motion.button>
 
         <motion.button
-          variants={buttonVariants}
+          variants={{
+            tap: { scale: 0.95 },
+            hover: { scale: 1.05 }
+          }}
           whileTap="tap"
           whileHover="hover"
           onClick={() => {
@@ -128,7 +139,10 @@ export const BottomNav: React.FC<BottomNavProps> = ({ currentView, onViewChange,
         </motion.button>
 
         <motion.button
-          variants={buttonVariants}
+          variants={{
+            tap: { scale: 0.95 },
+            hover: { scale: 1.05 }
+          }}
           whileTap="tap"
           whileHover="hover"
           onClick={() => {

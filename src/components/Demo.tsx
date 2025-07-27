@@ -306,6 +306,7 @@ const DemoBase: React.FC = () => {
 
 
   const [localRecentSearches, setLocalRecentSearches] = useState<RecentSearch[]>([]);
+  const [isAdPlaying, setIsAdPlaying] = useState(false);
 
   // Remove old Firebase subscription
   useEffect(() => {
@@ -1096,6 +1097,7 @@ const DemoBase: React.FC = () => {
           onViewChange={handleViewChange} 
           isPlayerActive={!!currentPlayingNFT}
           isPlayerMinimized={isPlayerMinimized}
+          isAdPlaying={isAdPlaying}
         />
       </>
     );
@@ -1120,6 +1122,7 @@ const DemoBase: React.FC = () => {
           onLikeToggle={() => currentPlayingNFT && onLikeToggle(currentPlayingNFT)}
           isLiked={currentPlayingNFT ? isNFTLiked(currentPlayingNFT) : false}
           onPictureInPicture={togglePictureInPicture}
+          onAdStateChange={setIsAdPlaying}
         />
       )}
     </div>
