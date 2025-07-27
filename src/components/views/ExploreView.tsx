@@ -410,32 +410,26 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
   // Track previous selected user to prevent infinite loops
   const prevSelectedUserRef = useRef<number | null>(null);
   
-  // Reset connection state when search starts or user changes
+  // Consolidated connection state management
   useEffect(() => {
-    // Always reset when search starts or user changes
-    console.log('🔄 Reset connection header - search state or user changed');
-    setShowConnectionHeader(false);
-    setConnectionUsername('');
-    setConnectionLikedCount(0);
-    
-    // Also clean up any global window variables
+    // Clean up global window variables first
     if (typeof window !== 'undefined') {
-      // These might be causing persistence issues
       if ((window as any).__hideConnectionNotification) {
         console.log('🧹 Cleaning up global notification handler');
         (window as any).__hideConnectionNotification();
       }
     }
-  }, [selectedUser, isSearching]);
-  
-  // Add this effect to detect connections
-  useEffect(() => {
-    // CRITICAL: Reset connection state FIRST to prevent stale notifications
-    setShowConnectionHeader(false);
-    setConnectionUsername('');
-    setConnectionLikedCount(0);
-    
-    // Only run this effect when we have a user and NFTs are loaded
+
+    // Reset connection state if no user or searching
+    if (!selectedUser || isSearching) {
+      console.log('🔄 Reset connection header - no user or searching');
+      setShowConnectionHeader(false);
+      setConnectionUsername('');
+      setConnectionLikedCount(0);
+      return;
+    }
+
+    // Only proceed if we have a user and NFTs are loaded
     if (selectedUser && !isLoadingNFTs && nfts.length > 0 && isNFTLiked) {
       console.log(`🔍 Checking for connections with ${selectedUser.username}`);
       
@@ -455,9 +449,12 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
         setShowConnectionHeader(true);
       } else {
         console.log(`❌ No connections found for ${selectedUser.username}`);
+        setShowConnectionHeader(false);
+        setConnectionUsername('');
+        setConnectionLikedCount(0);
       }
     }
-  }, [selectedUser, isLoadingNFTs, nfts, isNFTLiked, setShowConnectionHeader, setConnectionUsername, setConnectionLikedCount]);
+  }, [selectedUser, isSearching, isLoadingNFTs, nfts, isNFTLiked, setShowConnectionHeader, setConnectionUsername, setConnectionLikedCount]);
 
   // Add a comprehensive cleanup effect that runs when component unmounts or page changes
   useEffect(() => {
