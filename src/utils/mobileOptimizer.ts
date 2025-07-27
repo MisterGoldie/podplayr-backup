@@ -1,5 +1,5 @@
 import type { NFT } from '../types/user';
-import { isMobileDevice } from './deviceDetection';
+import { isMobileDevice as detectMobileDevice } from './deviceDetection';
 // NOTE: For React components, use the useDeviceDetection hook from hooks/useDeviceDetection.ts for consistent device detection.
 
 // Mobile device detection

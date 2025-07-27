@@ -1,8 +1,4 @@
-// Remove these lines completely (lines 1-2):
-// Remove this line completely:
-// import { useState } from 'react';
-
-// Keep the rest of the imports as they are:
+import { useState } from 'react';
 import { NFT as UserNFT } from '../types/user';
 import { getCdnUrl, CDN_CONFIG } from './cdn';
 import { v4 as uuidv4 } from 'uuid';
@@ -397,30 +393,31 @@ const createSafeId = (url: string): string => {
  * Generate a unique mediaKey for an NFT
  * Uses UUID to ensure each NFT has a unique identifier for tracking
  */
-// Remove this import (around line 396):
-// import { createHash } from 'crypto';
+import { createHash } from 'crypto';
+// uuidv4 is already imported at the top of the fil
 
-// Replace the getMediaKey function with this Edge Runtime compatible version:
-export const getMediaKey = (contract: string, tokenId: string): string => {
-  const cacheKey = `${contract.toLowerCase()}-${tokenId}`;
+// Cache for consistent mediaKey generation
+const mediaKeyCache = new Map<string, string>();
+
+export const getMediaKey = (nft: UserNFT): string => {
+  // Create a deterministic key based on NFT properties
+  // NORMALIZE the tokenId to ensure consistency
+  const normalizedTokenId = nft.tokenId?.toString().replace(/^0x+/, '0x') || '';
+  const nftIdentifier = `${nft.contract}-${normalizedTokenId}`;
   
   // Check cache first
-  if (mediaKeyCache.has(cacheKey)) {
-    return mediaKeyCache.get(cacheKey)!;
+  if (mediaKeyCache.has(nftIdentifier)) {
+    return mediaKeyCache.get(nftIdentifier)!;
   }
   
-  // Simple hash function for Edge Runtime compatibility
-  let hash = 0;
-  for (let i = 0; i < cacheKey.length; i++) {
-    const char = cacheKey.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash; // Convert to 32-bit integer
-  }
-  
-  const mediaKey = Math.abs(hash).toString(36);
+  // Generate deterministic mediaKey based on NFT properties
+  const mediaKey = createHash('sha256')
+    .update(`${nft.contract}-${normalizedTokenId}`)
+    .digest('hex')
+    .substring(0, 32); // Keep it shorter but still unique
   
   // Cache the result
-  mediaKeyCache.set(cacheKey, mediaKey);
+  mediaKeyCache.set(nftIdentifier, mediaKey);
   
   return mediaKey;
 };
