@@ -1,11 +1,13 @@
 import React, { createContext, useContext, useState, ReactNode } from 'react';
 import { NFT } from '../types/user';
 
-type NotificationType = 'like' | 'unlike' | 'connection';
+// Update the NotificationType to remove 'connection'
+type NotificationType = 'like' | 'unlike';
 
 interface NFTNotificationContextType {
   showNotification: (type: NotificationType, nft: NFT) => void;
-  showConnectionNotification: (username: string, likedCount?: number) => void;
+  // Remove this line:
+  // showConnectionNotification: (username: string, likedCount?: number) => void;
   hideNotification: () => void;
   isVisible: boolean;
   notificationType: NotificationType | null;
@@ -63,7 +65,7 @@ export const NFTNotificationProvider: React.FC<NFTNotificationProviderProps> = (
     }
 
     // Set notification data
-    setNotificationType('connection');
+    setNotificationType(null); // Reset notification type since 'connection' is no longer a valid type
     setNftName(displayName); // Use the formatted username as the highlight text
     
     // Show notification immediately
@@ -90,11 +92,14 @@ export const NFTNotificationProvider: React.FC<NFTNotificationProviderProps> = (
     }, 700); // Wait for animation to finish
   };
 
+  // Remove the entire showConnectionNotification function (lines ~50-75)
+
   return (
     <NFTNotificationContext.Provider
       value={{
         showNotification,
-        showConnectionNotification,
+        // Remove this line:
+        // showConnectionNotification,
         hideNotification,
         isVisible,
         notificationType,

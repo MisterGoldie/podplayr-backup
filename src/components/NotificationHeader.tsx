@@ -1,7 +1,8 @@
 import React, { useState, useEffect, memo } from 'react';
 import Image from 'next/image';
 
-type NotificationType = 'success' | 'info' | 'warning' | 'error' | 'connection' | 'profile';
+// Update the NotificationType to remove 'connection'
+type NotificationType = 'success' | 'info' | 'warning' | 'error' | 'profile';
 
 interface NotificationHeaderProps {
   show: boolean;
@@ -76,8 +77,9 @@ const NotificationHeader: React.FC<NotificationHeaderProps> = memo(({
         return 'bg-yellow-600 border-b border-yellow-700';
       case 'error':
         return 'bg-red-600 border-b border-red-700';
-      case 'connection':
-        return 'bg-purple-600 border-b border-purple-700';
+      // Remove this case:
+      // case 'connection':
+      //   return 'bg-purple-600 border-b border-purple-700';
       case 'profile':
         return 'bg-orange-500 border-b border-orange-600';
       default:
@@ -106,7 +108,7 @@ const NotificationHeader: React.FC<NotificationHeaderProps> = memo(({
             <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
           </svg>
         );
-      case 'connection':
+      case 'info':
         return (
           <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-purple-600" viewBox="0 0 20 20" fill="currentColor">
             <path fillRule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clipRule="evenodd" />

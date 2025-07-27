@@ -14,9 +14,10 @@ import { FarcasterContext, UserFidContext } from '../../app/providers';
 import NotificationHeader from '../NotificationHeader';
 import { useNFTNotification } from '../../context/NFTNotificationContext';
 import NFTNotification from '../NFTNotification';
-import LocalConnectionNotification from '../LocalConnectionNotification';
-import ConnectionHeader from '../ConnectionHeader';
-import { useConnection } from '../../context/ConnectionContext';
+// Remove these imports:
+// import LocalConnectionNotification from '../LocalConnectionNotification';
+// import ConnectionHeader from '../ConnectionHeader';
+// import { useConnection } from '../../context/ConnectionContext';
 import { useNFTLike } from '../../hooks/useNFTLike';
 
 // Hardcoded list of FIDs for users who should have "thepod" badge
@@ -402,60 +403,11 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
   };
   
   // Get the NFT notification context
-  const { showConnectionNotification, hideNotification } = useNFTNotification();
-  
-  // Get the connection context for direct control
-  const { setShowConnectionHeader, setConnectionUsername, setConnectionLikedCount } = useConnection();
+  const { hideNotification } = useNFTNotification();
   
   // Track previous selected user to prevent infinite loops
   const prevSelectedUserRef = useRef<number | null>(null);
   
-  // Consolidated connection state management
-  useEffect(() => {
-    // Clean up global window variables first
-    if (typeof window !== 'undefined') {
-      if ((window as any).__hideConnectionNotification) {
-        console.log('🧹 Cleaning up global notification handler');
-        (window as any).__hideConnectionNotification();
-      }
-    }
-
-    // Reset connection state if no user or searching
-    if (!selectedUser || isSearching) {
-      console.log('🔄 Reset connection header - no user or searching');
-      setShowConnectionHeader(false);
-      setConnectionUsername('');
-      setConnectionLikedCount(0);
-      return;
-    }
-
-    // Only proceed if we have a user and NFTs are loaded
-    if (selectedUser && !isLoadingNFTs && nfts.length > 0 && isNFTLiked) {
-      console.log(`🔍 Checking for connections with ${selectedUser.username}`);
-      
-      // Count liked NFTs
-      let count = 0;
-      for (const nft of nfts) {
-        if (isNFTLiked(nft, true)) {
-          count++;
-        }
-      }
-      
-      // Show connection ONLY if we have liked NFTs
-      if (count > 0) {
-        console.log(`✅ Found ${count} liked NFTs for ${selectedUser.username}`);
-        setConnectionUsername(selectedUser.username);
-        setConnectionLikedCount(count);
-        setShowConnectionHeader(true);
-      } else {
-        console.log(`❌ No connections found for ${selectedUser.username}`);
-        setShowConnectionHeader(false);
-        setConnectionUsername('');
-        setConnectionLikedCount(0);
-      }
-    }
-  }, [selectedUser, isSearching, isLoadingNFTs, nfts, isNFTLiked, setShowConnectionHeader, setConnectionUsername, setConnectionLikedCount]);
-
   // Add a comprehensive cleanup effect that runs when component unmounts or page changes
   useEffect(() => {
     // Return cleanup function
@@ -463,11 +415,6 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
       console.log('🚮 ExploreView unmounting - cleaning up ALL state');
       // Hide any active NFT notifications
       hideNotification();
-      
-      // Reset connection state completely
-      setShowConnectionHeader(false);
-      setConnectionUsername('');
-      setConnectionLikedCount(0);
       
       // Clean up global window variables
       if (typeof window !== 'undefined') {
@@ -490,9 +437,6 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
       {/* NFT Notification for like/unlike actions */}
       <NFTNotification onReset={onReset} />
       
-      {/* Connection Header - controlled by ConnectionContext */}
-      <ConnectionHeader />
-      
       {/* Main content with adjusted padding */}
       <div 
         className={`space-y-8 pt-20 pb-40 overflow-y-auto overscroll-y-contain min-h-screen bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082] ${
@@ -508,20 +452,8 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
                 hideNotification();
                 console.log('🗑 Reset notifications on back button click');
                 
-                // Use our special forced animation mode that guarantees completion
-                if (window && (window as any).__FORCE_CONNECTION_ANIMATION_DELAY) {
-                  console.log('🚀 Using guaranteed animation system');
-                  // This will delay navigation until animation completes
-                  (window as any).__FORCE_CONNECTION_ANIMATION_DELAY(() => {
-                    console.log('✅ Animation completed, now triggering navigation');
-                    // Only call onBack after animation finishes
-                    onBack();
-                  });
-                } else {
-                  // Fallback if our system isn't available
-                  console.log('⚠️ Fallback: forced animation system not available');
-                  onBack();
-                }
+                // Call onBack directly
+                onBack();
               }}
               className="mb-6 flex items-center gap-3 text-green-400 hover:text-green-300 transition-all px-5 py-3 rounded-lg
                        bg-gradient-to-br from-gray-900/90 to-gray-800/80 hover:from-gray-800/90 hover:to-gray-700/80
