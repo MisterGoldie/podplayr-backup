@@ -270,6 +270,7 @@ export async function GET(request: NextRequest) {
             {nftTitle}
           </div>
           
+          {/* Always show "Experience on PODPLAYR" below the title */}
           <div
             style={{
               fontSize: '24px',
@@ -279,7 +280,7 @@ export async function GET(request: NextRequest) {
               display: 'flex',
             }}
           >
-            {nftDescription}
+            Experience on PODPLAYR
           </div>
         </div>
       ),
