@@ -41,7 +41,12 @@ const AD_CONFIG = [
     domain: 'acyl.world',
     isVertical: true
   },
-   {
+  {
+    video: '/podballad1.mp4',
+    url: 'https://farcaster.xyz/miniapps/MBTyTK95-Yif/podball',
+    title: 'PODball',
+  },
+  {
     video: '/podplayrad1.mp4',
   },
 ];
