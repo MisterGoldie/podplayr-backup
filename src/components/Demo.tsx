@@ -29,7 +29,7 @@ import {
 } from '../lib/firebase';
 import { fetchUserNFTsFromAlchemy } from '../lib/alchemy';
 import type { NFT, FarcasterUser, SearchedUser, UserContext, LibraryViewProps, ProfileViewProps, NFTFile, NFTPlayData, GroupedNFT } from '../types/user';
-import { useAudioPlayer } from '../hooks/useAudioPlayer';
+import { usePlayer } from '../contexts/PlayerContext';
 import { useTopPlayedNFTs } from '../hooks/useTopPlayedNFTs';
 import { useFirebase } from '../contexts/FirebaseContext';
 import { UserDataLoader } from './data/UserDataLoader';
@@ -379,7 +379,7 @@ const DemoBase: React.FC = () => {
   
   // Remove the duplicate useEffect around line 330-357 that also calls loadInitialData
 
-  // Fix the useAudioPlayer destructuring (around line 250)
+  // Fix the usePlayer destructuring (around line 250)
   const {
     isPlaying,
     currentPlayingNFT,
@@ -390,13 +390,8 @@ const DemoBase: React.FC = () => {
     handlePlayPause: audioHandlePlayPause,
     handleSeek,
     handlePlayNext,
-    handlePlayPrevious,
-    audioRef
-  } = useAudioPlayer({ 
-    fid: fid,
-    setRecentlyPlayedNFTs,
-    recentlyAddedNFT 
-  });
+    handlePlayPrevious
+  } = usePlayer();
 
   useEffect(() => {
     if (!fid) {
