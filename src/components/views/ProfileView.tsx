@@ -94,11 +94,28 @@ const ProfileView: React.FC<ProfileViewProps> = ({
   const [showFollowsModal, setShowFollowsModal] = useState(false);
   const [followsModalType, setFollowsModalType] = useState<'followers' | 'following'>('followers');
 
+  // Move useRef hooks to top level of component
+  const loadingLikedNFTs = useRef(false);
+  const loadingFollowCounts = useRef(false);
+
   // Use the NFT cache context
   const { userNFTs: cachedNFTs, isLoading: isCacheLoading, error: cacheError, refreshUserNFTs, lastUpdated } = useNFTCache();
   
   // Combined error state that shows either local error or cache error
   const combinedError = error || cacheError;
+  
+  // Add this function to handle follow status changes from the modal
+  const handleFollowStatusChange = (newStatus: boolean, targetFid: number) => {
+    // Update follower count if this is the viewed user (current user's profile)
+    if (farcasterContext?.user?.fid === targetFid) {
+      setAppFollowerCount(prev => newStatus ? prev + 1 : Math.max(0, prev - 1));
+    }
+    
+    // If the current user is viewing their own profile, update their following count
+    if (farcasterContext?.user?.fid === farcasterContext?.user?.fid) {
+      setAppFollowingCount(prev => newStatus ? prev + 1 : Math.max(0, prev - 1));
+    }
+  };
   
   // Debug farcasterContext
   useEffect(() => {
@@ -184,206 +201,55 @@ const ProfileView: React.FC<ProfileViewProps> = ({
       console.log(`Cache updated: Deduplicated ${cachedNFTs.length} NFTs to ${deduplicatedNFTs.length} unique NFTs`);
       onNFTsLoaded(deduplicatedNFTs);
     }
-  }, [cachedNFTs]); // ✅ Remove onNFTsLoaded from dependencies
+  }, [cachedNFTs]);
 
+  // Fixed useEffect for loading liked NFTs
   useEffect(() => {
     const loadLikedNFTs = async () => {
-      if (farcasterContext?.user?.fid) {
+      if (farcasterContext?.user?.fid && !loadingLikedNFTs.current) {
+        loadingLikedNFTs.current = true;
         try {
           const liked = await getLikedNFTs(farcasterContext.user.fid);
           console.log('Loaded liked NFTs for profile view:', liked.length);
           setLikedNFTs(liked);
         } catch (error) {
           console.error('Error loading liked NFTs:', error);
+        } finally {
+          loadingLikedNFTs.current = false;
         }
       }
     };
 
     loadLikedNFTs();
   }, [farcasterContext?.user?.fid]);
-  
-  // Handle follow status changes to update counts immediately
-  const handleFollowStatusChange = (newFollowStatus: boolean, targetFid: number) => {
-    // If viewing your own profile, update the following count
-    if (userFid === targetFid) return; // ✅ Use memoized userFid instead of farcasterContext?.user?.fid
-    
-    if (newFollowStatus) {
-      // Increment following count when a user follows someone
-      setAppFollowingCount(prev => prev + 1);
-    } else {
-      // Decrement following count when a user unfollows someone
-      setAppFollowingCount(prev => Math.max(0, prev - 1));
-    }
-  };
-  
-  // Fetch app-specific follower and following counts
+
+  // Fixed useEffect for fetching follow counts
   useEffect(() => {
     const fetchFollowCounts = async () => {
-      if (userFid) {
+      const userFid = farcasterContext?.user?.fid;
+      if (userFid && !loadingFollowCounts.current) {
+        loadingFollowCounts.current = true;
         try {
-          // Special case for PODPLAYR account (FID: 1014485)
-          // Update the follower count to reflect all users in the system
-          if (userFid === 1014485) {
-            console.log('PODPlayr account detected - updating follower count');
-            // Update PODPLAYR follower count based on all users in the system
-            const totalUsers = await updatePodplayrFollowerCount();
-            setAppFollowerCount(totalUsers);
-            setAppFollowingCount(0); // PODPlayr doesn't follow anyone
-            console.log(`Updated PODPlayr follower count: ${totalUsers} followers`);
-          } else {
-            // Regular user - get counts from our app's database
-            const followerCount = await getFollowersCount(userFid);
-            const followingCount = await getFollowingCount(userFid);
-            
-            // Update state with the counts
-            setAppFollowerCount(followerCount);
-            setAppFollowingCount(followingCount);
-            
-            console.log(`App follow counts for profile: ${followerCount} followers, ${followingCount} following`);
-          }
+          const followerCount = await getFollowersCount(userFid);
+          const followingCount = await getFollowingCount(userFid);
+          setAppFollowerCount(followerCount);
+          setAppFollowingCount(followingCount);
         } catch (error) {
           console.error('Error fetching follow counts for profile:', error);
-          // Reset counts on error
           setAppFollowerCount(0);
           setAppFollowingCount(0);
+        } finally {
+          loadingFollowCounts.current = false;
         }
       }
     };
-    
+
     fetchFollowCounts();
     
-    // Set up a refresh interval to keep counts updated
-    const intervalId = setInterval(fetchFollowCounts, 30000); // Refresh every 30 seconds
-    
-    return () => clearInterval(intervalId); // Clean up on unmount
-  }, [userFid]); // ✅ Use memoized userFid instead of farcasterContext?.user?.fid
-
-  // This function checks if an NFT is liked using the mediaKey approach
-  const isNFTLiked = (nft: NFT, ignoreCurrentPage?: boolean): boolean => {
-    if (likedNFTs.length === 0) return false;
-    
-    // Import getMediaKey function if not already imported
-    const { getMediaKey } = require('../../utils/media');
-    
-    // Get the mediaKey for the current NFT
-    const nftMediaKey = getMediaKey(nft);
-    
-    if (!nftMediaKey) {
-      console.warn('Could not generate mediaKey for NFT:', nft);
-      // Fallback to contract/tokenId comparison if mediaKey can't be generated
-      return nft.contract && nft.tokenId ? likedNFTs.some(
-        likedNFT => 
-          likedNFT.contract === nft.contract && 
-          likedNFT.tokenId === nft.tokenId
-      ) : false;
-    }
-    
-    // Primary check: Compare mediaKeys for content-based tracking
-    const mediaKeyMatch = likedNFTs.some(likedNFT => {
-      const likedMediaKey = likedNFT.mediaKey || getMediaKey(likedNFT);
-      return likedMediaKey === nftMediaKey;
-    });
-    
-    // Secondary check: Use contract/tokenId as fallback
-    const contractTokenMatch = nft.contract && nft.tokenId ? likedNFTs.some(
-      likedNFT => 
-        likedNFT.contract === nft.contract && 
-        likedNFT.tokenId === nft.tokenId
-    ) : false;
-    
-    // Log for debugging
-    if (mediaKeyMatch || contractTokenMatch) {
-      console.log(`NFT liked state: mediaKeyMatch=${mediaKeyMatch}, contractTokenMatch=${contractTokenMatch}`, {
-        mediaKey: nftMediaKey,
-        name: nft.name
-      });
-    }
-    
-    // Return true if either match method succeeds
-    return mediaKeyMatch || contractTokenMatch;
-  };
-  
-  // State for like notification
-  const [showLikeNotification, setShowLikeNotification] = useState(false);
-  const [likedNFTName, setLikedNFTName] = useState('');
-  const [isLikeAction, setIsLikeAction] = useState(true); // true = like, false = unlike
-  
-  // Handle like toggle with notification
-  const handleNFTLikeToggle = async (nft: NFT) => {
-    try {
-      // Import getMediaKey function
-      const { getMediaKey } = require('../../utils/media');
-      
-      // Determine if this is a like or unlike action before making the change
-      const currentlyLiked = isNFTLiked(nft, true);
-      const willBeLiked = !currentlyLiked;
-      
-      // Get the mediaKey for the current NFT for content-based tracking
-      const nftMediaKey = getMediaKey(nft);
-      
-      console.log(`Toggling like for NFT: ${nft.name}, mediaKey: ${nftMediaKey}, new state: ${willBeLiked ? 'liked' : 'unliked'}`);
-      
-      // Immediately update the UI state for instant feedback
-      if (willBeLiked) {
-        // Add to liked NFTs for immediate UI update
-        // Add mediaKey to the NFT for easier reference later
-        setLikedNFTs(prev => [...prev, {...nft, mediaKey: nftMediaKey}]);
-      } else {
-        // Remove from liked NFTs for immediate UI update using both methods:
-        // 1. First try to filter by mediaKey (primary method, content-based)
-        // 2. Then fall back to contract/tokenId if mediaKey matching fails
-        setLikedNFTs(prev => {
-          // If we have a valid mediaKey, use that first (preferred method)
-          if (nftMediaKey) {
-            return prev.filter(item => {
-              const itemMediaKey = item.mediaKey || getMediaKey(item);
-              return itemMediaKey !== nftMediaKey;
-            });
-          } else {
-            // Fall back to contract/tokenId filtering if no mediaKey
-            return prev.filter(item => 
-              !(item.contract === nft.contract && item.tokenId === nft.tokenId)
-            );
-          }
-        });
-      }
-      
-      // Set notification properties
-      setIsLikeAction(willBeLiked);
-      setLikedNFTName(nft.name);
-      setShowLikeNotification(true);
-      
-      // Auto-hide notification after 3 seconds
-      setTimeout(() => {
-        setShowLikeNotification(false);
-      }, 3000);
-      
-      // Call the parent's onLikeToggle function (can happen in background)
-      await onLikeToggle(nft);
-    } catch (error) {
-      console.error('Error toggling like for NFT:', error);
-      
-      // If there was an error, revert the optimistic UI update
-      // by refreshing the liked NFTs
-      if (userFid) {
-        try {
-          const liked = await getLikedNFTs(userFid);
-          setLikedNFTs(liked);
-        } catch (e) {
-          console.error('Error refreshing liked NFTs after error:', e);
-        }
-      }
-    }
-  };
-
-  const handleBackgroundUploadSuccess = () => {
-    setShowSuccessBanner(true);
-    
-    // Ensure banner is hidden after the duration
-    setTimeout(() => {
-      setShowSuccessBanner(false);
-    }, 3000);
-  };
+    // Optional: Set up interval for periodic updates (every 5 minutes instead of 30 seconds)
+    const interval = setInterval(fetchFollowCounts, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [farcasterContext?.user?.fid]);
 
   return (
     <>
@@ -486,7 +352,8 @@ const ProfileView: React.FC<ProfileViewProps> = ({
 
                 // Clear the input and show success state
                 input.value = '';
-                handleBackgroundUploadSuccess();
+                setShowSuccessBanner(true);
+                setTimeout(() => setShowSuccessBanner(false), 3000);
               } catch (err) {
                 console.error('Error uploading background:', err);
                 const errorMessage = err instanceof Error ? err.message : 'Failed to upload background image';
@@ -634,8 +501,8 @@ const ProfileView: React.FC<ProfileViewProps> = ({
                 // Fix: Pass queue context when playing from profile
 handlePlayAudio(nft);
               }}
-              onLikeToggle={handleNFTLikeToggle}
-              isNFTLiked={isNFTLiked}
+              onLikeToggle={onLikeToggle}
+              isNFTLiked={(nft: NFT) => likedNFTs.some(likedNFT => likedNFT.id === nft.id)}
               userFid={farcasterContext?.user?.fid}
             />
           ) : (
