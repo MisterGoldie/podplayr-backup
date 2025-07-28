@@ -723,7 +723,11 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
                           following_count: user.following_count || 0,
                           custody_address: userData?.custody_address,
                           verified_addresses: userData?.verified_addresses,
-                          isENS: user.isENS || userData?.isENS || false // Preserve ENS status
+                          isENS: user.isENS || userData?.isENS || false,
+                          // ✅ Add profile with bio
+                          profile: {
+                            bio: userData?.bio || ''
+                          }
                         };
                         
                         console.log('Selected user with addresses:', farcasterUser);

@@ -107,6 +107,9 @@ const ProfileView: React.FC<ProfileViewProps> = ({
   }, [farcasterContext]);
   
   // Helper function to check if user is truly logged in
+  // Move the useRef hook to the component body (top level)
+  const prevLoggedFid = useRef<number | undefined>(undefined);
+  
   const isUserLoggedIn = () => {
     const user = farcasterContext.user;
     const hasFid = !!user?.fid && user.fid > 0;
@@ -115,7 +118,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({
     const isLoggedIn = hasFid || hasUsername || hasDisplayName;
     
     // Only log once per user change, not on every call
-    const prevLoggedFid = useRef<number | undefined>(undefined);
+    // Remove the useRef call from here since it's now at component level
     if (user?.fid !== prevLoggedFid.current) {
       console.log('🔐 User login status changed:', isLoggedIn);
       prevLoggedFid.current = user?.fid;

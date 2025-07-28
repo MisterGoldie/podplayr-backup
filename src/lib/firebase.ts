@@ -356,7 +356,8 @@ export const trackUserSearch = async (username: string, fid: number): Promise<Fa
       follower_count: followerCount,
       following_count: user.following_count,
       lastSearched: now,
-      searchCount: increment(1)
+      searchCount: increment(1),
+      bio: user.profile?.bio || ""
     };
     await setDoc(searchedUserRef, searchedUserData, { merge: true });
 
