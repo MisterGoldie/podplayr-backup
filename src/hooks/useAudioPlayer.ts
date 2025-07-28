@@ -653,9 +653,6 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
         const txId = segments[0];
         const filePath = segments.slice(1).join('/');
         
-        // Track created blob URLs so we can revoke them later
-        const blobUrlsRef = useRef<string[]>([]);
-        
         // Clean up any existing blob URLs to prevent memory leaks
         const cleanupBlobUrls = () => {
           blobUrlsRef.current.forEach(url => {
