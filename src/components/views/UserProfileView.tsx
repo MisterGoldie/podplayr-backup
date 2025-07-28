@@ -346,14 +346,23 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
       // Update follower count immediately in UI
       setAppFollowerCount(prev => newStatus ? prev + 1 : Math.max(0, prev - 1));
       
-      // Use showConnectionNotification for user-related notifications
-      nftNotification.showConnectionNotification(
-        newStatus ? `You are now following @${user.username}` : `You unfollowed @${user.username}`
+      // Use showNotification instead of showConnectionNotification
+      nftNotification.showNotification(
+        newStatus ? 'like' : 'unlike',
+        {
+          name: newStatus ? `Now following @${user.username}` : `Unfollowed @${user.username}`,
+          contract: '',
+          tokenId: ''
+        } as NFT
       );
     } catch (error) {
       console.error('Error toggling follow:', error);
-      // Use showConnectionNotification for user-related notifications
-      nftNotification.showConnectionNotification('Failed to update follow status');
+      // Use showNotification instead of showConnectionNotification
+      nftNotification.showNotification('unlike', {
+        name: 'Failed to update follow status',
+        contract: '',
+        tokenId: ''
+      } as NFT);
     } finally {
       setIsFollowingLoading(false);
     }
