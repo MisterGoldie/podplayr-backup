@@ -101,7 +101,10 @@ const ProfileView: React.FC<ProfileViewProps> = ({
   const combinedError = error || cacheError;
   
   // Debug farcasterContext
-  console.log('🔍 FULL USER CONTEXT:', JSON.stringify(farcasterContext, null, 2));
+  useEffect(() => {
+    // Move this inside useEffect so it only logs once per navigation
+    console.log('🔍 FULL USER CONTEXT:', JSON.stringify(farcasterContext, null, 2));
+  }, [farcasterContext]);
   
   // Helper function to check if user is truly logged in
   const isUserLoggedIn = () => {
@@ -109,17 +112,14 @@ const ProfileView: React.FC<ProfileViewProps> = ({
     const hasFid = !!user?.fid && user.fid > 0;
     const hasUsername = !!user?.username;
     const hasDisplayName = !!user?.displayName;
-    
     const isLoggedIn = hasFid || hasUsername || hasDisplayName;
     
-    console.log('🔐 Checking if user is logged in:', 
-      'Result:', isLoggedIn, 
-      'Has user:', !!user, 
-      'Has FID:', hasFid, 
-      'FID value:', user?.fid,
-      'Has username:', hasUsername,
-      'Has displayName:', hasDisplayName
-    );
+    // Only log once per user change, not on every call
+    const prevLoggedFid = useRef<number | undefined>(undefined);
+    if (user?.fid !== prevLoggedFid.current) {
+      console.log('🔐 User login status changed:', isLoggedIn);
+      prevLoggedFid.current = user?.fid;
+    }
     
     return isLoggedIn;
   };

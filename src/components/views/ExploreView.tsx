@@ -7,7 +7,7 @@ import { SearchBar } from '../search/SearchBar';
 import { VirtualizedNFTGrid } from '../nft/VirtualizedNFTGrid';
 import Image from 'next/image';
 import { NFT, FarcasterUser, SearchedUser } from '../../types/user';
-import { getDoc, doc } from 'firebase/firestore';
+import { getDoc, doc, collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db, trackUserSearch, isUserFollowed, toggleFollowUser, getFollowersCount, getFollowingCount } from '../../lib/firebase';
 import { useContext } from 'react';
 import { FarcasterContext, UserFidContext } from '../../app/providers';
@@ -731,8 +731,26 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
                         // Track the search based on user type
                         console.log('=== EXPLORE: Tracking search ===');
                         if (user.isENS || userData?.isENS) {
-                          // Don't try to track ENS users twice, they're already tracked 
-                          console.log('ENS user already tracked');
+                          // For ENS users, create a new search entry to update their position in recent searches
+                          console.log('Re-tracking ENS user to update recent searches position');
+                          const searchRef = collection(db, 'user_searches');
+                          const timestamp = Date.now();
+                          
+                          const searchRecord = {
+                            searching_fid: effectiveUserFid,
+                            searchedFid: user.fid,
+                            searchedUsername: user.username,
+                            searchedDisplayName: user.display_name || user.username,
+                            searchedPfpUrl: user.pfp_url,
+                            searchedFollowerCount: user.follower_count || 0,
+                            searchedFollowingCount: user.following_count || 0,
+                            timestamp: timestamp,
+                            serverTimestamp: serverTimestamp(),
+                            isENS: true
+                          };
+                          
+                          await addDoc(searchRef, searchRecord);
+                          console.log('ENS user search tracked successfully');
                         } else {
                           // Only track Farcaster users
                           await trackUserSearch(user.username, effectiveUserFid);
