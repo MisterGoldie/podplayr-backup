@@ -1082,7 +1082,7 @@ const DemoBase: React.FC = () => {
               // Reset selectedUser and userNFTs when going back from user profile
               setSelectedUser(null);
               setUserNFTs([]);
-              setCurrentPage(prev => ({ ...prev, isUserProfile: false, isHome: true }));
+              setCurrentPage(prev => ({ ...prev, isUserProfile: false, isExplore: true }));
             }}
             currentUserFid={fid || 0}
             onLikeToggle={onLikeToggle}
