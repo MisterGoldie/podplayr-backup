@@ -2700,9 +2700,8 @@ export const searchUsersByAddress = async (address: string): Promise<FarcasterUs
 
     console.log(`Searching for users by ETH address: ${address}`);
     
-    // Use Neynar API to lookup users by Ethereum address
-    // Updated to use the correct endpoint - the v2 verification endpoint structure has changed
-    const endpoint = `https://api.neynar.com/v2/farcaster/user/search-by-verified-addresses?addresses=${address}`;
+    // Use the correct Neynar API endpoint
+    const endpoint = `https://api.neynar.com/v2/farcaster/user/bulk-by-address?addresses=${address}`;
     
     const response = await fetchWithRetry(endpoint, {
       headers: {
@@ -2718,42 +2717,17 @@ export const searchUsersByAddress = async (address: string): Promise<FarcasterUs
 
     const data = await response.json();
     
-    // The API response structure has changed in the new endpoint
-    // Now returns { users: { by_address: { [address]: [...users] } } }
-    const usersForAddress = data.users?.by_address?.[address.toLowerCase()] || [];
-    console.log(`Found ${usersForAddress.length || 0} users for address ${address}`);
-    
-    // Get FIDs for all matched users
-    const users = usersForAddress || [];
+    // The API response structure for bulk-by-address endpoint
+    // Returns { users: [...] } directly
+    const users = data.users || [];
+    console.log(`Found ${users.length} users for address ${address}`);
     
     if (users.length === 0) {
       return [];
     }
     
-    // Fetch complete user profiles using bulk endpoint
-    const fids = users.map((u: any) => u.fid).join(',');
-    console.log(`Fetching full profiles for FIDs: ${fids}`);
-    
-    const profileResponse = await fetchWithRetry(
-      `https://api.neynar.com/v2/farcaster/user/bulk?fids=${fids}`,
-      {
-        headers: {
-          'accept': 'application/json',
-          'api_key': neynarKey
-        }
-      }
-    );
-
-    if (!profileResponse.ok) {
-      const errorText = await profileResponse.text();
-      throw new Error(`Failed to fetch user profiles: ${errorText}`);
-    }
-
-    const profileData = await profileResponse.json();
-    const fullUsers = profileData.users || [];
-    
     // Process and return user data in the same format as searchUsers
-    return fullUsers.map((user: any) => {
+    return users.map((user: any) => {
       return {
         fid: user.fid,
         username: user.username,

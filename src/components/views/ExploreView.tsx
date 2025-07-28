@@ -157,14 +157,15 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
 
   // Add effect to check for shared NFTs when viewing a profile
   useEffect(() => {
-    console.log("BANNER DEBUG - searchType:", searchType);
-    console.log("BANNER DEBUG - searchParam:", searchParam);
-    console.log("BANNER DEBUG - nfts count:", nfts?.length);
-    console.log("BANNER DEBUG - userNFTs count:", userNFTs?.length);
+    // Remove excessive debug logging
+    // console.log("BANNER DEBUG - searchType:", searchType);
+    // console.log("BANNER DEBUG - searchParam:", searchParam);
+    // console.log("BANNER DEBUG - nfts count:", nfts?.length);
+    // console.log("BANNER DEBUG - userNFTs count:", userNFTs?.length);
     
     // Only proceed if we have the data we need
     if (!nfts || !userNFTs || nfts.length === 0 || userNFTs.length === 0) {
-      console.log("BANNER DEBUG - Missing data, not showing banner");
+      // console.log("BANNER DEBUG - Missing data, not showing banner");
       return;
     }
     
@@ -174,19 +175,19 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
       .filter(nft => nft?.contract && nft?.tokenId)
       .map(nft => `${nft.contract.toLowerCase()}-${nft.tokenId}`);
     
-    console.log("BANNER DEBUG - User has", userNFTKeys.length, "valid NFT keys");
+    // console.log("BANNER DEBUG - User has", userNFTKeys.length, "valid NFT keys");
     
     for (const nft of nfts) {
       if (nft?.contract && nft?.tokenId) {
         const key = `${nft.contract.toLowerCase()}-${nft.tokenId}`;
         if (userNFTKeys.includes(key)) {
           matches++;
-          console.log("BANNER DEBUG - Match found:", nft.name);
+          // console.log("BANNER DEBUG - Match found:", nft.name);
         }
       }
     }
     
-    console.log("BANNER DEBUG - Total matches found:", matches);
+    // console.log("BANNER DEBUG - Total matches found:", matches);
     setSharedNFTsCount(matches);
   }, [nfts, userNFTs, searchType, searchParam]);
 

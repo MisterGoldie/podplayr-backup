@@ -77,7 +77,8 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
   const prevUserFidRef = useRef<number | null>(null);
   
   // Add loading state for user data
-  const [isDataLoading, setIsDataLoading] = useState<boolean>(false);
+  const [isUserStatsLoading, setIsUserStatsLoading] = useState<boolean>(false);
+  const [isNFTsLoading, setIsNFTsLoading] = useState<boolean>(false);
   // Track if we've completed at least one full load cycle
   const [hasCompletedInitialLoad, setHasCompletedInitialLoad] = useState<boolean>(false);
   
@@ -145,9 +146,9 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
   
   // Reset state when user changes
   useEffect(() => {
-    // Always set loading state to true when user changes, even if it's null
-    // This ensures we show the loading state between user transitions
-    setIsDataLoading(true);
+    // Set both loading states when user changes
+    setIsUserStatsLoading(true);
+    setIsNFTsLoading(true);
     
     // If user FID changed, reset all state values
     if (user?.fid !== prevUserFidRef.current) {
@@ -167,60 +168,26 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
       console.log(`User profile changed to: ${user?.username} (FID: ${user?.fid})`); 
     }
   }, [user?.fid, user?.username]);
-  
+
   // Handle NFTs loading completion
   useEffect(() => {
     // If we have a definitive answer about NFTs (either loaded or empty)
     if (nfts !== undefined) {
       // Make sure we're still looking at the same user
       if (user?.fid === currentLoadingFidRef.current) {
-        // CRITICAL: Only turn off loading state if we have NFTs or if we're absolutely sure there are none
-        // This prevents the "No NFTs" message from showing prematurely
+        // Only turn off NFT loading state when we have definitive results
+        setIsNFTsLoading(false);
+        setHasCompletedInitialLoad(true);
+        
         if (nfts.length > 0) {
-          // If we have NFTs, add a small delay to ensure they're fully processed
-          setTimeout(() => {
-            // Double-check we're still on the same user after the timeout
-            if (user?.fid === currentLoadingFidRef.current) {
-              setIsDataLoading(false);
-              setHasCompletedInitialLoad(true);
-              console.log(`${nfts.length} NFTs loaded for ${user?.username} (FID: ${user?.fid}), setting loading state to false and hasCompletedInitialLoad to true`);
-            }
-          }, 500); // 500ms delay to ensure NFTs have time to fully process
+          console.log(`${nfts.length} NFTs loaded for ${user?.username} (FID: ${user?.fid}), NFT loading complete`);
         } else {
-          // If there are no NFTs, wait even longer to be absolutely certain
-          setTimeout(() => {
-            // Triple-check we're still on the same user after the timeout
-            if (user?.fid === currentLoadingFidRef.current) {
-              setIsDataLoading(false);
-              setHasCompletedInitialLoad(true);
-              console.log(`No NFTs found for ${user?.username} (FID: ${user?.fid}), setting loading state to false and hasCompletedInitialLoad to true after extended delay`);
-            }
-          }, 1000); // 1 second delay for empty NFT arrays to be absolutely certain
+          console.log(`No NFTs found for ${user?.username} (FID: ${user?.fid}), NFT loading complete`);
         }
       }
     }
   }, [nfts, user?.fid, user?.username]);
-  
-  // Add a safety timeout to prevent infinite loading
-  useEffect(() => {
-    if (isDataLoading && user?.fid) {
-      // Store the current user we're setting the timeout for
-      const timeoutFid = user.fid;
-      
-      // Set a timeout to force loading to false after 5 seconds
-      const timeoutId = setTimeout(() => {
-        // Only update if we're still on the same user
-        if (timeoutFid === currentLoadingFidRef.current) {
-          console.log(`Loading timeout reached for ${user.username} (FID: ${user.fid}), forcing loading state to false`);
-          setIsDataLoading(false);
-          setHasCompletedInitialLoad(true);
-        }
-      }, 5000); // 5 second timeout
-      
-      return () => clearTimeout(timeoutId);
-    }
-  }, [isDataLoading, user?.fid, user?.username]);
-  
+
   // Load follower and following counts
   useEffect(() => {
     // Store the current FID we're loading for
@@ -230,8 +197,8 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
     // Update the current loading FID
     currentLoadingFidRef.current = targetFid;
     
-    // Set loading state
-    setIsDataLoading(true);
+    // Set user stats loading state
+    setIsUserStatsLoading(true);
     
     const loadFollowCounts = async () => {
       // If the user has changed since we started loading, abort
@@ -298,7 +265,7 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
       } finally {
         // Only update loading state if this is still the current user
         if (targetFid === currentLoadingFidRef.current) {
-          setIsDataLoading(false);
+          setIsUserStatsLoading(false);
         }
       }
     };
@@ -405,12 +372,14 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
         />
       )}
       
-      {/* Loading Overlay - only show when data is actually loading */}
-      {isDataLoading && (
+      {/* Loading Overlay - show when either user stats OR NFTs are loading */}
+      {(isUserStatsLoading || isNFTsLoading) && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center">
           <div className="flex flex-col items-center">
             <div className="w-16 h-16 border-t-4 border-l-4 border-purple-500 rounded-full animate-spin"></div>
-            <p className="mt-4 text-purple-300 font-mono">Loading {user?.username}'s profile...</p>
+            <p className="mt-4 text-purple-300 font-mono">
+              Loading {isNFTsLoading ? 'NFTs' : 'profile'}...
+            </p>
           </div>
         </div>
       )}
@@ -646,7 +615,7 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
           
           {/* Display filtered media NFTs */}
           {/* Enhanced loading state check - show loading state during any uncertainty */}
-          {isDataLoading || nfts === undefined || nfts === null || (nfts.length === 0 && !hasCompletedInitialLoad) ? (
+          {nfts === undefined || nfts === null || (nfts.length === 0 && !hasCompletedInitialLoad) ? (
             <div className="text-center py-12">
               <div className="w-12 h-12 mx-auto border-t-4 border-l-4 border-purple-500 rounded-full animate-spin"></div>
               <p className="mt-4 text-purple-300 font-mono">Loading NFTs...</p>
