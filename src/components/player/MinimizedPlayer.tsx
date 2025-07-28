@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { NFTImage } from '../media/NFTImage';
+import { PlaybackButton } from '../buttons/PlaybackButton';
 import type { NFT } from '../../types/user';
 import InfoPanel from './InfoPanel';
 import { logger } from '../../utils/logger';
@@ -566,20 +567,13 @@ export const MinimizedPlayer: React.FC<MinimizedPlayerProps> = ({
                 </svg>
               </button>
 
-              <button 
+              <PlaybackButton
+                isPlaying={isPlaying}
                 onClick={handlePlayPauseWithPipSync}
+                size="small"
                 className="text-purple-400 hover:text-purple-300"
-              >
-                {isPlaying ? (
-                  <svg xmlns="http://www.w3.org/2000/svg" height="32" viewBox="0 -960 960 960" width="32" fill="currentColor">
-                    <path d="M320-640v320h80V-640h-80Zm240 0v320h80V-640h-80Z"/>
-                  </svg>
-                ) : (
-                  <svg xmlns="http://www.w3.org/2000/svg" height="32" viewBox="0 -960 960 960" width="32" fill="currentColor">
-                    <path d="M320-200v-560l440 280-440 280Z"/>
-                  </svg>
-                )}
-              </button>
+                hapticLabel="MinimizedPlayer"
+              />
 
               <button 
                 onClick={onPrevious}

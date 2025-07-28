@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, ReactNode } from 'react';
 import { NFT } from '../types/user';
 import { useAudioPlayer } from '../hooks/useAudioPlayer';
+import { PlaybackButton } from '../components/buttons/PlaybackButton';
 
 interface PlayerContextType {
   isPlaying: boolean;
@@ -115,22 +116,12 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
           </svg>
         </button>
 
-        <button
+        <PlaybackButton
+          isPlaying={isPlaying}
           onClick={handlePlayPause}
-          className={`retro-button p-2 text-gray-400 hover:text-purple-500 transition-colors ${
-            isMinimized ? 'w-8 h-8' : 'w-12 h-12'
-          }`}
-        >
-          {isPlaying ? (
-            <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="currentColor">
-              <path d="M320-200v-560h120v560H320Zm200 0v-560h120v560H520Z"/>
-            </svg>
-          ) : (
-            <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="currentColor">
-              <path d="M320-200v-560l440 280-440 280Z"/>
-            </svg>
-          )}
-        </button>
+          size={isMinimized ? "small" : "medium"}
+          className="retro-button"
+        />
 
         <button
           onClick={handleNext}

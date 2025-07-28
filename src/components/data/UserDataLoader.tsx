@@ -1,3 +1,5 @@
+'use client';
+
 import { useEffect } from 'react';
 import { searchUsers, getLikedNFTs } from '../../lib/firebase';
 import { subscribeToLikedNFTs } from '../../lib/firebase/likes';
