@@ -1,4 +1,4 @@
-import { createPublicClient, http } from 'viem';
+import { createPublicClient, http, namehash } from 'viem';
 import { mainnet } from 'viem/chains';
 import { logger } from '../utils/logger';
 
@@ -340,69 +340,133 @@ export const resolveEnsText = async (ensName: string, key: string): Promise<stri
  * @param ensNameOrAddress The ENS name or Ethereum address
  * @returns Object containing profile information
  */
-export const getEnsProfile = async (ensNameOrAddress: string): Promise<any | null> => {
+// Add after existing imports
+// Remove multicall import since it's not used and not available
+
+// New optimized function
+// Optimized ENS profile function using Promise.allSettled instead of multicall
+export const getEnsProfileOptimized = async (ensNameOrAddress: string): Promise<any | null> => {
   try {
-    ensLogger.info('Fetching ENS profile for:', ensNameOrAddress);
+    ensLogger.info('Fetching optimized ENS profile for:', ensNameOrAddress);
     
-    // IMPORTANT: We now use real ENS resolution even in development
-    // This allows proper testing of ENS functionality before production
-    
-    // Continue with normal ENS resolution:
-    // Determine if input is an address or ENS name
     const isAddress = ensNameOrAddress.startsWith('0x') && ensNameOrAddress.length === 42;
     
-    let name, address, avatar, description, url, twitter, discord;
-    
+    let name, address;
     if (isAddress) {
       address = ensNameOrAddress;
       name = await resolveEnsName(address);
     } else {
-      // Ensure .eth suffix for ENS names
       name = ensNameOrAddress.endsWith('.eth') 
         ? ensNameOrAddress 
         : `${ensNameOrAddress}.eth`;
       address = await resolveEnsAddress(name);
     }
     
-    if (!address) {
-      ensLogger.warn('No address found for ENS name:', ensNameOrAddress);
+    if (!address || !name) {
+      ensLogger.warn('No address or name found for:', ensNameOrAddress);
       return null;
     }
     
-    // For production environments, fetch all data
-    try {
-      // Fetch avatar
-      avatar = await resolveEnsAvatar(address);
-      
-      // Fetch text records
-      if (name) {
-        description = await resolveEnsText(name, 'description');
-        url = await resolveEnsText(name, 'url');
-        twitter = await resolveEnsText(name, 'com.twitter');
-        discord = await resolveEnsText(name, 'com.discord');
-      }
-    } catch (error) {
-      ensLogger.warn('Error fetching additional ENS data:', error);
-      // Continue with basic profile data
-    }
+    // Fetch all ENS data in parallel instead of sequential calls
+    const [avatarResult, descriptionResult, urlResult, twitterResult, discordResult] = await Promise.allSettled([
+      resolveEnsAvatar(address),
+      resolveEnsText(name, 'description'),
+      resolveEnsText(name, 'url'),
+      resolveEnsText(name, 'com.twitter'),
+      resolveEnsText(name, 'com.discord')
+    ]);
     
     const profile = {
       name,
       address,
-      avatar,
-      description: description || 'ENS User',
-      url,
-      twitter,
-      discord,
-      // Add a flag to indicate this is an ENS user
+      avatar: avatarResult.status === 'fulfilled' ? avatarResult.value : null,
+      description: descriptionResult.status === 'fulfilled' ? descriptionResult.value || 'ENS User' : 'ENS User',
+      url: urlResult.status === 'fulfilled' ? urlResult.value : null,
+      twitter: twitterResult.status === 'fulfilled' ? twitterResult.value : null,
+      discord: discordResult.status === 'fulfilled' ? discordResult.value : null,
       isEns: true,
       ensName: name,
     };
     
-    ensLogger.info('ENS profile result:', profile);
+    ensLogger.info('Optimized ENS profile result:', profile);
     return profile;
   } catch (error) {
-    ensLogger.error('Error fetching ENS profile:', error);
+    ensLogger.error('Error in optimized ENS profile fetch:', error);
     return null;
+  }
+};
+
+// Cache implementation with TTL
+interface CacheEntry {
+  data: any;
+  timestamp: number;
+}
+
+const ensProfileCache = new Map<string, CacheEntry>();
+const pendingRequests = new Map<string, Promise<any>>();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+// Helper functions for caching
+const getCachedEnsProfile = (key: string): any | null => {
+  const entry = ensProfileCache.get(key);
+  if (entry && Date.now() - entry.timestamp < CACHE_TTL) {
+    return entry.data;
+  }
+  if (entry) {
+    ensProfileCache.delete(key); // Remove expired entry
+  }
+  return null;
+};
+
+const setCachedEnsProfile = (key: string, data: any): void => {
+  ensProfileCache.set(key, {
+    data,
+    timestamp: Date.now()
+  });
+};
+
+export const getEnsProfile = async (ensNameOrAddress: string): Promise<any | null> => {
+  const cacheKey = ensNameOrAddress.toLowerCase();
+  
+  // Check cache first
+  const cached = getCachedEnsProfile(cacheKey);
+  if (cached) {
+    ensLogger.info('Returning cached ENS profile for:', ensNameOrAddress);
+    return cached;
+  }
+  
+  // Check if request is already pending
+  if (pendingRequests.has(cacheKey)) {
+    ensLogger.info('Request already pending for:', ensNameOrAddress);
+    return pendingRequests.get(cacheKey);
+  }
+  
+  // Create new request
+  const request = getEnsProfileOptimized(ensNameOrAddress);
+  pendingRequests.set(cacheKey, request);
+  
+  try {
+    const result = await request;
+    if (result) {
+      setCachedEnsProfile(cacheKey, result);
+    }
+    return result;
+  } finally {
+    pendingRequests.delete(cacheKey);
+  }
+};
+
+// Simplified fallback logic for better performance
+const resolveWithFallback = async <T>(operation: (client: any) => Promise<T>): Promise<T> => {
+  try {
+    return await operation(client);
+  } catch (error) {
+    ensLogger.warn('Primary provider failed, trying fallback');
+    try {
+      return await operation(fallbackClient);
+    } catch (fallbackError) {
+      ensLogger.error('Both providers failed');
+      throw fallbackError;
+    }
   }
 };

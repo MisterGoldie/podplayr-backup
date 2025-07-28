@@ -44,59 +44,87 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onSearch, isSearching, han
 
       try {
         // Handle ENS name search first
+        // In fetchSuggestions function, replace ENS handling:
         if (isEnsSearch) {
           console.log(`🌐 DETECTED ENS NAME IN SUGGESTIONS: "${username}"`);
-          logger.info(`SearchBar detected ENS name in suggestions: ${username}`);
           
-          // Try to resolve the ENS name to an Ethereum address
-          const address = await resolveEnsAddress(username);
-          console.log(`🔗 ENS RESOLUTION RESULT:`, { name: username, address });
+          // Show basic ENS user immediately
+          const basicEnsUser = {
+            fid: -Math.abs(parseInt(username.slice(0, 8), 36)),
+            username: username.replace('.eth', ''),
+            display_name: username,
+            pfp_url: `https://effigy.im/a/${username}.svg`,
+            follower_count: 0,
+            following_count: 0,
+            isENS: true,
+            ensName: username
+          };
           
-          if (address) {
-            logger.info(`SearchBar resolved ENS name ${username} to address: ${address}`);
-            
-            // Use dynamic import to load only when needed
-            const { searchUsersByAddress } = await import('../../lib/firebase');
-            
-            // First check if there are Farcaster users with this address
-            console.log(`🔍 SEARCHING BY ADDRESS: ${address}`);
-            const farcasterUsers = await searchUsersByAddress(address);
-            console.log(`👥 FARCASTER ADDRESS SEARCH RESULTS:`, { count: farcasterUsers.length, results: farcasterUsers });
-            
-            if (farcasterUsers && farcasterUsers.length > 0) {
-              logger.info(`Found ${farcasterUsers.length} Farcaster users matching address ${address} from ENS ${username}`);
-              setSuggestions(farcasterUsers.slice(0, 5)); // Limit to 5 suggestions
-              return;
-            } else {
-              // No Farcaster users found, but we have a valid ENS name and address
-              // Create a synthetic ENS user that is compatible with FarcasterUser
-              console.log(`ℹ️ No Farcaster users found for ENS ${username}, creating ENS user`);
-              logger.info(`Creating synthetic ENS user for ${username} (address: ${address})`);
-              
-              try {
-                // Get full ENS profile data and create an ENSUser object
-                const ensProfile = await getEnsProfile(username);
-                if (ensProfile) {
-                  const ensUser = createENSUser(ensProfile);
-                  console.log(`✅ Created synthetic ENS user:`, ensUser);
-                  
-                  // Don't track the ENS user search here - only track when user actually selects
-                  // Store the ENS user data for later use when selected
-                  logger.info(`Created ENS user for suggestions, will track only when selected: ${username}`);
-                  
-                  setSuggestions([ensUser as unknown as FarcasterUser]);
-                  return;
-                }
-              } catch (ensError) {
-                console.log(`⚠️ Error creating ENS user:`, ensError);
-                logger.warn(`Error creating ENS user for ${username}:`, ensError);
-                // Fall through to regular username search
+          setSuggestions([basicEnsUser as unknown as FarcasterUser]);
+          
+          // Enhance with full profile in background
+          resolveEnsAddress(username).then(async (address) => {
+            if (address) {
+              const fullProfile = await getEnsProfile(username);
+              if (fullProfile) {
+                const enhancedUser = createENSUser(fullProfile);
+                setSuggestions([enhancedUser as unknown as FarcasterUser]);
               }
             }
+          }).catch(console.error);
+          
+          return;
+        }
+        logger.info(`SearchBar detected ENS name in suggestions: ${username}`);
+        
+        // Try to resolve the ENS name to an Ethereum address
+        const address = await resolveEnsAddress(username);
+        console.log(`🔗 ENS RESOLUTION RESULT:`, { name: username, address });
+        
+        if (address) {
+          logger.info(`SearchBar resolved ENS name ${username} to address: ${address}`);
+          
+          // Use dynamic import to load only when needed
+          const { searchUsersByAddress } = await import('../../lib/firebase');
+          
+          // First check if there are Farcaster users with this address
+          console.log(`🔍 SEARCHING BY ADDRESS: ${address}`);
+          const farcasterUsers = await searchUsersByAddress(address);
+          console.log(`👥 FARCASTER ADDRESS SEARCH RESULTS:`, { count: farcasterUsers.length, results: farcasterUsers });
+          
+          if (farcasterUsers && farcasterUsers.length > 0) {
+            logger.info(`Found ${farcasterUsers.length} Farcaster users matching address ${address} from ENS ${username}`);
+            setSuggestions(farcasterUsers.slice(0, 5)); // Limit to 5 suggestions
+            return;
           } else {
-            console.log(`⚠️ Could not resolve ENS name: ${username}`);
-            // Fall through to regular username search
+            // No Farcaster users found, but we have a valid ENS name and address
+            // Create a synthetic ENS user that is compatible with FarcasterUser
+            console.log(`ℹ️ No Farcaster users found for ENS ${username}, creating ENS user`);
+            logger.info(`Creating synthetic ENS user for ${username} (address: ${address})`);
+            
+            try {
+              // Get full ENS profile data and create an ENSUser object
+              const ensProfile = await getEnsProfile(username);
+              if (ensProfile) {
+                const ensUser = createENSUser(ensProfile);
+                console.log(`✅ Created synthetic ENS user:`, ensUser);
+                
+                // Don't track the ENS user search here - only track when user actually selects
+                // Store the ENS user data for later use when selected
+                logger.info(`Created ENS user for suggestions, will track only when selected: ${username}`);
+                
+                setSuggestions([ensUser as unknown as FarcasterUser]);
+                return;
+              }
+            } catch (ensError) {
+              console.log(`⚠️ Error creating ENS user:`, ensError);
+              logger.warn(`Error creating ENS user for ${username}:`, ensError);
+              // Fall through to regular username search
+            }
           }
+        } else {
+          console.log(`⚠️ Could not resolve ENS name: ${username}`);
+          // Fall through to regular username search
         }
 
         // Regular Farcaster username search
