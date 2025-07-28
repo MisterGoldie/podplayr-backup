@@ -1,10 +1,12 @@
 import React from 'react';
+import { triggerHaptic } from '../../utils/haptics';
 
 interface PlaybackButtonProps {
   isPlaying: boolean;
   onClick: () => void;
-  size?: 'small' | 'medium' | 'large';
+  size?: 'small' | 'medium' | 'large' | 'xlarge';
   className?: string;
+  hapticLabel?: string;
 }
 
 export const PlaybackButton: React.FC<PlaybackButtonProps> = ({
@@ -12,11 +14,13 @@ export const PlaybackButton: React.FC<PlaybackButtonProps> = ({
   onClick,
   size = 'medium',
   className = '',
+  hapticLabel = 'PlaybackButton',
 }) => {
   const sizeClasses = {
     small: 'w-8 h-8',
     medium: 'w-12 h-12',
     large: 'w-16 h-16',
+    xlarge: 'w-20 h-20',
   };
 
   // Track if we're handling a mobile touch event
@@ -24,10 +28,15 @@ export const PlaybackButton: React.FC<PlaybackButtonProps> = ({
     typeof navigator !== 'undefined' ? navigator.userAgent : ''
   );
 
+  const handleClick = async () => {
+    await triggerHaptic('light', hapticLabel);
+    onClick();
+  };
+
   return (
     <button
       // On mobile, we'll handle clicks through the touchEnd event only to prevent double-firing
-      onClick={isTouchDevice ? undefined : onClick}
+      onClick={isTouchDevice ? undefined : handleClick}
       className={`rounded-full bg-purple-400 hover:bg-purple-500 active:bg-purple-600 transition-all flex items-center justify-center touch-none select-none ${sizeClasses[size]} ${className}`}
       style={{ WebkitTapHighlightColor: 'transparent' }}
       onTouchStart={(e) => {
@@ -36,12 +45,12 @@ export const PlaybackButton: React.FC<PlaybackButtonProps> = ({
         const btn = e.currentTarget;
         btn.style.transform = 'scale(0.95)';
       }}
-      onTouchEnd={(e) => {
+      onTouchEnd={async (e) => {
         // Only preventDefault on mobile to avoid interfering with mouse events on desktop
         if (isTouchDevice) {
           e.preventDefault();
-          // Call onClick only for touch devices
-          onClick();
+          // Call onClick with haptics for touch devices
+          await handleClick();
         }
         const btn = e.currentTarget;
         btn.style.transform = 'scale(1)';
