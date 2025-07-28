@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useCallback } from 'react';
 import { searchUsers, getLikedNFTs } from '../../lib/firebase';
 import { subscribeToLikedNFTs } from '../../lib/firebase/likes';
 import { fetchUserNFTsFromAlchemy } from '../../lib/alchemy';
@@ -12,10 +12,10 @@ const TWO_HOURS = 2 * 60 * 60 * 1000;
 
 interface UserDataLoaderProps {
   userFid: number;
-  onUserDataLoaded: (userData: FarcasterUser) => void;
-  onNFTsLoaded: (nfts: NFT[]) => void;
-  onLikedNFTsLoaded: (nfts: NFT[]) => void;
-  onError: (error: string) => void;
+  onUserDataLoaded?: (userData: FarcasterUser) => void;
+  onNFTsLoaded?: (nfts: NFT[]) => void;
+  onLikedNFTsLoaded?: (nfts: NFT[]) => void;
+  onError?: (error: string) => void;
 }
 
 const getCachedNFTs = (userId: number): NFT[] | null => {
@@ -36,6 +36,23 @@ export const UserDataLoader: React.FC<UserDataLoaderProps> = ({
   onLikedNFTsLoaded,
   onError
 }) => {
+  // Memoize callbacks to prevent unnecessary re-renders
+  const handleUserDataLoaded = useCallback((userData: FarcasterUser) => {
+    onUserDataLoaded?.(userData);
+  }, [onUserDataLoaded]);
+
+  const handleNFTsLoaded = useCallback((nfts: NFT[]) => {
+    onNFTsLoaded?.(nfts);
+  }, [onNFTsLoaded]);
+
+  const handleLikedNFTsLoaded = useCallback((nfts: NFT[]) => {
+    onLikedNFTsLoaded?.(nfts);
+  }, [onLikedNFTsLoaded]);
+
+  const handleError = useCallback((error: string) => {
+    onError?.(error);
+  }, [onError]);
+
   useEffect(() => {
     const loadUserData = async () => {
       try {
@@ -45,13 +62,13 @@ export const UserDataLoader: React.FC<UserDataLoaderProps> = ({
         console.log('Fetching Farcaster user data...');
         const users = await searchUsers(userFid.toString()).catch(error => {
           console.error('Error searching for user:', error);
-          onError(error.message || 'Error searching for user');
+          handleError(error.message || 'Error searching for user');
           return [];
         });
 
         if (!users?.length) {
           console.error('No user found for FID:', userFid);
-          onError('User not found');
+          handleError('User not found');
           return;
         }
 
@@ -62,7 +79,7 @@ export const UserDataLoader: React.FC<UserDataLoaderProps> = ({
           custody_address: userData.custody_address,
           verified_addresses: userData.verified_addresses
         });
-        onUserDataLoaded(userData);
+        handleUserDataLoaded(userData);
 
         // Get addresses
         console.log('Extracting wallet addresses...');
@@ -74,7 +91,7 @@ export const UserDataLoader: React.FC<UserDataLoaderProps> = ({
         console.log('Found wallet addresses:', addresses);
         if (!addresses.length) {
           console.error('No wallet addresses found for user:', userData.username);
-          onError('No wallet addresses found');
+          handleError('No wallet addresses found');
           return;
         }
 
@@ -91,7 +108,7 @@ export const UserDataLoader: React.FC<UserDataLoaderProps> = ({
 
           if (hasValidStructure) {
             console.log('Using cached NFTs:', cachedNFTs.length);
-            onNFTsLoaded(cachedNFTs);
+            handleNFTsLoaded(cachedNFTs);
             return;
           }
           console.log('Invalid cache structure, removing cache');
@@ -133,20 +150,19 @@ export const UserDataLoader: React.FC<UserDataLoaderProps> = ({
           return { ...nft, mediaKey, isLikedCached: isLiked };
         });
         
-        onNFTsLoaded(nftsWithLikeStatus);
+        handleNFTsLoaded(nftsWithLikeStatus);
 
         // Initial load of liked NFTs (for backward compatibility)
         console.log('Loading liked NFTs initially...');
         const likedNFTs = await getLikedNFTs(userFid);
         console.log('Liked NFTs loaded initially:', likedNFTs.length);
-        onLikedNFTsLoaded(likedNFTs);
+        handleLikedNFTsLoaded(likedNFTs);
         
-        // Remove the initial getLikedNFTs call and use only subscription
-        // Set up real-time subscription to liked NFTs (this will provide initial data too)
+        // Set up real-time subscription to liked NFTs
         console.log('Setting up real-time subscription to liked NFTs...');
         const unsubscribeLikes = subscribeToLikedNFTs(userFid, (updatedLikedNFTs: NFT[]) => {
           console.log('Liked NFTs update received:', updatedLikedNFTs.length);
-          onLikedNFTsLoaded(updatedLikedNFTs);
+          handleLikedNFTsLoaded(updatedLikedNFTs);
           
           // Update localStorage cache for next time
           const mediaKeys = updatedLikedNFTs.map(nft => nft.mediaKey || getMediaKey(nft)).filter(Boolean);
@@ -161,18 +177,15 @@ export const UserDataLoader: React.FC<UserDataLoaderProps> = ({
 
       } catch (error) {
         console.error('Error loading user data:', error);
-        onError('Failed to load user data');
+        handleError('Failed to load user data');
       }
     };
 
     if (userFid) {
       loadUserData();
     }
-  }, [userFid, onUserDataLoaded, onNFTsLoaded, onLikedNFTsLoaded, onError]);
+  }, [userFid, handleUserDataLoaded, handleNFTsLoaded, handleLikedNFTsLoaded, handleError]);
   
-  // This component doesn't render anything visible
-  // It just handles data loading and subscriptions
-
   return null;
 };
 
