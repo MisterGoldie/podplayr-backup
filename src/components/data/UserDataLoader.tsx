@@ -8,7 +8,8 @@ import { getMediaKey } from '../../utils/media';
 import type { NFT, FarcasterUser } from '../../types/user';
 
 const NFT_CACHE_KEY = 'podplayr_nft_cache_';
-const TWO_HOURS = 2 * 60 * 60 * 1000;
+// Change from 2 hours to 24 hours
+const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
 
 interface UserDataLoaderProps {
   userFid: number;
@@ -22,7 +23,7 @@ const getCachedNFTs = (userId: number): NFT[] | null => {
   const cached = localStorage.getItem(`${NFT_CACHE_KEY}${userId}`);
   if (cached) {
     const { nfts, timestamp } = JSON.parse(cached);
-    if (Date.now() - timestamp < TWO_HOURS) {
+    if (Date.now() - timestamp < TWENTY_FOUR_HOURS) {
       return nfts;
     }
   }

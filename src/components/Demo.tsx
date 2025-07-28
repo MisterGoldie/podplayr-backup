@@ -1103,6 +1103,13 @@ const DemoBase: React.FC = () => {
   return (
     <div className="relative min-h-screen bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082] text-white">
       {renderCurrentView()}
+      {selectedUser && (
+        <UserDataLoader
+          userFid={selectedUser.fid}
+          onNFTsLoaded={setUserNFTs}
+          onError={(error) => console.error('NFT loading error:', error)}
+        />
+      )}
       {currentPlayingNFT && (
         <PlayerWithAds
           nft={currentPlayingNFT}

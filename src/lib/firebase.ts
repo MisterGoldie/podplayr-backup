@@ -2870,7 +2870,10 @@ export const searchUsers = async (queryString: string): Promise<FarcasterUser[]>
     
     // If we got users from search, fetch their full profiles
     if (!isFid && users.length > 0) {
-      const fids = users.map((u: any) => u.fid).join(',');
+      const fids = users
+        .map((u: any) => parseInt(u.fid, 10))
+        .filter((fid: number) => Number.isInteger(fid) && fid > 0 && fid <= 2147483647)
+        .join(',');
       console.log('Fetching full profiles for FIDs:', fids);
       
       const profileResponse = await fetchWithRetry(
