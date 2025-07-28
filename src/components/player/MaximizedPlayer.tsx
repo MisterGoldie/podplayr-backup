@@ -1,14 +1,12 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { usePlayerState } from './hooks/usePlayerState';
 import { NFTImage } from '../media/NFTImage';
-// PlaybackButton is already imported below - removing duplicate import
 import { processMediaUrl, getMediaKey } from '../../utils/media';
 import type { NFT } from '../../types/user';
 // Dynamic import for Farcaster SDK - will use miniapp-sdk in mini-app environment
 import { getNftCdnUrl, preloadNftMedia } from '../../utils/cdn';
 import { logger } from '../../utils/logger';
 import { triggerHaptic } from '../../utils/haptics';
-import { PlaybackButton } from '../buttons/PlaybackButton';
 
 // Fix the MaximizedPlayerProps interface to include isAnimating
 // export interface MaximizedPlayerProps {
@@ -772,13 +770,23 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
                 </button>
 
                 {/* Play/Pause Button */}
-                <PlaybackButton
-                  isPlaying={isPlaying}
-                  onClick={onPlayPause}
-                  size="xlarge"
-                  className="bg-purple-500 hover:scale-105 transition-transform"
-                  hapticLabel="MaximizedPlayer"
-                />
+                <button
+                  onClick={async () => {
+                    await triggerHaptic('light', 'MaximizedPlayer');
+                    onPlayPause();
+                  }}
+                  className="w-20 h-20 rounded-full bg-purple-500 text-black flex items-center justify-center hover:scale-105 transition-transform"
+                >
+                  {isPlaying ? (
+                    <svg xmlns="http://www.w3.org/2000/svg" height="40px" viewBox="0 -960 960 960" width="40px" fill="currentColor">
+                      <path d="M560-200v-560h80v560H560Zm-320 0v-560h80v560H240Z"/>
+                    </svg>
+                  ) : (
+                    <svg xmlns="http://www.w3.org/2000/svg" height="40px" viewBox="0 -960 960 960" width="40px" fill="currentColor">
+                      <path d="M320-200v-560l440 280-440 280Z"/>
+                    </svg>
+                  )}
+                </button>
 
                 {/* Next Track */}
                 <button
