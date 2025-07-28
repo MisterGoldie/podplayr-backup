@@ -1001,30 +1001,27 @@ const DemoBase: React.FC = () => {
         {currentPage.isExplore && (
           <ExploreView
             onSearch={handleSearch}
-            selectedUser={selectedUser}
+            selectedUser={null}
             onPlayNFT={handlePlayNFT}
             currentlyPlaying={currentlyPlaying}
             isPlaying={isPlaying}
             searchResults={searchResults}
-            nfts={userNFTs}
+            nfts={[]}
             isSearching={isSearching}
             handlePlayPause={handlePlayPause}
-            isLoadingNFTs={isLoading}
+            isLoadingNFTs={false}
             onBack={() => {
               demoLogger.info('Navigating back from explore view');
-              // Reset selectedUser when going back from explore view
-              setSelectedUser(null);
-              setUserNFTs([]);
               setCurrentPage(prev => ({ ...prev, isExplore: false, isHome: true }));
             }}
             publicCollections={[]}
             recentSearches={recentSearches}
-            handleUserSelect={handleUserSelect}
+            handleUserSelect={handleDirectUserSelect}
             handleDirectUserSelect={handleDirectUserSelect}
             onReset={onReset}
             onLikeToggle={onLikeToggle}
             isNFTLiked={isNFTLiked}
-            userNFTs={userNFTs}
+            userNFTs={[]}
             searchType=""
             searchParam=""
             likedNFTs={likedNFTs}
