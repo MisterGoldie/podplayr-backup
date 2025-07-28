@@ -171,18 +171,36 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
 
   // Handle NFTs loading completion
   useEffect(() => {
-    // If we have a definitive answer about NFTs (either loaded or empty)
+    // For ENS users, we need to wait longer for the Alchemy API to complete
+    // Don't immediately set loading to false for empty arrays if this is an ENS user
     if (nfts !== undefined) {
       // Make sure we're still looking at the same user
       if (user?.fid === currentLoadingFidRef.current) {
-        // Only turn off NFT loading state when we have definitive results
-        setIsNFTsLoading(false);
-        setHasCompletedInitialLoad(true);
+        // For ENS users (negative FIDs), be more patient with empty results
+        const isENSUser = user?.fid && user.fid < 0;
         
         if (nfts.length > 0) {
-          console.log(`${nfts.length} NFTs loaded for ${user?.username} (FID: ${user?.fid}), NFT loading complete`);
+          // We have NFTs, definitely done loading
+          setIsNFTsLoading(false);
+          setHasCompletedInitialLoad(true);
+          console.log(`${nfts.length} NFTs loaded for ${user?.username} (FID: ${user?.fid}), setting loading state to false and hasCompletedInitialLoad to true`);
+        } else if (!isENSUser) {
+          // For regular Farcaster users, empty means no NFTs
+          setIsNFTsLoading(false);
+          setHasCompletedInitialLoad(true);
+          console.log(`No NFTs found for ${user?.username} (FID: ${user?.fid}), setting loading state to false and hasCompletedInitialLoad to true`);
         } else {
-          console.log(`No NFTs found for ${user?.username} (FID: ${user?.fid}), NFT loading complete`);
+          // For ENS users, wait a bit longer before concluding no NFTs
+          // Only set loading to false if we've been waiting for a reasonable time
+          const waitTime = 10000; // 10 seconds should be enough for Alchemy API
+          setTimeout(() => {
+            // Double-check we're still on the same user and still have no NFTs
+            if (user?.fid === currentLoadingFidRef.current && nfts.length === 0) {
+              setIsNFTsLoading(false);
+              setHasCompletedInitialLoad(true);
+              console.log(`No NFTs found for ENS user ${user?.username} (FID: ${user?.fid}) after extended wait, setting loading state to false and hasCompletedInitialLoad to true`);
+            }
+          }, waitTime);
         }
       }
     }
