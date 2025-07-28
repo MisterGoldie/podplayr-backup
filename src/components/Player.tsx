@@ -202,3 +202,12 @@ export const Player: React.FC<PlayerProps> = ({ nft, onPlaybackComplete, onError
     </div>
   );
 };
+
+export default React.memo(Player, (prevProps, nextProps) => {
+  // Only re-render if essential props change
+  return (
+    prevProps.nft === nextProps.nft &&
+    prevProps.onPlaybackComplete === nextProps.onPlaybackComplete &&
+    prevProps.onError === nextProps.onError
+  );
+});
