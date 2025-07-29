@@ -32,7 +32,7 @@ interface LibraryViewProps {
   isPlaying: boolean;
   currentlyPlaying: string | null;
   currentPlayingNFT: NFT | null;
-  handlePlayAudio: (nft: NFT, context?: { queue?: NFT[], queueType?: string }) => Promise<void>;
+  handlePlayAudio: (nft: NFT) => Promise<void>;
   handlePlayPause: () => void;
   onReset: () => void;
   userContext: UserContext;
@@ -174,101 +174,7 @@ class LibraryView extends React.Component<LibraryViewProps> {
     searchFilter: '',
     filterSort: 'recent' as 'recent' | 'name',
     isLoading: true, // Add loading state, initially true
-    nftToNotify: null as NFT | null, // Track the NFT that needs a notification
-    uniqueNFTs: [] as NFT[],
-    filteredNFTs: [] as NFT[]
-  };
-
-  // Add memoization for expensive calculations
-  private _cachedUniqueNFTs: NFT[] | null = null;
-  private _cachedFilteredNFTs: NFT[] | null = null;
-  private _lastPropsHash: string = '';
-  private _lastStateHash: string = '';
-  
-  // Helper to create a simple hash of relevant props/state
-  private getPropsStateHash(): string {
-    const { likedNFTs } = this.props;
-    const { searchFilter, filterSort } = this.state;
-    return `${likedNFTs.length}-${searchFilter}-${filterSort}-${JSON.stringify(likedNFTs.map(nft => getMediaKey(nft)))}`;
-  }
-  
-  // Memoized version of getUniqueNFTs
-  getUniqueNFTs() {
-    const currentHash = this.getPropsStateHash();
-    
-    // Only recalculate if props/state changed
-    if (this._cachedUniqueNFTs === null || this._lastPropsHash !== currentHash) {
-      console.log(`📊 Processing ${this.props.likedNFTs.length} liked NFTs in getUniqueNFTs`);
-      
-      const uniqueNFTs: NFT[] = [];
-      const seenMediaKeys = new Set<string>();
-      const seenContractTokenIds = new Set<string>();
-      
-      for (const nft of this.props.likedNFTs) {
-        // Skip invalid NFTs
-        if (!nft) continue;
-        
-        // Get the mediaKey for this NFT
-        const mediaKey = getMediaKey(nft);
-        
-        // First try to deduplicate by mediaKey (primary identifier)
-        if (!seenMediaKeys.has(mediaKey)) {
-          seenMediaKeys.add(mediaKey);
-          uniqueNFTs.push(nft);
-        }
-        // Fallback to contract-tokenId if available
-        else if (nft.contract && nft.tokenId) {
-          const contractTokenKey = `${nft.contract.toLowerCase()}-${nft.tokenId}`;
-          if (!seenContractTokenIds.has(contractTokenKey)) {
-            seenContractTokenIds.add(contractTokenKey);
-            uniqueNFTs.push(nft);
-          }
-        }
-      }
-      
-      console.log(`✅ Returning ${uniqueNFTs.length} unique NFTs after deduplication`);
-      this._cachedUniqueNFTs = uniqueNFTs;
-      this._lastPropsHash = currentHash;
-    }
-    
-    return this._cachedUniqueNFTs;
-  }
-  
-  // Memoized version of getFilteredNFTs
-  getFilteredNFTs() {
-    const currentHash = this.getPropsStateHash();
-    
-    // Only recalculate if props/state changed
-    if (this._cachedFilteredNFTs === null || this._lastStateHash !== currentHash) {
-      const uniqueNFTs = this.getUniqueNFTs();
-      const { searchFilter, filterSort } = this.state;
-
-      this._cachedFilteredNFTs = uniqueNFTs
-        .filter(nft => 
-          nft.name.toLowerCase().includes(searchFilter.toLowerCase())
-        )
-        .sort((a, b) => {
-          switch (filterSort) {
-            case 'name':
-              return a.name.localeCompare(b.name);
-            case 'recent':
-              return -1; // Keep most recent first
-            default:
-              return 0;
-          }
-        });
-      
-      this._lastStateHash = currentHash;
-    }
-    
-    return this._cachedFilteredNFTs;
-  }
-
-  // Update NFTs when component mounts or updates
-  updateNFTs = () => {
-    const uniqueNFTs = this.getUniqueNFTs();
-    const filteredNFTs = this.getFilteredNFTs();
-    this.setState({ uniqueNFTs, filteredNFTs });
+    nftToNotify: null as NFT | null // Track the NFT that needs a notification
   };
 
   componentDidMount() {
@@ -278,31 +184,26 @@ class LibraryView extends React.Component<LibraryViewProps> {
     if (this.props.likedNFTs.length > 0) {
       console.log('✅ LibraryView has liked NFTs on mount, immediately rendering');
       this.setState({ isLoading: false });
-      this.updateNFTs(); // Update NFTs once
+      // Force a refresh of the component
+      this.forceUpdate();
     } else {
       console.log('⏳ No liked NFTs available yet, showing loading state');
       // Set a short timeout to finish loading
       setTimeout(() => {
         console.log('⌛ Loading timeout complete - NFT count now:', this.props.likedNFTs.length);
         this.setState({ isLoading: false });
-        this.updateNFTs(); // Update NFTs once
+        // Force a refresh to ensure NFTs are displayed
+        this.forceUpdate();
       }, 1000);
     }
   }
 
-  componentDidUpdate(prevProps: LibraryViewProps, prevState: any) {
-    // If likedNFTs changes, clear cache and update NFTs
+  componentDidUpdate(prevProps: LibraryViewProps) {
+    // If likedNFTs changes, force a complete refresh
     if (prevProps.likedNFTs !== this.props.likedNFTs) {
-      console.log('🔄 LibraryView detected likedNFTs change - clearing cache');
-      this._cachedUniqueNFTs = null;
-      this._cachedFilteredNFTs = null;
-      this.updateNFTs(); // Update NFTs once
-    }
-
-    // If search or sort changes, update filtered NFTs
-    if (prevState.searchFilter !== this.state.searchFilter || 
-        prevState.filterSort !== this.state.filterSort) {
-      this.updateNFTs(); // Update NFTs once
+      console.log('🔄 LibraryView detected likedNFTs change - refreshing view');
+      // Force a refresh of the component
+      this.forceUpdate();
     }
 
     // Update liked status for currently playing NFT
@@ -313,6 +214,62 @@ class LibraryView extends React.Component<LibraryViewProps> {
       const isNFTLiked = this.props.likedNFTs.some(nft => getMediaKey(nft) === currentMediaKey);
       this.props.setIsLiked(isNFTLiked);
     }
+  }
+
+  // Deduplicate NFTs based on mediaKey as the primary identifier
+  // with fallback to contract-tokenId
+  getUniqueNFTs() {
+    // Log the number of liked NFTs for debugging
+    console.log(`📊 Processing ${this.props.likedNFTs.length} liked NFTs in getUniqueNFTs`); 
+    
+    const uniqueNFTs: NFT[] = [];
+    const seenMediaKeys = new Set<string>();
+    const seenContractTokenIds = new Set<string>();
+    
+    for (const nft of this.props.likedNFTs) {
+      // Skip invalid NFTs
+      if (!nft) continue;
+      
+      // Get the mediaKey for this NFT
+      const mediaKey = getMediaKey(nft);
+      
+      // First try to deduplicate by mediaKey (primary identifier)
+      if (!seenMediaKeys.has(mediaKey)) {
+        seenMediaKeys.add(mediaKey);
+        uniqueNFTs.push(nft);
+      }
+      // Fallback to contract-tokenId if available
+      else if (nft.contract && nft.tokenId) {
+        const contractTokenKey = `${nft.contract.toLowerCase()}-${nft.tokenId}`;
+        if (!seenContractTokenIds.has(contractTokenKey)) {
+          seenContractTokenIds.add(contractTokenKey);
+          uniqueNFTs.push(nft);
+        }
+      }
+    }
+    
+    console.log(`✅ Returning ${uniqueNFTs.length} unique NFTs after deduplication`);
+    return uniqueNFTs;
+  }
+
+  getFilteredNFTs() {
+    const uniqueNFTs = this.getUniqueNFTs();
+    const { searchFilter, filterSort } = this.state;
+
+    return uniqueNFTs
+      .filter(nft => 
+        nft.name.toLowerCase().includes(searchFilter.toLowerCase())
+      )
+      .sort((a, b) => {
+        switch (filterSort) {
+          case 'name':
+            return a.name.localeCompare(b.name);
+          case 'recent':
+            return -1; // Keep most recent first
+          default:
+            return 0;
+        }
+      });
   }
 
   handleUnlike = async (nft: NFT) => {
@@ -346,7 +303,9 @@ class LibraryView extends React.Component<LibraryViewProps> {
       onLikeToggle 
     } = this.props;
     
-    const { viewMode, searchFilter, filterSort, isLoading, uniqueNFTs, filteredNFTs } = this.state;
+    const { viewMode, searchFilter, filterSort, isLoading } = this.state;
+    const uniqueNFTs = this.getUniqueNFTs();
+    const filteredNFTs = this.getFilteredNFTs();
 
     // Add the keyframes style to the component
     const animationKeyframes = `
@@ -361,6 +320,19 @@ class LibraryView extends React.Component<LibraryViewProps> {
         }
       }
     `;
+
+    // Use the useNFTLike hook through a wrapper component
+    const LikeHandler = () => {
+      const { handleUnlike } = useNFTLike({
+        onLikeToggle: this.props.onLikeToggle,
+        setIsLiked: this.props.setIsLiked
+      });
+    
+      // Store the handleUnlike function in the instance
+      (this as any).handleUnlike = handleUnlike;
+    
+      return null;
+    };
   
     return (
       <>
@@ -481,12 +453,13 @@ class LibraryView extends React.Component<LibraryViewProps> {
                 const staggerDelay = 0.05 * (index % 8); // Reset every 8 items to keep delays reasonable
                 
                 return (
+                  // In the render method, around line 460
                   <SimpleNFTCard
                     key={uniqueKey}
                     nft={nft}
                     onPlay={async (nft: NFT) => {
                       // Fix: Pass queue context when playing from library
-                      handlePlayAudio(nft, { queue: filteredNFTs, queueType: 'library' });
+                      handlePlayAudio(nft);
                     }}
                     isPlaying={isPlaying}
                     currentlyPlaying={currentlyPlaying}
