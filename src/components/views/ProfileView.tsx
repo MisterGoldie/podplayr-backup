@@ -37,21 +37,20 @@ interface ProfileViewProps {
 }
 
 // Helper function to deduplicate NFTs based on mediaKey
-const deduplicateNFTsByMediaKey = (nfts: NFT[]): NFT[] => {
-  const uniqueNFTs = new Map<string, NFT>();
-  
-  // Use getMediaKey to ensure we're using the same key generation as elsewhere
-  nfts.forEach(nft => {
-    const mediaKey = getMediaKey(nft);
-    // If this mediaKey hasn't been seen yet, or this NFT has more complete data, keep it
-    if (!uniqueNFTs.has(mediaKey) || 
-        (!uniqueNFTs.get(mediaKey)?.metadata && nft.metadata)) {
-      uniqueNFTs.set(mediaKey, nft);
-    }
-  });
-  
-  return Array.from(uniqueNFTs.values());
-};
+// Remove this entire function (lines 40-54)
+// const deduplicateNFTsByMediaKey = (nfts: NFT[]): NFT[] => {
+//   const uniqueNFTs = new Map<string, NFT>();
+//   
+//   nfts.forEach(nft => {
+//     const mediaKey = getMediaKey(nft);
+//     if (!uniqueNFTs.has(mediaKey) || 
+//         (!uniqueNFTs.get(mediaKey)?.metadata && nft.metadata)) {
+//       uniqueNFTs.set(mediaKey, nft);
+//     }
+//   });
+//   
+//   return Array.from(uniqueNFTs.values());
+// };
 
 // Add this helper function at the top of the ProfileView component, after the imports and before the component function
 const cleanImageUrl = (url: string | undefined): string => {
@@ -79,6 +78,8 @@ const ProfileView: React.FC<ProfileViewProps> = ({
   const [likedNFTs, setLikedNFTs] = useState<NFT[]>([]);
   const toast = useToast();
   const [isLoading, setIsLoading] = useState(false);
+  // Add loading completion state like UserProfileView
+  const [hasCompletedInitialLoad, setHasCompletedInitialLoad] = useState(false);
   const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -154,7 +155,6 @@ const ProfileView: React.FC<ProfileViewProps> = ({
         return;
       }
       
-      // ✅ Use the memoized userFid instead of farcasterContext?.user?.fid
       if (!userFid) {
         console.log('🚫 FID is undefined even though user is logged in');
         return;
@@ -170,38 +170,50 @@ const ProfileView: React.FC<ProfileViewProps> = ({
         
         if (needsRefresh || cachedNFTs.length === 0) {
           console.log('📡 Cache expired or empty, refreshing NFTs...');
-          await refreshUserNFTs(userFid); // ✅ Use memoized userFid here
+          await refreshUserNFTs(userFid);
         } else {
           console.log('✨ Using cached NFTs:', {
             count: cachedNFTs.length,
             lastUpdated: new Date(lastUpdated).toLocaleTimeString()
           });
           
-          const deduplicatedNFTs = deduplicateNFTsByMediaKey(cachedNFTs);
-          console.log(`Deduplicated ${cachedNFTs.length} NFTs to ${deduplicatedNFTs.length} unique NFTs`);
-          onNFTsLoaded(deduplicatedNFTs);
+          // SINGLE useEffect to handle cache updates when NFTs are refreshed
+          useEffect(() => {
+            if (cachedNFTs.length > 0 && !isCacheLoading && lastUpdated) {
+              const deduplicatedNFTs = Array.from(
+                new Map(cachedNFTs.map(nft => [getMediaKey(nft), nft])).values()
+              );
+              console.log(`Fresh cache: Processed ${cachedNFTs.length} NFTs to ${deduplicatedNFTs.length} unique NFTs`);
+              onNFTsLoaded(deduplicatedNFTs);
+              setHasCompletedInitialLoad(true);
+            }
+          }, [cachedNFTs, isCacheLoading, lastUpdated]); // Removed onNFTsLoaded from deps to prevent loops
         }
       } catch (err) {
         console.error('❌ Error loading NFTs:', err);
         setError(err instanceof Error ? err.message : 'Failed to load NFTs');
+        // Mark loading as complete even on error
+        setHasCompletedInitialLoad(true);
       } finally {
         setIsLoading(false);
       }
     };
 
-    // ✅ Use the memoized userFid in the console log too
     console.log('🎯 ProfileView useEffect triggered with FID:', userFid);
     loadNFTs();
-  }, [userFid]); // Use memoized FID
+  }, [userFid]);
 
-  // ✅ Separate effect to handle cache updates
+  // Add separate useEffect to handle cache updates
   useEffect(() => {
-    if (cachedNFTs.length > 0) {
-      const deduplicatedNFTs = deduplicateNFTsByMediaKey(cachedNFTs);
+    if (cachedNFTs.length > 0 && !isCacheLoading) {
+      const deduplicatedNFTs = Array.from(
+        new Map(cachedNFTs.map(nft => [getMediaKey(nft), nft])).values()
+      );
       console.log(`Cache updated: Deduplicated ${cachedNFTs.length} NFTs to ${deduplicatedNFTs.length} unique NFTs`);
       onNFTsLoaded(deduplicatedNFTs);
+      setHasCompletedInitialLoad(true);
     }
-  }, [cachedNFTs]);
+  }, [cachedNFTs, isCacheLoading, onNFTsLoaded]);
 
   // Fixed useEffect for loading liked NFTs
   useEffect(() => {
@@ -474,7 +486,8 @@ const ProfileView: React.FC<ProfileViewProps> = ({
         {/* User's NFTs - Replace with virtualized grid */}
         <div className="container mx-auto px-4">
           <h2 className="text-2xl font-bold text-green-400 mb-4">Your NFTs</h2>
-          {isLoading ? (
+          {/* Enhanced loading state check - show loading state during any uncertainty */}
+          {(isLoading || isCacheLoading || (nfts.length === 0 && !hasCompletedInitialLoad)) ? (
             <div className="flex flex-col items-center justify-center py-16 space-y-6 -mt-6">
               <div className="relative">
                 <div className="w-16 h-16 border-4 border-gray-800/30 rounded-full"></div>
@@ -499,7 +512,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({
               handlePlayPause={handlePlayPause}
               onPlayNFT={(nft: NFT) => {
                 // Fix: Pass queue context when playing from profile
-handlePlayAudio(nft);
+                handlePlayAudio(nft);
               }}
               onLikeToggle={onLikeToggle}
               isNFTLiked={(nft: NFT) => likedNFTs.some(likedNFT => likedNFT.id === nft.id)}
@@ -693,3 +706,5 @@ handlePlayAudio(nft);
 };
 
 export default ProfileView;
+
+// Remove the useEffect that's currently outside the component (lines 697-705)
