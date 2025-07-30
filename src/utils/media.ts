@@ -14,12 +14,37 @@ export const getCleanIPFSUrl = (url: string): string => {
   return url.replace(/\/ipfs\/ipfs\//g, '/ipfs/');
 };
 
+// Update IPFS_GATEWAYS array (around line 18)
 export const IPFS_GATEWAYS = [
-  'https://ipfs.io/ipfs/',         // Primary gateway
-  'https://nftstorage.link/ipfs/', // Secondary
-  'https://cloudflare-ipfs.com/ipfs/', // Tertiary
-  'https://gateway.pinata.cloud/ipfs/' // Final fallback
+  'https://ipfs.io/ipfs/',           // Most reliable
+  'https://gateway.pinata.cloud/ipfs/', // Second choice
+  'https://nftstorage.link/ipfs/',   // Third choice
+  'https://dweb.link/ipfs/',         // Additional fallback
 ];
+
+// Enhanced Arweave fallback with immediate default
+export const getAlternativeArweaveUrl = (originalUrl: string, failedGateways: Set<string> = new Set()): string => {
+  // Due to browser blocking, immediately return default image for Arweave URLs
+  console.warn('Arweave URL detected, using fallback due to browser restrictions:', originalUrl);
+  return '/default-nft.png';
+};
+
+// Enhanced IPFS fallback with better error handling
+// Remove lines 511-526 (the duplicate getAlternativeArweaveUrl function)
+// Keep only the enhanced version at lines 26-30
+export const getAlternativeIPFSUrl = (url: string, failedGateways: Set<string> = new Set()): string | null => {
+  const ipfsHash = extractIPFSHash(url);
+  if (!ipfsHash) return null;
+
+  // Find next available gateway that hasn't failed
+  for (const gateway of IPFS_GATEWAYS) {
+    if (!failedGateways.has(gateway) && !url.includes(gateway)) {
+      return `${gateway}${ipfsHash}`;
+    }
+  }
+  
+  return null; // No more gateways available
+};
 
 // Helper function to extract CID from various IPFS URL formats
 export const extractIPFSHash = (url: string): string | null => {
@@ -325,21 +350,6 @@ export const processMediaUrl = (url: string, fallbackUrl: string = '/default-nft
 };
 
 // Export the list of gateways so components can try alternatives if needed
-export const getAlternativeIPFSUrl = (url: string): string | null => {
-  const ipfsHash = extractIPFSHash(url);
-  if (!ipfsHash) return null;
-
-  // Find current gateway index
-  const currentGatewayIndex = IPFS_GATEWAYS.findIndex(gateway => url.includes(gateway));
-  
-  // If we're not using any known gateway or we're at the last one, return null
-  if (currentGatewayIndex === -1 || currentGatewayIndex === IPFS_GATEWAYS.length - 1) {
-    return null;
-  }
-
-  // Return URL with next gateway
-  return `${IPFS_GATEWAYS[currentGatewayIndex + 1]}${ipfsHash}`;
-};
 
 // Function to check if a URL is a video file
 export const isVideoUrl = (url: string): boolean => {
@@ -477,3 +487,10 @@ export const isPlaybackActive = (): boolean => {
   
   return false;
 };
+
+// Add after processArweaveUrl function
+export const ARWEAVE_GATEWAYS = [
+  'https://arweave.net/',
+  'https://ar-io.net/',
+  'https://g8way.io/',
+];
