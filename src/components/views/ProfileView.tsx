@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { useToast } from '../../hooks/useToast';
 import Image from 'next/image';
 import { VirtualizedNFTGrid } from '../nft/VirtualizedNFTGrid';
@@ -15,7 +15,8 @@ import NotificationHeader from '../NotificationHeader';
 import FollowsModal from '../FollowsModal';
 import { useNFTNotification } from '../../context/NFTNotificationContext';
 import NFTNotification from '../NFTNotification';
-import { useNFTCache } from '../../contexts/NFTCacheContext';
+// Remove this import since we're not using the cache
+// import { useNFTCache } from '../../contexts/NFTCacheContext';
 import { UserProfileNFTGrid } from '../nft/UserProfileNFTGrid';
 
 interface ProfileViewProps {
@@ -63,6 +64,65 @@ const cleanImageUrl = (url: string | undefined): string => {
     .trim(); // Remove leading/trailing whitespace
 };
 
+// Add the permissive filtering function (same as UserProfileView)
+const filterMediaNFTs = (nfts: NFT[]) => {
+  if (!nfts || nfts.length === 0) return [];
+  
+  const filtered = nfts.filter((nft) => {
+    let hasMedia = false;
+    
+    try {
+      // Check for audio in metadata - Same filtering logic as in UserProfileView
+      const hasAudio = Boolean(nft.hasValidAudio || 
+        nft.audio || 
+        (nft.metadata?.animation_url && (
+          nft.metadata.animation_url.toLowerCase().endsWith('.mp3') ||
+          nft.metadata.animation_url.toLowerCase().endsWith('.wav') ||
+          nft.metadata.animation_url.toLowerCase().endsWith('.m4a') ||
+          // Check for common audio content types
+          nft.metadata.animation_url.toLowerCase().includes('audio/') ||
+          // Some NFTs store audio in IPFS
+          nft.metadata.animation_url.toLowerCase().includes('ipfs')
+        )));
+
+      // Check for video in metadata
+      const hasVideo = Boolean(nft.isVideo || 
+        (nft.metadata?.animation_url && (
+          nft.metadata.animation_url.toLowerCase().endsWith('.mp4') ||
+          nft.metadata.animation_url.toLowerCase().endsWith('.webm') ||
+          nft.metadata.animation_url.toLowerCase().endsWith('.mov') ||
+          // Check for common video content types
+          nft.metadata.animation_url.toLowerCase().includes('video/')
+        )));
+
+      // Also check properties.files if they exist
+      const hasMediaInProperties = nft.metadata?.properties?.files?.some((file: any) => {
+        if (!file) return false;
+        const fileUrl = (file.uri || file.url || '').toLowerCase();
+        const fileType = (file.type || file.mimeType || '').toLowerCase();
+        
+        return fileUrl.endsWith('.mp3') || 
+              fileUrl.endsWith('.wav') || 
+              fileUrl.endsWith('.m4a') ||
+              fileUrl.endsWith('.mp4') || 
+              fileUrl.endsWith('.webm') || 
+              fileUrl.endsWith('.mov') ||
+              fileType.includes('audio/') ||
+              fileType.includes('video/');
+      }) ?? false;
+
+      hasMedia = hasAudio || hasVideo || hasMediaInProperties;
+    } catch (error) {
+      console.error('Error checking media types:', error);
+    }
+
+    return hasMedia;
+  });
+
+  console.log(`ProfileView: Showing ${filtered.length} media NFTs out of ${nfts.length} total NFTs`);
+  return filtered;
+};
+
 const ProfileView: React.FC<ProfileViewProps> = ({
   farcasterContext,
   nfts,
@@ -78,7 +138,6 @@ const ProfileView: React.FC<ProfileViewProps> = ({
   const [likedNFTs, setLikedNFTs] = useState<NFT[]>([]);
   const toast = useToast();
   const [isLoading, setIsLoading] = useState(false);
-  // Add loading completion state like UserProfileView
   const [hasCompletedInitialLoad, setHasCompletedInitialLoad] = useState(false);
   const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -99,12 +158,20 @@ const ProfileView: React.FC<ProfileViewProps> = ({
   const loadingLikedNFTs = useRef(false);
   const loadingFollowCounts = useRef(false);
 
-  // Use the NFT cache context
-  const { userNFTs: cachedNFTs, isLoading: isCacheLoading, error: cacheError, refreshUserNFTs, lastUpdated } = useNFTCache();
+  // Replace NFT cache with direct NFT state
+  const [allUserNFTs, setAllUserNFTs] = useState<NFT[]>([]);
+  
+  // Apply permissive filtering to all NFTs
+  const filteredNFTs = useMemo(() => {
+    return filterMediaNFTs(allUserNFTs);
+  }, [allUserNFTs]);
+
+  // Remove NFT cache usage - we're not using it anymore
+  // const { userNFTs: cachedNFTs, isLoading: isCacheLoading, error: cacheError, refreshUserNFTs, lastUpdated } = useNFTCache();
   
   // Combined error state that shows either local error or cache error
-  const combinedError = error || cacheError;
-  
+  const combinedError = error; // Remove cacheError since we're not using cache
+
   // Add this function to handle follow status changes from the modal
   const handleFollowStatusChange = (newStatus: boolean, targetFid: number) => {
     // Update follower count if this is the viewed user (current user's profile)
@@ -148,6 +215,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({
   // Add this before the useEffect
   const userFid = React.useMemo(() => farcasterContext.user?.fid, [farcasterContext.user?.fid]);
 
+  // Replace the NFT loading useEffect with this corrected version:
   useEffect(() => {
     const loadNFTs = async () => {
       if (!isUserLoggedIn()) {
@@ -160,39 +228,104 @@ const ProfileView: React.FC<ProfileViewProps> = ({
         return;
       }
       
-      console.log('🔄 Checking NFT cache for FID:', userFid);
-      
-      const needsRefresh = !lastUpdated || Date.now() - lastUpdated > 30 * 60 * 1000;
+      console.log('🔄 Loading all NFTs directly for FID:', userFid);
       
       try {
         setIsLoading(true);
         setError(null);
         
-        if (needsRefresh || cachedNFTs.length === 0) {
-          console.log('📡 Cache expired or empty, refreshing NFTs...');
-          await refreshUserNFTs(userFid);
-        } else {
-          console.log('✨ Using cached NFTs:', {
-            count: cachedNFTs.length,
-            lastUpdated: new Date(lastUpdated).toLocaleTimeString()
-          });
-          
-          // SINGLE useEffect to handle cache updates when NFTs are refreshed
-          useEffect(() => {
-            if (cachedNFTs.length > 0 && !isCacheLoading && lastUpdated) {
-              const deduplicatedNFTs = Array.from(
-                new Map(cachedNFTs.map(nft => [getMediaKey(nft), nft])).values()
-              );
-              console.log(`Fresh cache: Processed ${cachedNFTs.length} NFTs to ${deduplicatedNFTs.length} unique NFTs`);
-              onNFTsLoaded(deduplicatedNFTs);
-              setHasCompletedInitialLoad(true);
+        // Import the functions we need - FIX: Use correct import
+        const { fetchUserNFTsFromAlchemy } = await import('../../lib/alchemy');
+        
+        // FIX: Use the correct function from firebase.ts to get user data
+        const neynarKey = process.env.NEXT_PUBLIC_NEYNAR_API_KEY;
+        if (!neynarKey) throw new Error('Neynar API key not found');
+
+        // Fetch user profile directly from Neynar API
+        const profileResponse = await fetch(
+          `https://api.neynar.com/v2/farcaster/user/bulk?fids=${userFid}`,
+          {
+            headers: {
+              'accept': 'application/json',
+              'api_key': neynarKey
             }
-          }, [cachedNFTs, isCacheLoading, lastUpdated]); // Removed onNFTsLoaded from deps to prevent loops
+          }
+        );
+
+        if (!profileResponse.ok) {
+          throw new Error('Failed to fetch user profile');
         }
+
+        const profileData = await profileResponse.json();
+        const userData = profileData.users?.[0];
+        
+        if (!userData) {
+          console.log('❌ No user data found for FID:', userFid);
+          setAllUserNFTs([]);
+          setHasCompletedInitialLoad(true);
+          return;
+        }
+        
+        // Get addresses from user data
+        const addresses: string[] = [];
+        
+        // Add verified addresses - FIX: Handle different address structures
+        if (userData.verified_addresses?.eth_addresses) {
+          addresses.push(...userData.verified_addresses.eth_addresses);
+        } else if (userData.verifications) {
+          addresses.push(...userData.verifications);
+        }
+        
+        // Add custody address if available
+        if (userData.custody_address) {
+          addresses.push(userData.custody_address);
+        }
+        
+        console.log(`📍 Found ${addresses.length} addresses for user:`, addresses);
+        
+        if (addresses.length === 0) {
+          console.log('❌ No addresses found for user');
+          setAllUserNFTs([]);
+          setHasCompletedInitialLoad(true);
+          return;
+        }
+        
+        // Fetch all NFTs from all addresses - Use raw Alchemy data instead
+        const allNFTsPromises = addresses.map(async (address) => {
+          console.log(`🔍 Fetching NFTs for address: ${address}`);
+          const nfts = await fetchUserNFTsFromAlchemy(address);
+          console.log(`📦 Address ${address} returned ${nfts.length} NFTs`);
+          return nfts;
+        });
+        
+        const allNFTsArrays = await Promise.all(allNFTsPromises);
+        const allNFTs = allNFTsArrays.flat();
+        
+        console.log(`🎯 Raw NFT fetch results:`, {
+          totalAddresses: addresses.length,
+          nftArrays: allNFTsArrays.map((arr, i) => ({ address: addresses[i], count: arr.length })),
+          totalNFTs: allNFTs.length
+        });
+        
+        // Deduplicate by contract and tokenId - FIX: Use correct property access
+        const uniqueNFTs = Array.from(
+          new Map(allNFTs.map(nft => [`${nft.contract}-${nft.tokenId}`, nft])).values()
+        );
+        
+        console.log(`✅ Fetched ${allNFTs.length} total NFTs, ${uniqueNFTs.length} unique NFTs`);
+        
+        // Generate mediaKey for NFTs that don't have it
+        const nftsWithMediaKey = uniqueNFTs.map(nft => ({
+          ...nft,
+          mediaKey: nft.mediaKey || getMediaKey(nft)
+        }));
+        
+        setAllUserNFTs(nftsWithMediaKey);
+        setHasCompletedInitialLoad(true);
+        
       } catch (err) {
         console.error('❌ Error loading NFTs:', err);
         setError(err instanceof Error ? err.message : 'Failed to load NFTs');
-        // Mark loading as complete even on error
         setHasCompletedInitialLoad(true);
       } finally {
         setIsLoading(false);
@@ -203,17 +336,16 @@ const ProfileView: React.FC<ProfileViewProps> = ({
     loadNFTs();
   }, [userFid]);
 
-  // Add separate useEffect to handle cache updates
+  // Update the onNFTsLoaded call when filteredNFTs change
   useEffect(() => {
-    if (cachedNFTs.length > 0 && !isCacheLoading) {
+    if (hasCompletedInitialLoad) {
       const deduplicatedNFTs = Array.from(
-        new Map(cachedNFTs.map(nft => [getMediaKey(nft), nft])).values()
+        new Map(filteredNFTs.map(nft => [getMediaKey(nft), nft])).values()
       );
-      console.log(`Cache updated: Deduplicated ${cachedNFTs.length} NFTs to ${deduplicatedNFTs.length} unique NFTs`);
+      console.log(`✅ ProfileView: Processed ${filteredNFTs.length} filtered NFTs to ${deduplicatedNFTs.length} unique NFTs`);
       onNFTsLoaded(deduplicatedNFTs);
-      setHasCompletedInitialLoad(true);
     }
-  }, [cachedNFTs, isCacheLoading, onNFTsLoaded]);
+  }, [filteredNFTs, hasCompletedInitialLoad]); // ✅ Remove onNFTsLoaded from dependencies
 
   // Fixed useEffect for loading liked NFTs
   useEffect(() => {
@@ -487,7 +619,16 @@ const ProfileView: React.FC<ProfileViewProps> = ({
         <div className="container mx-auto px-4">
           <h2 className="text-2xl font-bold text-green-400 mb-4">Your NFTs</h2>
           {/* Enhanced loading state check - show loading state during any uncertainty */}
-          {(isLoading || isCacheLoading || (nfts.length === 0 && !hasCompletedInitialLoad)) ? (
+          {(() => {
+            const shouldShowLoading = (isLoading || (nfts.length === 0 && !hasCompletedInitialLoad));
+            console.log('🔄 Loading state check:', {
+              isLoading,
+              nftsLength: nfts.length,
+              hasCompletedInitialLoad,
+              shouldShowLoading
+            });
+            return shouldShowLoading;
+          })() ? (
             <div className="flex flex-col items-center justify-center py-16 space-y-6 -mt-6">
               <div className="relative">
                 <div className="w-16 h-16 border-4 border-gray-800/30 rounded-full"></div>
@@ -504,14 +645,13 @@ const ProfileView: React.FC<ProfileViewProps> = ({
               <h3 className="text-xl text-red-400 mb-2">Error Loading NFTs</h3>
               <p className="text-gray-400">{combinedError}</p>
             </div>
-          ) : nfts.length > 0 ? (
+          ) : filteredNFTs.length > 0 ? (  // ✅ Check filteredNFTs instead
             <UserProfileNFTGrid 
-              nfts={nfts}
+              nfts={filteredNFTs}  // ✅ Pass filteredNFTs instead
               currentlyPlaying={currentlyPlaying}
               isPlaying={isPlaying}
               handlePlayPause={handlePlayPause}
               onPlayNFT={(nft: NFT) => {
-                // Fix: Pass queue context when playing from profile
                 handlePlayAudio(nft);
               }}
               onLikeToggle={onLikeToggle}
@@ -706,5 +846,3 @@ const ProfileView: React.FC<ProfileViewProps> = ({
 };
 
 export default ProfileView;
-
-// Remove the useEffect that's currently outside the component (lines 697-705)
