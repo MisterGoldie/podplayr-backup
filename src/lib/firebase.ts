@@ -2750,11 +2750,13 @@ export const searchUsersByAddress = async (address: string): Promise<FarcasterUs
 };
 
 export const searchUsers = async (queryString: string): Promise<FarcasterUser[]> => {
+  console.log('🔍 SEARCHING USERS:', queryString);
+  
   // Clear any pending search
   if (searchTimeout) clearTimeout(searchTimeout);
 
   // Return early if query is too short (increased minimum length)
-  if (queryString.length < 3) return [];
+  if (queryString.length < 2) return [];
   
   // Prevent searching for incomplete ENS names (e.g. while typing "mister.et")
   // This avoids unnecessary ENS lookups during typing
@@ -2765,7 +2767,10 @@ export const searchUsers = async (queryString: string): Promise<FarcasterUser[]>
   
   try {
     const neynarKey = process.env.NEXT_PUBLIC_NEYNAR_API_KEY;
-    if (!neynarKey) throw new Error('Neynar API key not found');
+    if (!neynarKey) {
+      console.error('❌ Neynar API key not found');
+      throw new Error('Neynar API key not found');
+    }
     
     // Only perform ENS lookup when the query ends with .eth
     // This is the ONLY condition for ENS lookups - strict separation
@@ -2849,7 +2854,7 @@ export const searchUsers = async (queryString: string): Promise<FarcasterUser[]>
       ? `https://api.neynar.com/v2/farcaster/user/bulk?fids=${queryString}`
       : `https://api.neynar.com/v2/farcaster/user/search?q=${encodeURIComponent(queryString)}`;
 
-    console.log('Fetching from endpoint:', endpoint);
+    console.log('📡 API Request:', endpoint);
     const response = await fetchWithRetry(endpoint, {
       headers: {
         'accept': 'application/json',
@@ -2857,13 +2862,16 @@ export const searchUsers = async (queryString: string): Promise<FarcasterUser[]>
       }
     });
 
+    console.log('📡 API Response Status:', response.status);
+    
     if (!response.ok) {
       const errorText = await response.text();
+      console.error('❌ API Error Response:', errorText);
       throw new Error(`Failed to fetch user data: ${errorText}`);
     }
 
     const data = await response.json();
-    console.log('Initial API response:', data);
+    console.log('📊 Initial API response:', data);
     
     // Handle different response structures for search vs bulk lookup
     let users = isFid ? data.users : data.result?.users || [];
@@ -2874,7 +2882,7 @@ export const searchUsers = async (queryString: string): Promise<FarcasterUser[]>
         .map((u: any) => parseInt(u.fid, 10))
         .filter((fid: number) => Number.isInteger(fid) && fid > 0 && fid <= 2147483647)
         .join(',');
-      console.log('Fetching full profiles for FIDs:', fids);
+      console.log('📋 Fetching full profiles for FIDs:', fids);
       
       const profileResponse = await fetchWithRetry(
         `https://api.neynar.com/v2/farcaster/user/bulk?fids=${fids}`,
@@ -2886,13 +2894,16 @@ export const searchUsers = async (queryString: string): Promise<FarcasterUser[]>
         }
       );
 
+      console.log('📡 Profile Response Status:', profileResponse.status);
+      
       if (!profileResponse.ok) {
         const errorText = await profileResponse.text();
+        console.error('❌ Profile Error Response:', errorText);
         throw new Error(`Failed to fetch user profiles: ${errorText}`);
       }
 
       const profileData = await profileResponse.json();
-      console.log('Profile data response:', profileData);
+      console.log('👤 Profile data response:', profileData);
       users = profileData.users;
     }
 
@@ -2915,7 +2926,7 @@ export const searchUsers = async (queryString: string): Promise<FarcasterUser[]>
         addr && addr.startsWith('0x') && addr.length === 42
       );
 
-      console.log('Processed addresses for user:', {
+      console.log('📍 Processed addresses for user:', {
         fid: user.fid,
         username: user.username,
         addresses: allAddresses
@@ -2991,9 +3002,10 @@ export const searchUsers = async (queryString: string): Promise<FarcasterUser[]>
     // By this point, if it was an ENS query, we either returned the ENS result
     // or continued with Farcaster search as a fallback. No need to check again.
     
+    console.log('✅ Returning', farcasterUsers.length, 'Farcaster users');
     return farcasterUsers;
   } catch (error) {
-    console.error('Error searching users:', error);
+    console.error('❌ Search Users Error:', error);
     
     // Only try ENS as fallback if the query explicitly ends with .eth
     // This maintains strict separation between ENS and Farcaster searches

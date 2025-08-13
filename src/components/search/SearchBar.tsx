@@ -26,150 +26,56 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onSearch, isSearching, han
 
   useEffect(() => {
     const fetchSuggestions = async () => {
-      // Increase minimum length for search to reduce premature searches
-      if (username.length < 3) {
+      if (username.length < 2) { // Reduce minimum length
         setSuggestions([]);
         return;
       }
       
-      // Check if this is an ENS name (ends with .eth)
       const isEnsSearch = username.toLowerCase().endsWith('.eth');
-      
-      // For incomplete ENS names (typing in progress), don't search
-      // This prevents the search while user is still entering "...goldie.eth"
       const isIncompleteEnsName = username.includes('.') && !username.endsWith('.eth');
+      
       if (isIncompleteEnsName) {
         return;
       }
 
       try {
-        // Handle ENS name search first
-        // In fetchSuggestions function, replace ENS handling:
         if (isEnsSearch) {
-          console.log(`🌐 DETECTED ENS NAME IN SUGGESTIONS: "${username}"`);
+          // Handle ENS search
+          console.log(`🌐 ENS SEARCH: "${username}"`);
+          const address = await resolveEnsAddress(username);
           
-          // Show basic ENS user immediately
-          const basicEnsUser = {
-            fid: -Math.abs(parseInt(username.slice(0, 8), 36)),
-            username: username.replace('.eth', ''),
-            display_name: username,
-            pfp_url: `https://effigy.im/a/${username}.svg`,
-            follower_count: 0,
-            following_count: 0,
-            isENS: true,
-            ensName: username
-          };
-          
-          setSuggestions([basicEnsUser as unknown as FarcasterUser]);
-          
-          // Enhance with full profile in background
-          resolveEnsAddress(username).then(async (address) => {
-            if (address) {
-              const fullProfile = await getEnsProfile(username);
-              if (fullProfile) {
-                const enhancedUser = createENSUser(fullProfile);
-                setSuggestions([enhancedUser as unknown as FarcasterUser]);
-              }
-            }
-          }).catch(console.error);
-          
-          return;
-        }
-        logger.info(`SearchBar detected ENS name in suggestions: ${username}`);
-        
-        // Try to resolve the ENS name to an Ethereum address
-        const address = await resolveEnsAddress(username);
-        console.log(`🔗 ENS RESOLUTION RESULT:`, { name: username, address });
-        
-        if (address) {
-          logger.info(`SearchBar resolved ENS name ${username} to address: ${address}`);
-          
-          // Use dynamic import to load only when needed
-          const { searchUsersByAddress } = await import('../../lib/firebase');
-          
-          // First check if there are Farcaster users with this address
-          console.log(`🔍 SEARCHING BY ADDRESS: ${address}`);
-          const farcasterUsers = await searchUsersByAddress(address);
-          console.log(`👥 FARCASTER ADDRESS SEARCH RESULTS:`, { count: farcasterUsers.length, results: farcasterUsers });
-          
-          if (farcasterUsers && farcasterUsers.length > 0) {
-            logger.info(`Found ${farcasterUsers.length} Farcaster users matching address ${address} from ENS ${username}`);
-            setSuggestions(farcasterUsers.slice(0, 5)); // Limit to 5 suggestions
-            return;
-          } else {
-            // No Farcaster users found, but we have a valid ENS name and address
-            // Create a synthetic ENS user that is compatible with FarcasterUser
-            console.log(`ℹ️ No Farcaster users found for ENS ${username}, creating ENS user`);
-            logger.info(`Creating synthetic ENS user for ${username} (address: ${address})`);
+          if (address) {
+            // Check for Farcaster users with this address first
+            const { searchUsersByAddress } = await import('../../lib/firebase');
+            const farcasterUsers = await searchUsersByAddress(address);
             
-            try {
-              // Get full ENS profile data and create an ENSUser object
-              const ensProfile = await getEnsProfile(username);
-              if (ensProfile) {
-                const ensUser = createENSUser(ensProfile);
-                console.log(`✅ Created synthetic ENS user:`, ensUser);
-                
-                // Don't track the ENS user search here - only track when user actually selects
-                // Store the ENS user data for later use when selected
-                logger.info(`Created ENS user for suggestions, will track only when selected: ${username}`);
-                
-                setSuggestions([ensUser as unknown as FarcasterUser]);
-                return;
-              }
-            } catch (ensError) {
-              console.log(`⚠️ Error creating ENS user:`, ensError);
-              logger.warn(`Error creating ENS user for ${username}:`, ensError);
-              // Fall through to regular username search
+            if (farcasterUsers.length > 0) {
+              setSuggestions(farcasterUsers.slice(0, 5));
+              return;
+            }
+            
+            // Create ENS user if no Farcaster users found
+            const ensProfile = await getEnsProfile(username);
+            if (ensProfile) {
+              const ensUser = createENSUser(ensProfile);
+              setSuggestions([ensUser as unknown as FarcasterUser]);
+              return;
             }
           }
-        } else {
-          console.log(`⚠️ Could not resolve ENS name: ${username}`);
-          // Fall through to regular username search
         }
-
-        // Regular Farcaster username search
+        
+        // Regular Farcaster search
         const { searchUsers } = await import('../../lib/firebase');
         const users = await searchUsers(username);
         
         if (users && users.length > 0) {
-          // If we found multiple users, show them all in the suggestions
-          setSuggestions(users.slice(0, 5)); // Limit to 5 suggestions
+          setSuggestions(users.slice(0, 5));
         } else {
-          // Fallback to hardcoded suggestions only if not searching for ENS
-          if (!isEnsSearch) {
-            // Use hardcoded suggestions for common searches
-            const commonUsers = [
-              {
-                fid: 1014485, // PODPLAYR_OFFICIAL_FID
-                username: 'podplayr',
-                display_name: 'PODPLAYR',
-                pfp_url: 'https://i.imgur.com/XqQZ3Kc.png',
-                follower_count: 1000,
-                following_count: 100
-              },
-              {
-                fid: 15019, // A POD_MEMBER_FID
-                username: 'thepod',
-                display_name: 'The Pod',
-                pfp_url: 'https://avatar.vercel.sh/thepod',
-                follower_count: 500,
-                following_count: 200
-              }
-            ];
-            
-            // Filter common users by the search term
-            const filteredUsers = commonUsers.filter(user => 
-              user.username.toLowerCase().includes(username.toLowerCase()) ||
-              user.display_name.toLowerCase().includes(username.toLowerCase())
-            );
-            
-            setSuggestions(filteredUsers.length > 0 ? filteredUsers : []);
-          } else {
-            setSuggestions([]);
-          }
+          // Fallback suggestions
+          setSuggestions([]);
         }
       } catch (err) {
-        console.error('Error fetching suggestions:', err);
+        console.error('Search error:', err);
         setSuggestions([]);
       }
     };
