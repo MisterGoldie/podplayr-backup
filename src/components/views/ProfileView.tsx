@@ -187,8 +187,8 @@ const ProfileView: React.FC<ProfileViewProps> = ({
   
   // Debug farcasterContext
   useEffect(() => {
-    // Move this inside useEffect so it only logs once per navigation
-    console.log('🔍 FULL USER CONTEXT:', JSON.stringify(farcasterContext, null, 2));
+    // Remove this debug log since it's too noisy
+    // console.log('🔍 FULL USER CONTEXT:', JSON.stringify(farcasterContext, null, 2));
   }, [farcasterContext]);
   
   // Helper function to check if user is truly logged in
@@ -608,7 +608,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({
               
               {!isLoading && isUserLoggedIn() && (
                 <p className="font-mono text-sm text-purple-300/60 text-shadow mt-1">
-                  {nfts.length} {nfts.length === 1 ? 'NFT' : 'NFTs'} found
+                  {filteredNFTs.length} {filteredNFTs.length === 1 ? 'Media NFT' : 'Media NFTs'} found
                 </p>
               )}
             </div>
@@ -620,13 +620,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({
           <h2 className="text-2xl font-bold text-green-400 mb-4">Your NFTs</h2>
           {/* Enhanced loading state check - show loading state during any uncertainty */}
           {(() => {
-            const shouldShowLoading = (isLoading || (nfts.length === 0 && !hasCompletedInitialLoad));
-            console.log('🔄 Loading state check:', {
-              isLoading,
-              nftsLength: nfts.length,
-              hasCompletedInitialLoad,
-              shouldShowLoading
-            });
+            const shouldShowLoading = (isLoading || (filteredNFTs.length === 0 && !hasCompletedInitialLoad));
             return shouldShowLoading;
           })() ? (
             <div className="flex flex-col items-center justify-center py-16 space-y-6 -mt-6">

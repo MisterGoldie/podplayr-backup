@@ -1057,7 +1057,7 @@ const DemoBase: React.FC = () => {
                 client: farcasterClient,
                 location: farcasterLocation
               }}
-              nfts={filteredNFTs}
+              nfts={[]} // ✅ Pass empty array - let ProfileView handle NFT fetching
               handlePlayAudio={handlePlayNFT}
               isPlaying={isPlaying}
               currentlyPlaying={currentlyPlaying}
