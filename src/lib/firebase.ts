@@ -2039,7 +2039,7 @@ let searchTimeout: NodeJS.Timeout | undefined;
 export const PODPLAYR_ACCOUNT = {
   fid: 1014485,
   username: 'podplayr',
-  display_name: 'PODPlayr',
+  display_name: 'PODPLAYR',
   pfp_url: 'https://imagedelivery.net/BXluQx4ige9GuW0Ia56BHw/994e0d0e-3033-4261-64e3-5a91f64ba000/rectcrop3',
   custody_address: '0xdbdb6eb5d90141675eb67d79745031e4668f3fd2',
   connected_address: '0x239cc7fd1f85b18da2d3caf60e406167b2c8b972'
