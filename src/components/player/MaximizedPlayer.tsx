@@ -715,6 +715,10 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
                   // Trigger haptic for seek
                   await triggerHaptic('light', 'MaximizedPlayer-Seek');
                   // For standard click handling (non-mobile)
+                  if (!e.currentTarget) {
+                    // Touch events already handled the seek, ignore this click
+                    return;
+                  }
                   const rect = e.currentTarget.getBoundingClientRect();
                   const percent = (e.clientX - rect.left) / rect.width;
                   onSeek(duration * percent);
