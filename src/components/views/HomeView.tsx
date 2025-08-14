@@ -22,6 +22,9 @@ import { UserFidContext } from '~/app/providers'; // ✅ Use the correct context
 // Create a dedicated logger for the HomeView
 const homeLogger = logger.getModuleLogger('homeView');
 
+// Session-based cache to prevent re-processing featured NFTs
+let featuredNFTsInitialized = false;
+
 interface HomeViewProps {
   recentlyPlayedNFTs: NFT[];
   topPlayedNFTs: { nft: NFT; count: number }[];
@@ -61,12 +64,28 @@ const HomeView: React.FC<HomeViewProps> = ({
   // Add router for navigation
   const router = useRouter();
 
-  // Initialize featured NFTs once on mount
+  // Initialize featured NFTs once per session
   useEffect(() => {
     const initializeFeaturedNFTs = async () => {
-      const { ensureFeaturedNFTsExist } = await import('../../lib/firebase');
-      const { FEATURED_NFTS } = await import('../sections/FeaturedSection');
-      await ensureFeaturedNFTsExist(FEATURED_NFTS);
+      // Check if already initialized in this session
+      if (featuredNFTsInitialized) {
+        homeLogger.info('Featured NFTs already initialized in this session, skipping');
+        return;
+      }
+
+      try {
+        homeLogger.info('Initializing featured NFTs for the first time this session');
+        const { ensureFeaturedNFTsExist } = await import('../../lib/firebase');
+        const { FEATURED_NFTS } = await import('../sections/FeaturedSection');
+        await ensureFeaturedNFTsExist(FEATURED_NFTS);
+        
+        // Mark as initialized for this session
+        featuredNFTsInitialized = true;
+        homeLogger.info('Featured NFTs initialization complete');
+      } catch (error) {
+        homeLogger.error('Error initializing featured NFTs:', error);
+        // Don't mark as initialized if there was an error
+      }
     };
 
     initializeFeaturedNFTs();
