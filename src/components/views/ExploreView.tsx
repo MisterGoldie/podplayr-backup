@@ -307,11 +307,23 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
   
   // Enhanced helper function to get safe image URL
   const getSafeImageUrl = (user: any) => {
+  console.log('getSafeImageUrl called for user:', user.username, 'isENS:', user.isENS, 'pfp_url:', user.pfp_url);
+  
+  // For ENS users without pfp_url, always use defaultens.png
+  if (user.isENS && !user.pfp_url) {
+    console.log('ENS user without pfp_url, using defaultens.png');
+    return '/defaultens.png';
+  }
+  
   const originalUrl = user.pfp_url || (user.isENS ? '/defaultens.png' : `https://avatar.vercel.sh/${user.username}`);
   
   // If this image has failed before, use fallback immediately
   if (failedImages.has(originalUrl)) {
-    return user.isENS ? '/defaultens.png' : '/default-avatar.png'; // Fixed: use defaultens.png for ENS users
+    const fallback = user.isENS ? 
+      'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHZpZXdCb3g9IjAgMCA2NCA2NCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPGNpcmNsZSBjeD0iMzIiIGN5PSIzMiIgcj0iMzIiIGZpbGw9IiM3QzNBRUQiLz4KPHRleHQgeD0iMzIiIHk9IjM4IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSJ3aGl0ZSIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNCIgZm9udC13ZWlnaHQ9ImJvbGQiPkVOUzwvdGV4dD4KPC9zdmc+' : 
+      '/default-avatar.png';
+    console.log('Image failed before, using fallback:', fallback);
+    return fallback;
   }
   
   return originalUrl;
@@ -644,7 +656,16 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
                                 className="object-cover"
                                 fill
                                 sizes="64px"
-                                onError={() => handleImageError(user.pfp_url || (user.isENS ? '/defaultens.png' : `https://avatar.vercel.sh/${user.username}`))}
+                                unoptimized={user.isENS && !user.pfp_url}
+                                onError={(e) => {
+                                  console.log('Image error for user:', user.username, 'isENS:', user.isENS, 'src:', e.currentTarget.src);
+                                  const fallbackUrl = user.isENS ? 
+                                    'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHZpZXdCb3g9IjAgMCA2NCA2NCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPGNpcmNsZSBjeD0iMzIiIGN5PSIzMiIgcj0iMzIiIGZpbGw9IiM3QzNBRUQiLz4KPHRleHQgeD0iMzIiIHk9IjM4IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSJ3aGl0ZSIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNCIgZm9udC13ZWlnaHQ9ImJvbGQiPkVOUzwvdGV4dD4KPC9zdmc+' : 
+                                    '/default-avatar.png';
+                                  handleImageError(e.currentTarget.src);
+                                  // Force the fallback image
+                                  e.currentTarget.src = fallbackUrl;
+                                }}
                               />
                             </div>
                             
@@ -825,7 +846,16 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
                                 className="object-cover"
                                 fill
                                 sizes="64px"
-                                onError={() => handleImageError(user.pfp_url || (user.isENS ? '/defaultens.png' : '/default-nft.png'))}
+                                unoptimized={user.isENS && !user.pfp_url}
+                                onError={(e) => {
+                                  console.log('Image error for user:', user.username, 'isENS:', user.isENS, 'src:', e.currentTarget.src);
+                                  const fallbackUrl = user.isENS ? 
+                                    'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHZpZXdCb3g9IjAgMCA2NCA2NCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPGNpcmNsZSBjeD0iMzIiIGN5PSIzMiIgcj0iMzIiIGZpbGw9IiM3QzNBRUQiLz4KPHRleHQgeD0iMzIiIHk9IjM4IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSJ3aGl0ZSIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNCIgZm9udC13ZWlnaHQ9ImJvbGQiPkVOUzwvdGV4dD4KPC9zdmc+' : 
+                                    '/default-avatar.png';
+                                  handleImageError(e.currentTarget.src);
+                                  // Force the fallback image
+                                  e.currentTarget.src = fallbackUrl;
+                                }}
                               />
                             </div>
                             
