@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useCallback, useRef } from 'react';
-import { searchUsers, getLikedNFTs } from '../../lib/firebase';
-import { subscribeToLikedNFTs } from '../../lib/firebase/likes';
+import { searchUsers } from '../../lib/firebase';
+import { getLikedNFTs, subscribeToLikedNFTs } from '../../lib/firebase/likes';
 import { fetchUserNFTsFromAlchemy } from '../../lib/alchemy';
 import { getMediaKey } from '../../utils/media';
 import type { NFT, FarcasterUser } from '../../types/user';
