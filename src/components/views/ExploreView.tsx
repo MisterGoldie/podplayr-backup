@@ -311,7 +311,7 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
   
   // If this image has failed before, use fallback immediately
   if (failedImages.has(originalUrl)) {
-    return user.isENS ? '/defaultens.png' : '/default-nft.png';
+    return user.isENS ? '/defaultens.png' : '/default-avatar.png'; // Fixed: use defaultens.png for ENS users
   }
   
   return originalUrl;
@@ -755,7 +755,7 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
                           fid: user.fid,
                           username: user.username,
                           display_name: user.display_name || user.username,
-                          pfp_url: user.pfp_url || (user.isENS ? '/defaultens.png' : `https://avatar.vercel.sh/${user.username}`),
+                          pfp_url: user.pfp_url || userData?.pfp_url || (user.isENS ? '/defaultens.png' : `https://avatar.vercel.sh/${user.username}`),
                           follower_count: user.follower_count || 0,
                           following_count: user.following_count || 0,
                           custody_address: userData?.custody_address,

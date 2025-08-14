@@ -172,7 +172,8 @@ export const cleanupLikes = async (fid: number) => {
 
 // Subscribe to liked NFTs for a user with real-time updates using mediaKey approach
 export const subscribeToLikedNFTs = (fid: number, callback: (nfts: NFT[]) => void): () => void => {
-  if (!fid || fid <= 0) {
+  // Allow negative FIDs for ENS users
+  if (!fid || fid === 0) {
     firebaseLogger.error('Invalid fid provided to subscribeToLikedNFTs:', fid);
     callback([]);
     return () => {};
@@ -281,8 +282,8 @@ const getGlobalLikedNFTs = async (fid: number): Promise<NFT[]> => {
 // Updated to support both wallet addresses (string) and FIDs (number)
 export const getLikedNFTs = async (userIdOrWallet: number | string): Promise<NFT[]> => {
   try {
-    // Validate the user ID
-    if (typeof userIdOrWallet === 'number' && (!userIdOrWallet || userIdOrWallet <= 0)) {
+    // Validate the user ID - allow negative FIDs for ENS users
+    if (typeof userIdOrWallet === 'number' && (!userIdOrWallet || userIdOrWallet === 0)) {
       firebaseLogger.error('Invalid FID provided to getLikedNFTs:', userIdOrWallet);
       return [];
     }
