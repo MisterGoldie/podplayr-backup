@@ -489,7 +489,7 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
       
       {/* Main content with adjusted padding */}
       <div 
-        className={`space-y-8 pt-20 pb-40 overflow-y-auto overscroll-y-contain min-h-screen bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082] ${
+        className={`space-y-8 pt-20 pb-48 overflow-y-auto overscroll-y-contain min-h-screen bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082] ${
           isPlaying ? 'h-[calc(100vh-130px)] md:h-[calc(100vh-150px)]' : 'h-screen'
         }`}
       >
