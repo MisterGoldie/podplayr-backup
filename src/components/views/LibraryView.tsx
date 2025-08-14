@@ -441,7 +441,7 @@ class LibraryView extends React.Component<LibraryViewProps> {
             </div>
           ) : (
             <div 
-              className={`px-4 pb-32 ${viewMode === 'grid' ? 'grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4' : 'space-y-4'}`}
+              className={`px-4 pb-16 ${viewMode === 'grid' ? 'grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4' : 'space-y-4'}`}
             >
               {filteredNFTs.map((nft, index) => {
                 const uniqueKey = nft.contract && nft.tokenId 
