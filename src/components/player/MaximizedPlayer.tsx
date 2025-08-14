@@ -752,7 +752,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
               {/* Time Display - KEEP THIS */}
               <div className="flex justify-between text-gray-400 text-xs font-mono mb-2">
                 <span>{formatTime(Math.floor(isActivelyScrubbingBar && scrubPosition !== null ? scrubPosition : progress))}</span>
-                <span>{formatTime(Math.floor(duration))}</span>
+                <span>-{formatTime(Math.floor(duration - (isActivelyScrubbingBar && scrubPosition !== null ? scrubPosition : progress)))}</span>
               </div>
 
               {/* Playback Controls */}
