@@ -54,8 +54,20 @@ export const UserProfileNFTGrid: React.FC<UserProfileNFTGridProps> = ({
           const uniqueKey = `user-profile-${mediaKey || `${nft.contract}-${nft.tokenId}`}-${index}`;
           const staggerDelay = 0.05 * (index % 8);
           
+          // Add animation styles - same as LibraryView
+          const animationStyle = {
+            opacity: 0,
+            transform: 'translateY(20px)',
+            animation: `fadeInUp 0.5s ease-out ${staggerDelay}s forwards`
+          };
+          
           return (
-            <div key={uniqueKey} className="w-40 h-40 flex-shrink-0 relative group cursor-pointer" onClick={() => onPlayNFT(nft)}>
+            <div 
+              key={uniqueKey} 
+              className="w-40 h-40 flex-shrink-0 relative group cursor-pointer" 
+              onClick={() => onPlayNFT(nft)}
+              style={animationStyle}
+            >
               {/* NFT Image */}
               <div className="w-full h-full rounded-lg overflow-hidden bg-gray-800/20 shadow-lg">
                 <NFTImage
