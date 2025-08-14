@@ -534,7 +534,7 @@ export const MinimizedPlayer: React.FC<MinimizedPlayerProps> = ({
                 <div className="inline-flex items-center space-x-0.5">
                   <span className="text-gray-400 text-xs font-mono">{formatTime(Math.floor(progress))}</span>
                   <span className="text-gray-600 text-xs font-mono">/</span>
-                  <span className="text-gray-400 text-xs font-mono">{formatTime(Math.floor(duration))}</span>
+                  <span className="text-gray-400 text-xs font-mono">-{formatTime(Math.floor(duration - progress))}</span>
                 </div>
               </div>
             </div>
