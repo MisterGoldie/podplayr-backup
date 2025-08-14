@@ -15,6 +15,7 @@ import { VirtualizedNFTGrid } from '../nft/VirtualizedNFTGrid';
 import { logger } from '../../utils/logger';
 import { useUserProfileBackground } from '../../hooks/useUserProfileBackground';
 import UserInfoPanel from '../user/UserInfoPanel';
+import { isENSUserObject } from '../../utils/ensUtils';
 
 interface UserProfileViewProps {
   user: FarcasterUser;
@@ -510,8 +511,8 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
                 <div className="bg-black/70 px-3 py-2 rounded-lg inline-block">
                   <div className="flex items-center gap-2">
                     <h2 className="text-2xl font-mono text-green-400 truncate">@{user?.username}</h2>
-                    {/* Show ENS badge if username or display_name ends with .eth */}
-                    {(user?.username?.toLowerCase().endsWith('.eth') || user?.display_name?.toLowerCase().endsWith('.eth')) && (
+                    {/* Show ENS badge only for actual ENS users */}
+                    {isENSUserObject(user) && (
                       <span className="bg-blue-500 text-white text-xs px-2 py-0.5 rounded-full font-mono shadow-glow-sm animate-pulse-subtle flex items-center">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 293.5 293.5" className="w-3 h-3 mr-1 fill-current">
                           <path d="M147.1 0C65.9 0 0 65.9 0 147.1s65.9 147.1 147.1 147.1 147.1-65.9 147.1-147.1S228.3 0 147.1 0zm0 270.9c-68.4 0-123.8-55.4-123.8-123.8S78.7 23.3 147.1 23.3s123.8 55.4 123.8 123.8-55.4 123.8-123.8 123.8z"/>
