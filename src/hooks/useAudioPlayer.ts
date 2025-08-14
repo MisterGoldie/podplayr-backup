@@ -161,8 +161,13 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
 
     const updateProgress = () => {
       if (!audio.duration) return;
-      setAudioProgress(audio.currentTime);
-      setAudioDuration(audio.duration);
+      
+      // Round to prevent micro-updates that cause UI jitter
+      const currentTime = Math.floor(audio.currentTime * 10) / 10; // Round to 0.1s precision
+      const duration = Math.floor(audio.duration * 10) / 10;
+      
+      setAudioProgress(currentTime);
+      setAudioDuration(duration);
     };
 
     const handleLoadedMetadata = () => {

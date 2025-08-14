@@ -208,11 +208,20 @@ export const MinimizedPlayer: React.FC<MinimizedPlayerProps> = ({
     }, 300);
   };
 
-  const formatTime = (seconds: number): string => {
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = Math.floor(seconds % 60);
-    return `${minutes}:${remainingSeconds < 10 ? '0' : ''}${remainingSeconds}`;
-  };
+  // Remove the local formatTime function and import from utils
+// Local helper function for time formatting
+const formatTime = (seconds: number): string => {
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = Math.floor(seconds % 60);
+  return `${minutes}:${remainingSeconds < 10 ? '0' : ''}${remainingSeconds}`;
+};
+  
+  // Remove this local function:
+  // const formatTime = (seconds: number): string => {
+  //   const minutes = Math.floor(seconds / 60);
+  //   const remainingSeconds = Math.floor(seconds % 60);
+  //   return `${minutes}:${remainingSeconds < 10 ? '0' : ''}${remainingSeconds}`;
+  // };
 
   // Handle info button click with animation
   const handleInfoButtonClick = () => {

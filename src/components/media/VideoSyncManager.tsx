@@ -53,9 +53,8 @@ export const VideoSyncManager: React.FC<VideoSyncManagerProps> = ({
     let lastSyncTime = 0;
     
     const syncVideoState = (timestamp: number) => {
-      // Only sync every 50ms for efficiency but more responsive than before
-      if (timestamp - lastSyncTime > 50) {
-        // Double-check play state to ensure synchronization
+      // Reduce sync frequency to prevent conflicts
+      if (timestamp - lastSyncTime > 100) { // Changed from 50ms to 100ms
         const videoIsPlaying = !videoElement.paused;
         if (isPlaying !== videoIsPlaying) {
           if (isPlaying) {
@@ -71,15 +70,17 @@ export const VideoSyncManager: React.FC<VideoSyncManagerProps> = ({
           }
         }
         
-        // Sync time only if difference is significant
-        if (Math.abs(videoElement.currentTime - audioProgress) > 0.3) {
+        // Increase threshold to prevent constant time adjustments
+        if (Math.abs(videoElement.currentTime - audioProgress) > 0.5) { // Changed from 0.3 to 0.5
           videoElement.currentTime = audioProgress;
         }
         
         lastSyncTime = timestamp;
       }
       
-      animationFrameId = requestAnimationFrame(syncVideoState);
+      if (isPlaying) {
+        animationFrameId = requestAnimationFrame(syncVideoState);
+      }
     };
     
     // Start the sync loop
