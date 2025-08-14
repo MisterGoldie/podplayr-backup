@@ -911,6 +911,9 @@ const DemoBase: React.FC = () => {
       setSelectedUser(user);
       
       console.log('🔄 Setting currentPage to UserProfile');
+      // Set navigation source to track we came from explore
+      setNavigationSource({ fromExplore: true, fromProfile: false });
+      
       // Navigate to user profile view IMMEDIATELY
       setCurrentPage(prev => ({ 
         ...prev, 
@@ -1080,10 +1083,11 @@ const DemoBase: React.FC = () => {
               onNFTsLoaded={() => {}}
               onLikeToggle={onLikeToggle}
               onUserProfileClick={(user) => {
-                demoLogger.info('Navigating to user profile from ProfileView modal:', user.username);
-                setSelectedUser(user);
-                setCurrentPage(prev => ({ ...prev, isProfile: false, isUserProfile: true }));
-              }}
+              demoLogger.info('Navigating to user profile from ProfileView modal:', user.username);
+              setSelectedUser(user);
+              setNavigationSource({ fromExplore: false, fromProfile: true });
+              setCurrentPage(prev => ({ ...prev, isProfile: false, isUserProfile: true }));
+            }}
             />
           </UserImageProvider>
         )}
@@ -1101,7 +1105,19 @@ const DemoBase: React.FC = () => {
               // Reset selectedUser and userNFTs when going back from user profile
               setSelectedUser(null);
               setUserNFTs([]);
-              setCurrentPage(prev => ({ ...prev, isUserProfile: false, isExplore: true }));
+              
+              // Smart back navigation based on source
+              if (navigationSource.fromProfile) {
+                setCurrentPage(prev => ({ ...prev, isUserProfile: false, isProfile: true }));
+              } else if (navigationSource.fromExplore) {
+                setCurrentPage(prev => ({ ...prev, isUserProfile: false, isExplore: true }));
+              } else {
+                // Default fallback to explore
+                setCurrentPage(prev => ({ ...prev, isUserProfile: false, isExplore: true }));
+              }
+              
+              // Reset navigation source
+              setNavigationSource({ fromExplore: false, fromProfile: false });
             }}
             currentUserFid={fid || 0}
             onLikeToggle={onLikeToggle}
