@@ -905,16 +905,19 @@ const DemoBase: React.FC = () => {
 
   // Add direct user selection handler
   const handleDirectUserSelect = async (user: FarcasterUser) => {
+    console.log('🚀 handleDirectUserSelect called with:', user);
     try {
       demoLogger.info(`Selected user: ${user.username}`);
       setSelectedUser(user);
       
+      console.log('🔄 Setting currentPage to UserProfile');
       // Navigate to user profile view IMMEDIATELY
       setCurrentPage(prev => ({ 
         ...prev, 
         isExplore: false,
         isUserProfile: true 
       }));
+      console.log('✅ Navigation should be complete');
       
       // Load user's NFTs in the background (don't await)
       fetchUserNFTs(user.fid).then(nfts => {
@@ -924,10 +927,12 @@ const DemoBase: React.FC = () => {
         const deduplicatedNFTs = deduplicateNFTsByMediaKey(nfts);
         setUserNFTs(deduplicatedNFTs);
       }).catch(error => {
+        console.error('❌ Error loading NFTs for user:', error);
         demoLogger.error('Error loading NFTs for user:', error);
         setError('Error loading NFTs');
       });
     } catch (error) {
+      console.error('❌ Error in handleDirectUserSelect:', error);
       demoLogger.error('Error selecting user:', error);
       setError('Error selecting user');
     }
@@ -1074,6 +1079,11 @@ const DemoBase: React.FC = () => {
               onReset={onReset}
               onNFTsLoaded={() => {}}
               onLikeToggle={onLikeToggle}
+              onUserProfileClick={(user) => {
+                demoLogger.info('Navigating to user profile from ProfileView modal:', user.username);
+                setSelectedUser(user);
+                setCurrentPage(prev => ({ ...prev, isProfile: false, isUserProfile: true }));
+              }}
             />
           </UserImageProvider>
         )}

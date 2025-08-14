@@ -202,6 +202,18 @@ const ProfileView: React.FC<ProfileViewProps> = ({
     // console.log('🔍 FULL USER CONTEXT:', JSON.stringify(farcasterContext, null, 2));
   }, [farcasterContext]);
   
+  // Add this useEffect for debugging state updates
+  useEffect(() => {
+    console.log('🔍 ProfileView state update:', {
+      userFid: farcasterContext?.user?.fid,
+      username: farcasterContext?.user?.username,
+      showFollowsModal,
+      followsModalType,
+      appFollowerCount,
+      appFollowingCount
+    });
+  }, [farcasterContext?.user?.fid, showFollowsModal, followsModalType, appFollowerCount, appFollowingCount]);
+  
   // Helper function to check if user is truly logged in
   // Move the useRef hook to the component body (top level)
   const prevLoggedFid = useRef<number | undefined>(undefined);
@@ -637,8 +649,12 @@ const ProfileView: React.FC<ProfileViewProps> = ({
                 <div className="flex items-center gap-2 mt-2 mb-1">
                   <button 
                     onClick={() => {
+                      console.log('🔥 FOLLOWERS BUTTON CLICKED in ProfileView!');
+                      console.log('📊 Current modal state:', { showFollowsModal, followsModalType });
+                      console.log('📊 User context:', farcasterContext?.user);
                       setFollowsModalType('followers');
                       setShowFollowsModal(true);
+                      console.log('📊 After setState - should show followers modal');
                     }}
                     className="bg-purple-500/20 hover:bg-purple-500/30 active:bg-purple-500/40 transition-colors rounded-full px-3 py-1 inline-flex items-center"
                   >
@@ -648,8 +664,12 @@ const ProfileView: React.FC<ProfileViewProps> = ({
                   </button>
                   <button 
                     onClick={() => {
+                      console.log('🔥 FOLLOWING BUTTON CLICKED in ProfileView!');
+                      console.log('📊 Current modal state:', { showFollowsModal, followsModalType });
+                      console.log('📊 User context:', farcasterContext?.user);
                       setFollowsModalType('following');
                       setShowFollowsModal(true);
+                      console.log('📊 After setState - should show following modal');
                     }}
                     className="bg-purple-500/20 hover:bg-purple-500/30 active:bg-purple-500/40 transition-colors rounded-full px-3 py-1 inline-flex items-center"
                   >
@@ -892,5 +912,8 @@ const ProfileView: React.FC<ProfileViewProps> = ({
     </>
   );
 };
+
+// Remove everything after line 896 (lines 898-940)
+// The file should end with:
 
 export default ProfileView;

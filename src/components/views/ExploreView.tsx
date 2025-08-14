@@ -1020,6 +1020,7 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
               setAppFollowingCount(prev => newStatus ? prev + 1 : Math.max(0, prev - 1));
             }
           }}
+          onUserProfileClick={handleDirectUserSelect}
         />
       )}
     </>
