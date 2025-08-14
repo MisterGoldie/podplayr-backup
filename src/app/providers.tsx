@@ -148,10 +148,10 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
           }
           
           setIsFidReady(true);
-          return;
+          return; // IMPORTANT: Return early to prevent Farcaster detection from overriding
         }
         
-        // Fall back to Farcaster detection
+        // Only fall back to Farcaster detection if MiniKit context is not available
         const isInMiniApp = await isFarcasterMiniApp();
         setIsFarcaster(isInMiniApp);
         

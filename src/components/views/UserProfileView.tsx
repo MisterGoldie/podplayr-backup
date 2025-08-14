@@ -103,30 +103,26 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
       let hasMedia = false;
       
       try {
-        // Check for audio in metadata - Same filtering logic as in ExploreView
+        // Profile view filtering (more comprehensive)
         const hasAudio = Boolean(nft.hasValidAudio || 
           nft.audio || 
           (nft.metadata?.animation_url && (
             nft.metadata.animation_url.toLowerCase().endsWith('.mp3') ||
             nft.metadata.animation_url.toLowerCase().endsWith('.wav') ||
             nft.metadata.animation_url.toLowerCase().endsWith('.m4a') ||
-            // Check for common audio content types
             nft.metadata.animation_url.toLowerCase().includes('audio/') ||
-            // Some NFTs store audio in IPFS
             nft.metadata.animation_url.toLowerCase().includes('ipfs')
           )));
-
-        // Check for video in metadata
+        
         const hasVideo = Boolean(nft.isVideo || 
           (nft.metadata?.animation_url && (
             nft.metadata.animation_url.toLowerCase().endsWith('.mp4') ||
             nft.metadata.animation_url.toLowerCase().endsWith('.webm') ||
             nft.metadata.animation_url.toLowerCase().endsWith('.mov') ||
-            // Check for common video content types
             nft.metadata.animation_url.toLowerCase().includes('video/')
           )));
-
-        // Also check properties.files if they exist
+        
+        // Also checks properties.files
         const hasMediaInProperties = nft.metadata?.properties?.files?.some((file: any) => {
           if (!file) return false;
           const fileUrl = (file.uri || file.url || '').toLowerCase();
@@ -569,6 +565,7 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
                       // Apply the same media filter to the count
                       let hasMedia = false;
                       try {
+                        // Profile view filtering (more comprehensive)
                         const hasAudio = Boolean(nft.hasValidAudio || 
                           nft.audio || 
                           (nft.metadata?.animation_url && (
@@ -578,6 +575,7 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
                             nft.metadata.animation_url.toLowerCase().includes('audio/') ||
                             nft.metadata.animation_url.toLowerCase().includes('ipfs')
                           )));
+                        
                         const hasVideo = Boolean(nft.isVideo || 
                           (nft.metadata?.animation_url && (
                             nft.metadata.animation_url.toLowerCase().endsWith('.mp4') ||
@@ -585,14 +583,23 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
                             nft.metadata.animation_url.toLowerCase().endsWith('.mov') ||
                             nft.metadata.animation_url.toLowerCase().includes('video/')
                           )));
+                        
+                        // Also checks properties.files
                         const hasMediaInProperties = nft.metadata?.properties?.files?.some((file: any) => {
                           if (!file) return false;
                           const fileUrl = (file.uri || file.url || '').toLowerCase();
                           const fileType = (file.type || file.mimeType || '').toLowerCase();
-                          return fileUrl.endsWith('.mp3') || fileUrl.endsWith('.wav') || fileUrl.endsWith('.m4a') ||
-                                fileUrl.endsWith('.mp4') || fileUrl.endsWith('.webm') || fileUrl.endsWith('.mov') ||
-                                fileType.includes('audio/') || fileType.includes('video/');
+                          
+                          return fileUrl.endsWith('.mp3') || 
+                                fileUrl.endsWith('.wav') || 
+                                fileUrl.endsWith('.m4a') ||
+                                fileUrl.endsWith('.mp4') || 
+                                fileUrl.endsWith('.webm') || 
+                                fileUrl.endsWith('.mov') ||
+                                fileType.includes('audio/') ||
+                                fileType.includes('video/');
                         }) ?? false;
+
                         hasMedia = hasAudio || hasVideo || hasMediaInProperties;
                       } catch (error) {
                         console.error('Error checking media types in count:', error);
