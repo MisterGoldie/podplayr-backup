@@ -2756,8 +2756,8 @@ export const searchUsers = async (queryString: string): Promise<FarcasterUser[]>
   // Clear any pending search
   if (searchTimeout) clearTimeout(searchTimeout);
 
-  // Return early if query is too short (increased minimum length)
-  if (queryString.length < 2) return [];
+  // Return early if query is too short, but allow single digits (FIDs)
+  if (queryString.length < 1 || (queryString.length === 1 && isNaN(Number(queryString)))) return [];
   
   // Check if this is a negative FID (ENS user)
   const queryAsNumber = Number(queryString);
@@ -2797,9 +2797,40 @@ export const searchUsers = async (queryString: string): Promise<FarcasterUser[]>
       throw new Error('Neynar API key not found');
     }
     
-    // Only perform ENS lookup when the query ends with .eth
+    // Add debug logging
+    console.log('🔍 queryString type:', typeof queryString);
+    console.log('🔍 queryString value:', JSON.stringify(queryString));
+    console.log('🔍 Number(queryString):', Number(queryString));
+    console.log('🔍 isNaN(Number(queryString)):', isNaN(Number(queryString)));
+    
+    // Check if query is a number first (FID check should come before ENS check)
+    const isFid = !isNaN(Number(queryString));
+    console.log('🔍 isFid check result:', isFid);
+    
+    // FOR FID SEARCHES: Check Firebase first before making API call
+    if (isFid) {
+      console.log('🔍 Entering FID search branch');
+      try {
+        const userRef = doc(db, 'searchedusers', queryString);
+        const userDoc = await getDoc(userRef);
+        
+        if (userDoc.exists()) {
+          const userData = userDoc.data() as FarcasterUser;
+          console.log('✅ Found user in Firebase cache:', userData.username);
+          return [userData];
+        }
+        console.log('🔍 User not in Firebase cache, fetching from API...');
+      } catch (firebaseError) {
+        console.error('Error checking Firebase cache:', firebaseError);
+        // Continue to API call as fallback
+      }
+    } else {
+      console.log('🔍 NOT entering FID search branch - treating as username search');
+    }
+    
+    // Only perform ENS lookup when the query ends with .eth AND is not a FID
     // This is the ONLY condition for ENS lookups - strict separation
-    const isEnsQuery = queryString.endsWith('.eth');
+    const isEnsQuery = queryString.endsWith('.eth') && !isFid;
     
     // CASE 1: ENS NAME SEARCH - Only when query explicitly ends with .eth
     if (isEnsQuery) {
@@ -2871,9 +2902,7 @@ export const searchUsers = async (queryString: string): Promise<FarcasterUser[]>
       }
     }
     
-    // CASE 2: FARCASTER USER SEARCH
-    // If query is a number, treat it as FID
-    const isFid = !isNaN(Number(queryString));
+    // CASE 2: FARCASTER USER SEARCH (including FID searches)
     const endpoint = isFid 
       ? `https://api.neynar.com/v2/farcaster/user/bulk?fids=${queryString}`
       : `https://api.neynar.com/v2/farcaster/user/search?q=${encodeURIComponent(queryString)}`;
@@ -3015,6 +3044,40 @@ export const searchUsers = async (queryString: string): Promise<FarcasterUser[]>
       };
     });
     
+    // Save users to Firebase cache after successful API call
+    if (farcasterUsers.length > 0) {
+      try {
+        // Save each user to Firebase cache for future lookups
+        const savePromises = farcasterUsers.map(async (user: FarcasterUser) => {
+          const userRef = doc(db, 'searchedusers', user.fid.toString());
+          const now = new Date().getTime();
+          
+          const userData = {
+            fid: user.fid,
+            username: user.username,
+            display_name: user.display_name,
+            pfp_url: user.pfp_url,
+            custody_address: user.custody_address,
+            verifiedAddresses: user.verified_addresses?.eth_addresses || [],
+            follower_count: user.follower_count,
+            following_count: user.following_count,
+            lastSearched: now,
+            searchCount: increment(1),
+            bio: user.profile?.bio || "",
+            isENS: false
+          };
+          
+          await setDoc(userRef, userData, { merge: true });
+          console.log('💾 Saved user to Firebase cache:', user.username);
+        });
+        
+        await Promise.all(savePromises);
+      } catch (cacheError) {
+        console.error('Error saving users to Firebase cache:', cacheError);
+        // Don't throw - return the users even if caching fails
+      }
+    }
+    
     // IMPORTANT: Never mix ENS and Farcaster results unless explicitly searching for an ENS name
     // For regular Farcaster searches, only return Farcaster results
     
@@ -3031,9 +3094,12 @@ export const searchUsers = async (queryString: string): Promise<FarcasterUser[]>
   } catch (error) {
     console.error('❌ Search Users Error:', error);
     
-    // Only try ENS as fallback if the query explicitly ends with .eth
+    // Check if query is a number for the fallback logic
+    const isFid = !isNaN(Number(queryString));
+    
+    // Only try ENS as fallback if the query explicitly ends with .eth AND is not a FID
     // This maintains strict separation between ENS and Farcaster searches
-    if (queryString.endsWith('.eth')) {
+    if (queryString.endsWith('.eth') && !isFid) {
       try {
         const { getEnsProfile } = await import('./ens');
         const { createENSUser } = await import('../types/ens');

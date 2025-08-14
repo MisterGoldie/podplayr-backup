@@ -654,6 +654,15 @@ const DemoBase: React.FC = () => {
     });
   }, [currentPlayingNFT]);
 
+  // Add these memoized callbacks for UserDataLoader
+  const handleNFTsLoaded = useCallback((nfts: NFT[]) => {
+    setUserNFTs(nfts);
+  }, []);
+
+  const handleUserDataError = useCallback((error: string) => {
+    console.error('NFT loading error:', error);
+  }, []);
+
   // Add a function to handle direct video playback
   const handleDirectVideoPlayback = useCallback((nft: NFT) => {
     if (!nft.isVideo) return;
@@ -1106,8 +1115,8 @@ const DemoBase: React.FC = () => {
       {selectedUser && (
         <UserDataLoader
           userFid={selectedUser.fid}
-          onNFTsLoaded={setUserNFTs}
-          onError={(error) => console.error('NFT loading error:', error)}
+          onNFTsLoaded={handleNFTsLoaded}
+          onError={handleUserDataError}
         />
       )}
       {currentPlayingNFT && (

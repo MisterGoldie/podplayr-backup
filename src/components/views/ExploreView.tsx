@@ -792,35 +792,43 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
                         
                         // Track the search based on user type
                         console.log('=== EXPLORE: Tracking search ===');
-                        if (user.isENS || userData?.isENS) {
-                          // For ENS users, create a new search entry to update their position in recent searches
-                          console.log('Re-tracking ENS user to update recent searches position');
-                          const searchRef = collection(db, 'user_searches');
-                          const timestamp = Date.now();
+                        try {
+                          if (user.isENS || userData?.isENS) {
+                            // For ENS users, create a new search entry to update their position in recent searches
+                            console.log('Re-tracking ENS user to update recent searches position');
+                            const searchRef = collection(db, 'user_searches');
+                            const timestamp = Date.now();
+                            
+                            const searchRecord = {
+                              searching_fid: effectiveUserFid,
+                              searchedFid: user.fid,
+                              searchedUsername: user.username,
+                              searchedDisplayName: user.display_name || user.username,
+                              searchedPfpUrl: user.pfp_url,
+                              searchedFollowerCount: user.follower_count || 0,
+                              searchedFollowingCount: user.following_count || 0,
+                              timestamp: timestamp,
+                              serverTimestamp: serverTimestamp(),
+                              isENS: true
+                            };
+                            
+                            await addDoc(searchRef, searchRecord);
+                            console.log('ENS user search tracked successfully');
+                          } else {
+                            // Only track Farcaster users
+                            await trackUserSearch(user.username, effectiveUserFid);
+                            console.log('Search tracked successfully');
+                          }
                           
-                          const searchRecord = {
-                            searching_fid: effectiveUserFid,
-                            searchedFid: user.fid,
-                            searchedUsername: user.username,
-                            searchedDisplayName: user.display_name || user.username,
-                            searchedPfpUrl: user.pfp_url,
-                            searchedFollowerCount: user.follower_count || 0,
-                            searchedFollowingCount: user.following_count || 0,
-                            timestamp: timestamp,
-                            serverTimestamp: serverTimestamp(),
-                            isENS: true
-                          };
+                          // Add a small delay to allow the real-time subscription to update
+                          // This ensures the recently searched list updates before navigation
+                          await new Promise(resolve => setTimeout(resolve, 100));
                           
-                          await addDoc(searchRef, searchRecord);
-                          console.log('ENS user search tracked successfully');
-                        } else {
-                          // Only track Farcaster users
-                          await trackUserSearch(user.username, effectiveUserFid);
-                          console.log('Search tracked successfully');
+                        } catch (error) {
+                          console.error('Error tracking search:', error);
                         }
                         
                         // CRITICAL: ALWAYS use handleDirectUserSelect for consistent profile loading
-                        // This ensures we're going directly to UserProfileView when a user is clicked
                         if (handleDirectUserSelect) {
                           console.log('Using handleDirectUserSelect for recently searched user:', farcasterUser.username);
                           handleDirectUserSelect(farcasterUser);
