@@ -32,6 +32,7 @@ import { fetchUserNFTsFromAlchemy } from './alchemy';
 import { getMediaKey } from '~/utils/media';
 import { logger } from '../utils/logger';
 import { v4 as uuidv4 } from 'uuid';
+import { isENSUser } from '../utils/ensUtils';
 
 // Create module-specific loggers
 const firebaseLogger = logger.getModuleLogger('firebase');
@@ -2758,6 +2759,30 @@ export const searchUsers = async (queryString: string): Promise<FarcasterUser[]>
   // Return early if query is too short (increased minimum length)
   if (queryString.length < 2) return [];
   
+  // Check if this is a negative FID (ENS user)
+  const queryAsNumber = Number(queryString);
+  if (!isNaN(queryAsNumber) && queryAsNumber < 0) {
+    console.log('🌐 Detected ENS user FID:', queryAsNumber);
+    
+    try {
+      // Try to get ENS user from Firebase
+      const ensUserRef = doc(db, 'searchedusers', queryAsNumber.toString());
+      const ensUserDoc = await getDoc(ensUserRef);
+      
+      if (ensUserDoc.exists()) {
+        const ensUserData = ensUserDoc.data() as FarcasterUser;
+        console.log('✅ Found ENS user in Firebase:', ensUserData.username);
+        return [ensUserData];
+      } else {
+        console.log('❌ ENS user not found in Firebase for FID:', queryAsNumber);
+        return [];
+      }
+    } catch (error) {
+      console.error('Error fetching ENS user from Firebase:', error);
+      return [];
+    }
+  }
+  
   // Prevent searching for incomplete ENS names (e.g. while typing "mister.et")
   // This avoids unnecessary ENS lookups during typing
   const isIncompleteEnsName = queryString.includes('.') && !queryString.endsWith('.eth');
@@ -2847,7 +2872,6 @@ export const searchUsers = async (queryString: string): Promise<FarcasterUser[]>
     }
     
     // CASE 2: FARCASTER USER SEARCH
-    
     // If query is a number, treat it as FID
     const isFid = !isNaN(Number(queryString));
     const endpoint = isFid 

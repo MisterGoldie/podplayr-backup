@@ -47,10 +47,20 @@ export function createENSUser(ensProfile: any): ENSUser {
   const username = ensName.replace('.eth', '') || '';
   
   // Generate a negative FID to ensure it doesn't conflict with Farcaster FIDs
-  // Use a hash of the address to create a consistent negative number
   const addressHash = ensProfile.address ? 
     parseInt(ensProfile.address.slice(2, 10), 16) : 0;
   const fid = -Math.abs(addressHash);
+  
+  // Better avatar fallback logic
+  let pfpUrl = '/defaultens.png'; // Default ENS fallback
+  
+  if (ensProfile.avatar) {
+    // If ENS has an avatar, use it but we'll implement timeout fallback in components
+    pfpUrl = ensProfile.avatar;
+  } else {
+    // If no ENS avatar, use the default ENS placeholder immediately
+    pfpUrl = '/defaultens.png';
+  }
   
   return {
     // ENS-specific fields
@@ -62,7 +72,7 @@ export function createENSUser(ensProfile: any): ENSUser {
     fid,
     username,
     display_name: ensName || username,
-    pfp_url: ensProfile.avatar || `https://avatar.vercel.sh/${username}`,
+    pfp_url: pfpUrl,
     follower_count: 0,
     following_count: 0,
     

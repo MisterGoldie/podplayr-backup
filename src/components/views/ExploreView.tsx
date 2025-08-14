@@ -302,22 +302,59 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
   // Add state for image error handling
   const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
   
-  // Add this helper function to handle image errors
-  const handleImageError = (imageUrl: string) => {
-    setFailedImages(prev => new Set([...prev, imageUrl]));
+  // Add state for loading images with timeout
+  const [loadingImages, setLoadingImages] = useState<Set<string>>(new Set());
+  
+  // Enhanced helper function to get safe image URL
+  const getSafeImageUrl = (user: any) => {
+  const originalUrl = user.pfp_url || (user.isENS ? '/defaultens.png' : `https://avatar.vercel.sh/${user.username}`);
+  
+  // If this image has failed before, use fallback immediately
+  if (failedImages.has(originalUrl)) {
+    return user.isENS ? '/defaultens.png' : '/default-nft.png';
+  }
+  
+  return originalUrl;
   };
   
-  // Add this helper function to get safe image URL
-  const getSafeImageUrl = (user: any) => {
-    const originalUrl = user.pfp_url || (user.isENS ? '/defaultens.png' : `https://avatar.vercel.sh/${user.username}`);
-    
-    // If this image has failed before, use fallback immediately
-    if (failedImages.has(originalUrl)) {
-      return user.isENS ? '/defaultens.png' : '/default-nft.png';
-    }
-    
-    return originalUrl;
+  // Enhanced image error handler
+  const handleImageError = (imageUrl: string) => {
+  setFailedImages(prev => new Set([...prev, imageUrl]));
+  setLoadingImages(prev => {
+  const newSet = new Set(prev);
+  newSet.delete(imageUrl);
+  return newSet;
+  });
   };
+  
+  // Add timeout for slow-loading images
+  useEffect(() => {
+  const timeouts: NodeJS.Timeout[] = [];
+  
+  recentSearches.forEach(user => {
+  const imageUrl = user.pfp_url;
+  if (imageUrl && !failedImages.has(imageUrl) && !loadingImages.has(imageUrl)) {
+  setLoadingImages(prev => new Set([...prev, imageUrl]));
+  
+  // Set timeout for 3 seconds
+  const timeout = setTimeout(() => {
+  setFailedImages(prev => new Set([...prev, imageUrl]));
+  setLoadingImages(prev => {
+  const newSet = new Set(prev);
+  newSet.delete(imageUrl);
+  return newSet;
+  });
+  }, 3000);
+  
+  timeouts.push(timeout);
+  }
+  });
+  
+  return () => {
+  timeouts.forEach(timeout => clearTimeout(timeout));
+  };
+  }, [recentSearches, failedImages, loadingImages]);
+  
 
   // Check if users are followed when search results or selected user changes
   useEffect(() => {
