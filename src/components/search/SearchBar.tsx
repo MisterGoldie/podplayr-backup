@@ -209,7 +209,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onSearch, isSearching, han
           type="text"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
-          placeholder="Search Farcaster users or .eth names"
+          placeholder="Search Farcaster users or ENS names"
           className="w-full px-4 py-3 bg-transparent border-2 border-green-400/30 
                    rounded-full text-green-400 placeholder-green-400/50 
                    focus:outline-none focus:border-green-400 
