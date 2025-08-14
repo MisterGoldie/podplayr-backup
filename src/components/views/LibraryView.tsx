@@ -258,12 +258,12 @@ class LibraryView extends React.Component<LibraryViewProps> {
 
     return uniqueNFTs
       .filter(nft => 
-        nft.name.toLowerCase().includes(searchFilter.toLowerCase())
+        nft.name && nft.name.toLowerCase().includes(searchFilter.toLowerCase())
       )
       .sort((a, b) => {
         switch (filterSort) {
           case 'name':
-            return a.name.localeCompare(b.name);
+            return (a.name || '').localeCompare(b.name || '');
           case 'recent':
             return -1; // Keep most recent first
           default:
