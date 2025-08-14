@@ -34,6 +34,18 @@ interface UserProfileViewProps {
 // Create logger for NFT filtering in profile view
 const nftLogger = logger.getModuleLogger('ProfileNFTs');
 
+let userProfileDataCache = new Map<string, {
+  userData: FarcasterUser;
+  followerCount: number;
+  followingCount: number;
+  totalPlays: number;
+  likedNFTsCount: number;
+  isFollowed: boolean;
+  timestamp: number;
+}>();
+
+const USER_PROFILE_CACHE_DURATION = 3 * 60 * 1000; // 3 minutes
+
 const UserProfileView: React.FC<UserProfileViewProps> = ({
   user,
   nfts,

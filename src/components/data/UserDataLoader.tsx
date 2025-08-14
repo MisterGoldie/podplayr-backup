@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useRef } from 'react';
 import { searchUsers, getLikedNFTs } from '../../lib/firebase';
 import { subscribeToLikedNFTs } from '../../lib/firebase/likes';
 import { fetchUserNFTsFromAlchemy } from '../../lib/alchemy';
@@ -8,8 +8,18 @@ import { getMediaKey } from '../../utils/media';
 import type { NFT, FarcasterUser } from '../../types/user';
 
 const NFT_CACHE_KEY = 'podplayr_nft_cache_';
-// Change from 2 hours to 24 hours
 const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+
+// Use sessionStorage instead of module-level Map for persistence across component mounts
+const SESSION_CACHE_KEY = 'podplayr_user_data_session_cache';
+const SESSION_CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
+interface CachedUserData {
+  userData: FarcasterUser;
+  nfts: NFT[];
+  likedNFTs: NFT[];
+  timestamp: number;
+}
 
 interface UserDataLoaderProps {
   userFid: number;
@@ -18,6 +28,28 @@ interface UserDataLoaderProps {
   onLikedNFTsLoaded?: (nfts: NFT[]) => void;
   onError?: (error: string) => void;
 }
+
+const getSessionCache = (): Map<number, CachedUserData> => {
+  try {
+    const cached = sessionStorage.getItem(SESSION_CACHE_KEY);
+    if (cached) {
+      const data = JSON.parse(cached);
+      return new Map(Object.entries(data).map(([key, value]) => [parseInt(key), value as CachedUserData]));
+    }
+  } catch (error) {
+    console.error('Error reading session cache:', error);
+  }
+  return new Map();
+};
+
+const setSessionCache = (cache: Map<number, CachedUserData>) => {
+  try {
+    const data = Object.fromEntries(cache.entries());
+    sessionStorage.setItem(SESSION_CACHE_KEY, JSON.stringify(data));
+  } catch (error) {
+    console.error('Error writing session cache:', error);
+  }
+};
 
 const getCachedNFTs = (userId: number): NFT[] | null => {
   const cached = localStorage.getItem(`${NFT_CACHE_KEY}${userId}`);
@@ -37,6 +69,8 @@ export const UserDataLoader: React.FC<UserDataLoaderProps> = ({
   onLikedNFTsLoaded,
   onError
 }) => {
+  const loadingRef = useRef<number | null>(null);
+
   // Memoize callbacks to prevent unnecessary re-renders
   const handleUserDataLoaded = useCallback((userData: FarcasterUser) => {
     onUserDataLoaded?.(userData);
@@ -55,8 +89,30 @@ export const UserDataLoader: React.FC<UserDataLoaderProps> = ({
   }, [onError]);
 
   useEffect(() => {
+    // Prevent multiple simultaneous loads for the same user
+    if (loadingRef.current === userFid) {
+      console.log('Already loading data for FID:', userFid);
+      return;
+    }
+
     const loadUserData = async () => {
+      loadingRef.current = userFid;
+      
       try {
+        // Check session cache first
+        const sessionCache = getSessionCache();
+        const cached = sessionCache.get(userFid);
+        const now = Date.now();
+        
+        if (cached && (now - cached.timestamp) < SESSION_CACHE_DURATION) {
+          console.log('✅ Using cached user data for FID:', userFid);
+          handleUserDataLoaded(cached.userData);
+          handleNFTsLoaded(cached.nfts);
+          handleLikedNFTsLoaded(cached.likedNFTs);
+          loadingRef.current = null;
+          return;
+        }
+        
         console.log('Starting user data load for FID:', userFid);
         
         // Get Farcaster user data
@@ -70,6 +126,7 @@ export const UserDataLoader: React.FC<UserDataLoaderProps> = ({
         if (!users?.length) {
           console.error('No user found for FID:', userFid);
           handleError('User not found');
+          loadingRef.current = null;
           return;
         }
 
@@ -93,12 +150,15 @@ export const UserDataLoader: React.FC<UserDataLoaderProps> = ({
         if (!addresses.length) {
           console.error('No wallet addresses found for user:', userData.username);
           handleError('No wallet addresses found');
+          loadingRef.current = null;
           return;
         }
 
         // Try cached NFTs first
         console.log('Checking NFT cache...');
         const cachedNFTs = getCachedNFTs(userFid);
+        let nftsWithLikeStatus: NFT[] = [];
+        
         if (cachedNFTs) {
           console.log('Found cached NFTs, validating structure...');
           const hasValidStructure = cachedNFTs.every(nft => 
@@ -109,47 +169,64 @@ export const UserDataLoader: React.FC<UserDataLoaderProps> = ({
 
           if (hasValidStructure) {
             console.log('Using cached NFTs:', cachedNFTs.length);
-            handleNFTsLoaded(cachedNFTs);
-            return;
+            nftsWithLikeStatus = cachedNFTs.map(nft => {
+              const mediaKey = getMediaKey(nft);
+              const cachedLikes = localStorage.getItem('podplayr_liked_media_keys');
+              let isLiked = false;
+              
+              if (cachedLikes) {
+                try {
+                  const mediaKeys = JSON.parse(cachedLikes) as string[];
+                  isLiked = mediaKeys.includes(mediaKey);
+                } catch (error) {
+                  console.error('Error parsing cached likes:', error);
+                }
+              }
+              
+              return { ...nft, mediaKey, isLikedCached: isLiked };
+            });
+          } else {
+            console.log('Invalid cache structure, removing cache');
+            localStorage.removeItem(`${NFT_CACHE_KEY}${userFid}`);
           }
-          console.log('Invalid cache structure, removing cache');
-          localStorage.removeItem(`${NFT_CACHE_KEY}${userFid}`);
         }
+        
+        // If no valid cached NFTs, fetch fresh ones
+        if (nftsWithLikeStatus.length === 0) {
+          console.log('Fetching fresh NFTs from Alchemy...');
+          const nftPromises = addresses.map(address => {
+            console.log('Fetching NFTs for address:', address);
+            return fetchUserNFTsFromAlchemy(address);
+          });
+          const nftResults = await Promise.all(nftPromises);
+          const allNFTs = nftResults.flat();
+          console.log('Total NFTs found:', allNFTs.length);
 
-        // Fetch fresh NFTs
-        console.log('Fetching fresh NFTs from Alchemy...');
-        const nftPromises = addresses.map(address => {
-          console.log('Fetching NFTs for address:', address);
-          return fetchUserNFTsFromAlchemy(address);
-        });
-        const nftResults = await Promise.all(nftPromises);
-        const allNFTs = nftResults.flat();
-        console.log('Total NFTs found:', allNFTs.length);
+          // Cache NFTs
+          console.log('Caching NFTs...');
+          localStorage.setItem(`${NFT_CACHE_KEY}${userFid}`, JSON.stringify({
+            nfts: allNFTs,
+            timestamp: Date.now()
+          }));
 
-        // Cache NFTs
-        console.log('Caching NFTs...');
-        localStorage.setItem(`${NFT_CACHE_KEY}${userFid}`, JSON.stringify({
-          nfts: allNFTs,
-          timestamp: Date.now()
-        }));
-
-        // After loading NFTs, immediately check their like status
-        const nftsWithLikeStatus = allNFTs.map(nft => {
-          const mediaKey = getMediaKey(nft);
-          const cachedLikes = localStorage.getItem('podplayr_liked_media_keys');
-          let isLiked = false;
-          
-          if (cachedLikes) {
-            try {
-              const mediaKeys = JSON.parse(cachedLikes) as string[];
-              isLiked = mediaKeys.includes(mediaKey);
-            } catch (error) {
-              console.error('Error parsing cached likes:', error);
+          // After loading NFTs, immediately check their like status
+          nftsWithLikeStatus = allNFTs.map(nft => {
+            const mediaKey = getMediaKey(nft);
+            const cachedLikes = localStorage.getItem('podplayr_liked_media_keys');
+            let isLiked = false;
+            
+            if (cachedLikes) {
+              try {
+                const mediaKeys = JSON.parse(cachedLikes) as string[];
+                isLiked = mediaKeys.includes(mediaKey);
+              } catch (error) {
+                console.error('Error parsing cached likes:', error);
+              }
             }
-          }
-          
-          return { ...nft, mediaKey, isLikedCached: isLiked };
-        });
+            
+            return { ...nft, mediaKey, isLikedCached: isLiked };
+          });
+        }
         
         handleNFTsLoaded(nftsWithLikeStatus);
 
@@ -159,16 +236,40 @@ export const UserDataLoader: React.FC<UserDataLoaderProps> = ({
         console.log('Liked NFTs loaded initially:', likedNFTs.length);
         handleLikedNFTsLoaded(likedNFTs);
         
+        // Cache all data in session cache
+        const updatedCache = getSessionCache();
+        updatedCache.set(userFid, {
+          userData,
+          nfts: nftsWithLikeStatus,
+          likedNFTs,
+          timestamp: now
+        });
+        setSessionCache(updatedCache);
+        
         // Set up real-time subscription to liked NFTs
         console.log('Setting up real-time subscription to liked NFTs...');
         const unsubscribeLikes = subscribeToLikedNFTs(userFid, (updatedLikedNFTs: NFT[]) => {
           console.log('Liked NFTs update received:', updatedLikedNFTs.length);
           handleLikedNFTsLoaded(updatedLikedNFTs);
           
+          // Update session cache
+          const currentCache = getSessionCache();
+          const existingCache = currentCache.get(userFid);
+          if (existingCache) {
+            currentCache.set(userFid, {
+              ...existingCache,
+              likedNFTs: updatedLikedNFTs,
+              timestamp: Date.now()
+            });
+            setSessionCache(currentCache);
+          }
+          
           // Update localStorage cache for next time
           const mediaKeys = updatedLikedNFTs.map(nft => nft.mediaKey || getMediaKey(nft)).filter(Boolean);
           localStorage.setItem('podplayr_liked_media_keys', JSON.stringify(mediaKeys));
         });
+        
+        loadingRef.current = null;
         
         // Return cleanup function
         return () => {
@@ -179,6 +280,7 @@ export const UserDataLoader: React.FC<UserDataLoaderProps> = ({
       } catch (error) {
         console.error('Error loading user data:', error);
         handleError('Failed to load user data');
+        loadingRef.current = null;
       }
     };
 
@@ -189,8 +291,5 @@ export const UserDataLoader: React.FC<UserDataLoaderProps> = ({
   
   return null;
 };
-
-// Remove lines 195-202 (the broken code snippet)
-// The file should end at line 193 with:
 
 export default UserDataLoader;
