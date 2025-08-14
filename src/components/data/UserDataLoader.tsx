@@ -190,4 +190,7 @@ export const UserDataLoader: React.FC<UserDataLoaderProps> = ({
   return null;
 };
 
+// Remove lines 195-202 (the broken code snippet)
+// The file should end at line 193 with:
+
 export default UserDataLoader;

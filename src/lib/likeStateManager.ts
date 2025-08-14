@@ -1,7 +1,7 @@
 import { NFT } from '../types/user';
-import { v4 as uuidv4 } from 'uuid';
 import { logger } from '../utils/logger';
-// getMediaKey is already imported at the bottom of the file
+import { getMediaKey } from '../utils/media';
+import { debounce } from 'lodash';
 
 // Create a dedicated logger for like state management
 const likeLogger = {
@@ -319,11 +319,22 @@ export const observeLikeChanges = (callback: () => void): () => void => {
   return likeStateManager.addObserver(callback);
 };
 
-// Generate a unique, random media key for each NFT
-// Remove lines 322-324:
-// const getMediaKey = (nft: NFT): string => {
-//   return uuidv4();
-// };
-
-// Add import at top:
-import { getMediaKey } from '../utils/media';
+// Add debouncing to prevent rapid successive calls
+const debouncedSetupListeners = debounce((nfts: NFT[]) => {
+  nfts.forEach(nft => {
+    // Add event listeners for like state changes
+    const mediaKey = nft.mediaKey || getMediaKey(nft);
+    if (mediaKey) {
+      const elements = document.querySelectorAll(`[data-media-key="${mediaKey}"]`);
+      elements.forEach(element => {
+        element.addEventListener('click', () => {
+          if (likeStateManager.isNFTLiked(nft)) {
+            likeStateManager.removeLikedNFT(nft);
+          } else {
+            likeStateManager.addLikedNFT(nft);
+          }
+        });
+      });
+    }
+  });
+}, 100);

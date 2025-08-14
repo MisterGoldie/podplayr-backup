@@ -37,8 +37,8 @@ const recordSuccess = () => {
 
 const processMediaUrl = (url?: string): string | undefined => {
   if (!url) return undefined;
-  if (url.startsWith('ipfs://')) {
-    return `https://ipfs.io/ipfs/${url.slice(7)}`;
+  if (url.startsWith('ar://')) {
+    return `https://arweave.net/${url.slice(5)}`;
   }
   return url;
 };
@@ -67,6 +67,9 @@ const isMediaNFT = (metadata: any, animationUrl?: string): boolean => {
 
   return false;
 };
+
+// Request deduplication
+const activeRequests = new Map<string, Promise<NFT[]>>();
 
 const fetchFromNetwork = async (address: string, client: Alchemy, network: string): Promise<NFT[]> => {
   if (isCircuitBreakerOpen()) {
@@ -154,26 +157,44 @@ export const fetchUserNFTsFromAlchemy = async (address: string): Promise<NFT[]> 
     return [];
   }
 
-  const [baseNFTs, ethNFTs] = await Promise.allSettled([
-    fetchFromNetwork(address, baseAlchemy, 'base'),
-    fetchFromNetwork(address, ethAlchemy, 'ethereum')
-  ]);
+  // Request deduplication
+  const key = address.toLowerCase();
+  if (activeRequests.has(key)) {
+    console.log('🔄 Reusing existing request for:', address);
+    return activeRequests.get(key)!;
+  }
 
-  const allNFTs = [
-    ...(baseNFTs.status === 'fulfilled' ? baseNFTs.value : []),
-    ...(ethNFTs.status === 'fulfilled' ? ethNFTs.value : [])
-  ];
+  const promise = (async () => {
+    const [baseNFTs, ethNFTs] = await Promise.allSettled([
+      fetchFromNetwork(address, baseAlchemy, 'base'),
+      fetchFromNetwork(address, ethAlchemy, 'ethereum')
+    ]);
 
-  // Deduplicate
-  const nftMap = new Map<string, NFT>();
-  allNFTs.forEach(nft => {
-    const key = `${nft.contract}-${nft.tokenId}`;
-    if (!nftMap.has(key)) {
-      nftMap.set(key, nft);
-    }
+    const allNFTs = [
+      ...(baseNFTs.status === 'fulfilled' ? baseNFTs.value : []),
+      ...(ethNFTs.status === 'fulfilled' ? ethNFTs.value : [])
+    ];
+
+    // Deduplicate
+    const nftMap = new Map<string, NFT>();
+    allNFTs.forEach(nft => {
+      const key = `${nft.contract}-${nft.tokenId}`;
+      if (!nftMap.has(key)) {
+        nftMap.set(key, nft);
+      }
+    });
+
+    return Array.from(nftMap.values());
+  })();
+
+  activeRequests.set(key, promise);
+  
+  // Clean up after completion
+  promise.finally(() => {
+    setTimeout(() => activeRequests.delete(key), 5000);
   });
 
-  return Array.from(nftMap.values());
+  return promise;
 };
 
 export { isCircuitBreakerOpen, recordError, recordSuccess };
