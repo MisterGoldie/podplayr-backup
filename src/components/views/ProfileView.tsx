@@ -123,6 +123,17 @@ const filterMediaNFTs = (nfts: NFT[]) => {
   return filtered;
 };
 
+// Add session-level caching variables at the top of the file, after imports
+let profileDataCache = new Map<number, {
+  nfts: NFT[];
+  likedNFTs: NFT[];
+  followerCount: number;
+  followingCount: number;
+  timestamp: number;
+}>();
+
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
 const ProfileView: React.FC<ProfileViewProps> = ({
   farcasterContext,
   nfts,
@@ -215,7 +226,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({
   // Add this before the useEffect
   const userFid = React.useMemo(() => farcasterContext.user?.fid, [farcasterContext.user?.fid]);
 
-  // Replace the NFT loading useEffect with this corrected version:
+  // Replace the NFT loading useEffect with cached version:
   useEffect(() => {
     const loadNFTs = async () => {
       if (!isUserLoggedIn()) {
@@ -225,6 +236,20 @@ const ProfileView: React.FC<ProfileViewProps> = ({
       
       if (!userFid) {
         console.log('🚫 FID is undefined even though user is logged in');
+        return;
+      }
+
+      // Check cache first
+      const cached = profileDataCache.get(userFid);
+      const now = Date.now();
+      
+      if (cached && (now - cached.timestamp) < CACHE_DURATION) {
+        console.log('✅ Using cached profile data for FID:', userFid);
+        setAllUserNFTs(cached.nfts);
+        setLikedNFTs(cached.likedNFTs);
+        setAppFollowerCount(cached.followerCount);
+        setAppFollowingCount(cached.followingCount);
+        setHasCompletedInitialLoad(true);
         return;
       }
       
@@ -320,6 +345,15 @@ const ProfileView: React.FC<ProfileViewProps> = ({
           mediaKey: nft.mediaKey || getMediaKey(nft)
         }));
         
+        // After successful loading, cache the results
+        profileDataCache.set(userFid, {
+          nfts: nftsWithMediaKey,
+          likedNFTs: [], // Will be populated by liked NFTs effect
+          followerCount: 0, // Will be populated by follow counts effect
+          followingCount: 0, // Will be populated by follow counts effect
+          timestamp: now
+        });
+        
         setAllUserNFTs(nftsWithMediaKey);
         setHasCompletedInitialLoad(true);
         
@@ -336,62 +370,82 @@ const ProfileView: React.FC<ProfileViewProps> = ({
     loadNFTs();
   }, [userFid]);
 
-  // Update the onNFTsLoaded call when filteredNFTs change
-  useEffect(() => {
-    if (hasCompletedInitialLoad) {
-      const deduplicatedNFTs = Array.from(
-        new Map(filteredNFTs.map(nft => [getMediaKey(nft), nft])).values()
-      );
-      console.log(`✅ ProfileView: Processed ${filteredNFTs.length} filtered NFTs to ${deduplicatedNFTs.length} unique NFTs`);
-      onNFTsLoaded(deduplicatedNFTs);
-    }
-  }, [filteredNFTs, hasCompletedInitialLoad]); // ✅ Remove onNFTsLoaded from dependencies
-
-  // Fixed useEffect for loading liked NFTs
+  // Replace liked NFTs useEffect with cached version:
   useEffect(() => {
     const loadLikedNFTs = async () => {
-      if (farcasterContext?.user?.fid && !loadingLikedNFTs.current) {
-        loadingLikedNFTs.current = true;
-        try {
-          const liked = await getLikedNFTs(farcasterContext.user.fid);
-          console.log('Loaded liked NFTs for profile view:', liked.length);
-          setLikedNFTs(liked);
-        } catch (error) {
-          console.error('Error loading liked NFTs:', error);
-        } finally {
-          loadingLikedNFTs.current = false;
+      if (!farcasterContext?.user?.fid || loadingLikedNFTs.current) return;
+      
+      const userFid = farcasterContext.user.fid;
+      const cached = profileDataCache.get(userFid);
+      const now = Date.now();
+      
+      if (cached && cached.likedNFTs.length > 0 && (now - cached.timestamp) < CACHE_DURATION) {
+        console.log('✅ Using cached liked NFTs for FID:', userFid);
+        setLikedNFTs(cached.likedNFTs);
+        return;
+      }
+      
+      loadingLikedNFTs.current = true;
+      try {
+        const liked = await getLikedNFTs(userFid);
+        console.log('Loaded liked NFTs for profile view:', liked.length);
+        setLikedNFTs(liked);
+        
+        // Update cache
+        if (cached) {
+          cached.likedNFTs = liked;
         }
+      } catch (error) {
+        console.error('Error loading liked NFTs:', error);
+      } finally {
+        loadingLikedNFTs.current = false;
       }
     };
 
     loadLikedNFTs();
   }, [farcasterContext?.user?.fid]);
 
-  // Fixed useEffect for fetching follow counts
+  // Replace follow counts useEffect with cached version:
   useEffect(() => {
     const fetchFollowCounts = async () => {
       const userFid = farcasterContext?.user?.fid;
-      if (userFid && !loadingFollowCounts.current) {
-        loadingFollowCounts.current = true;
-        try {
-          const followerCount = await getFollowersCount(userFid);
-          const followingCount = await getFollowingCount(userFid);
-          setAppFollowerCount(followerCount);
-          setAppFollowingCount(followingCount);
-        } catch (error) {
-          console.error('Error fetching follow counts for profile:', error);
-          setAppFollowerCount(0);
-          setAppFollowingCount(0);
-        } finally {
-          loadingFollowCounts.current = false;
+      if (!userFid || loadingFollowCounts.current) return;
+      
+      const cached = profileDataCache.get(userFid);
+      const now = Date.now();
+      
+      if (cached && cached.followerCount > 0 && (now - cached.timestamp) < CACHE_DURATION) {
+        console.log('✅ Using cached follow counts for FID:', userFid);
+        setAppFollowerCount(cached.followerCount);
+        setAppFollowingCount(cached.followingCount);
+        return;
+      }
+      
+      loadingFollowCounts.current = true;
+      try {
+        const followerCount = await getFollowersCount(userFid);
+        const followingCount = await getFollowingCount(userFid);
+        setAppFollowerCount(followerCount);
+        setAppFollowingCount(followingCount);
+        
+        // Update cache
+        if (cached) {
+          cached.followerCount = followerCount;
+          cached.followingCount = followingCount;
         }
+      } catch (error) {
+        console.error('Error fetching follow counts for profile:', error);
+        setAppFollowerCount(0);
+        setAppFollowingCount(0);
+      } finally {
+        loadingFollowCounts.current = false;
       }
     };
 
     fetchFollowCounts();
     
-    // Optional: Set up interval for periodic updates (every 5 minutes instead of 30 seconds)
-    const interval = setInterval(fetchFollowCounts, 5 * 60 * 1000);
+    // Keep the interval for periodic updates but make it less frequent
+    const interval = setInterval(fetchFollowCounts, 10 * 60 * 1000); // 10 minutes
     return () => clearInterval(interval);
   }, [farcasterContext?.user?.fid]);
 
