@@ -910,6 +910,16 @@ const DemoBase: React.FC = () => {
       demoLogger.info(`Selected user: ${user.username}`);
       setSelectedUser(user);
       
+      // Track the user search to update recently searched list
+      if (fid && user.fid) {
+        try {
+          await trackUserSearch(user.username, fid);
+          console.log('User search tracked successfully');
+        } catch (error) {
+          console.error('Error tracking user search:', error);
+        }
+      }
+      
       console.log('🔄 Setting currentPage to UserProfile');
       // Set navigation source to track we came from explore
       setNavigationSource({ fromExplore: true, fromProfile: false });
