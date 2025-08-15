@@ -271,8 +271,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({
         setIsLoading(true);
         setError(null);
         
-        // Import the functions we need - FIX: Use correct import
-        const { fetchUserNFTsFromAlchemy } = await import('../../lib/alchemy');
+        const { fetchUserNFTsFromAlchemy } = await import('../../lib/nft');
         
         // FIX: Use the correct function from firebase.ts to get user data
         const neynarKey = process.env.NEXT_PUBLIC_NEYNAR_API_KEY;

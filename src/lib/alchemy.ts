@@ -47,6 +47,15 @@ const processMediaUrl = (url?: string): string | undefined => {
 const isMediaNFT = (metadata: any, animationUrl?: string): boolean => {
   if (!metadata) return false;
 
+  console.log('🔍 Checking NFT for media content:', {
+    name: metadata.name,
+    audio: metadata.audio,
+    audio_url: metadata.audio_url,
+    animation_url: metadata.animation_url,
+    animationUrl,
+    properties: metadata.properties
+  });
+
   // Quick audio checks first (most common)
   if (metadata.audio || metadata.audio_url) return true;
   if (animationUrl?.match(/\.(mp3|wav|m4a|aac|ogg)$/i)) return true;
@@ -56,13 +65,40 @@ const isMediaNFT = (metadata: any, animationUrl?: string): boolean => {
   if (animationUrl?.match(/\.(mp4|webm|mov|m4v)$/i)) return true;
   if (animationUrl?.includes('video')) return true;
   
+  // Enhanced IPFS and Arweave support
+  if (animationUrl?.includes('ipfs') || animationUrl?.includes('arweave.net')) return true;
+  
   // Name-based checks (last resort)
   const name = metadata.name?.toLowerCase();
   if (name?.includes('music') || name?.includes('song') || name?.includes('audio')) return true;
   
-  // Properties check
-  if (metadata.properties?.files?.some((f: any) => 
-    f?.type?.includes('video') || f?.uri?.match(/\.(mp4|webm|mov)$/i)
+  // Enhanced properties check
+  if (metadata.properties?.files?.some((f: any) => {
+    const fileUrl = (f.uri || f.url || '').toLowerCase();
+    const fileType = (f.type || f.mimeType || '').toLowerCase();
+    return fileUrl.endsWith('.mp3') || 
+           fileUrl.endsWith('.wav') || 
+           fileUrl.endsWith('.m4a') ||
+           fileUrl.endsWith('.mp4') || 
+           fileUrl.endsWith('.webm') || 
+           fileUrl.endsWith('.mov') ||
+           fileType.includes('audio/') ||
+           fileType.includes('video/') ||
+           fileUrl.includes('ipfs') ||
+           fileUrl.includes('arweave');
+  })) return true;
+
+  // Check for animation_url with broader criteria
+  if (metadata.animation_url && (
+    metadata.animation_url.toLowerCase().includes('.mp3') ||
+    metadata.animation_url.toLowerCase().includes('.wav') ||
+    metadata.animation_url.toLowerCase().includes('.m4a') ||
+    metadata.animation_url.toLowerCase().includes('.mp4') ||
+    metadata.animation_url.toLowerCase().includes('.webm') ||
+    metadata.animation_url.toLowerCase().includes('.mov') ||
+    metadata.animation_url.toLowerCase().includes('audio/') ||
+    metadata.animation_url.toLowerCase().includes('video/') ||
+    metadata.animation_url.toLowerCase().includes('ipfs')
   )) return true;
 
   return false;
@@ -93,7 +129,25 @@ const fetchFromNetwork = async (address: string, client: Alchemy, network: strin
             alchemyNft.contract.address,
             alchemyNft.tokenId
           );
-          return { alchemyNft, metadata: fullNft.raw?.metadata };
+          // Fix: Properly construct metadata object with correct TypeScript types
+          const metadata = {
+            ...fullNft.raw?.metadata,
+            // Try multiple possible locations for animation_url
+            animation_url: fullNft.raw?.metadata?.animation_url || 
+                          (fullNft.raw as any)?.animation_url ||
+                          (fullNft as any)?.media?.[0]?.gateway,
+            animationUrl: fullNft.raw?.metadata?.animationUrl || 
+                         (fullNft.raw as any)?.animationUrl,
+            audio: fullNft.raw?.metadata?.audio,
+            audio_url: fullNft.raw?.metadata?.audio_url,
+            properties: fullNft.raw?.metadata?.properties || 
+                       (fullNft.raw as any)?.attributes,
+            name: fullNft.raw?.metadata?.name || 
+                 (fullNft as any)?.title ||
+                 fullNft.name,
+            image: fullNft.raw?.metadata?.image || fullNft.image?.cachedUrl
+          };
+          return { alchemyNft, metadata };
         } catch {
           return { alchemyNft, metadata: null };
         }
