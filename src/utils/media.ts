@@ -52,7 +52,7 @@ export const extractIPFSHash = (url: string): string | null => {
   if (typeof url !== 'string') return null;
 
   // Remove any duplicate 'ipfs' in the path
-  url = url.replace(/\/ipfs\/ipfs\//, '/ipfs/');
+  url = url.replace(/\/ipfs\/ipfs\//g, '/ipfs/');
 
   // Handle ipfs:// protocol
   if (url.startsWith('ipfs://')) {
@@ -65,12 +65,19 @@ export const extractIPFSHash = (url: string): string | null => {
     return ipfsMatch[1];
   }
 
-  // Handle nftstorage.link URLs
+  // Handle nftstorage.link and other IPFS gateway URLs - EXTRACT HASH ONLY
   try {
     const parsedUrl = new URL(url);
-    if (parsedUrl.hostname === 'nftstorage.link' && parsedUrl.pathname.includes('/ipfs/')) {
-      // Keep using the nftstorage.link gateway for these URLs
-      return url;
+    if (parsedUrl.pathname.includes('/ipfs/')) {
+      // Extract just the hash from the path, not the full URL
+      const pathParts = parsedUrl.pathname.split('/ipfs/');
+      if (pathParts.length > 1) {
+        // Get the hash part (everything after /ipfs/)
+        const hashWithPath = pathParts[1];
+        // Extract just the hash (first segment) - THIS IS THE KEY FIX
+        const hash = hashWithPath.split('/')[0];
+        return hash; // Return ONLY the hash, not the full path
+      }
     }
   } catch (e) {
     // If URL parsing fails, continue with other checks
@@ -200,6 +207,20 @@ export const ARWEAVE_AUDIO_GATEWAYS = [
 export const processMediaUrl = (url: string, fallbackUrl: string = '/default-nft.png', mediaType: 'image' | 'audio' | 'metadata' = 'image'): string => {
   if (!url) return fallbackUrl;
   
+  // CRITICAL FIX: Check if URL is already a properly formatted IPFS gateway URL
+  // Don't reprocess URLs that are already using IPFS gateways
+  if (url.includes('/ipfs/') && (url.startsWith('http://') || url.startsWith('https://'))) {
+    // Check if it's already a valid IPFS gateway URL without double paths
+    const hasDoubleIpfs = url.includes('/ipfs/ipfs/');
+    if (!hasDoubleIpfs) {
+      // URL is already properly formatted, return as-is
+      return url;
+    }
+    // If it has double ipfs paths, fix it
+    url = url.replace(/\/ipfs\/ipfs\//g, '/ipfs/');
+    return url;
+  }
+  
   // For audio files from Arweave, we need to be extra careful to preserve the exact file path
   if (mediaType === 'audio' && url.startsWith('ar://')) {
     return processArweaveUrl(url, 'audio');
@@ -230,12 +251,6 @@ export const processMediaUrl = (url: string, fallbackUrl: string = '/default-nft
     }
   }
 
-  // Remove any duplicate 'ipfs' in the path
-  url = url.replace(/\/ipfs\/ipfs\//, '/ipfs/');
-
-  // Check for supported media types that might need special handling
-  const fileExt = url.split('.').pop()?.toLowerCase();
-  
   // Handle IPFS URLs
   if (url.startsWith('ipfs://')) {
     // Remove ipfs:// prefix and any trailing slashes
@@ -248,7 +263,6 @@ export const processMediaUrl = (url: string, fallbackUrl: string = '/default-nft
     }
     
     // For mobile devices, prioritize more reliable gateways
-    // Use cloudflare gateway for better global CDN coverage
     const isMobile = typeof window !== 'undefined' && 
                     (navigator.userAgent.match(/Android/i) ||
                      navigator.userAgent.match(/iPhone/i) ||
@@ -264,8 +278,8 @@ export const processMediaUrl = (url: string, fallbackUrl: string = '/default-nft
   // Try to extract IPFS hash from other formats
   const ipfsHash = extractIPFSHash(url);
   if (ipfsHash) {
-    // Remove any trailing slashes from the hash
-    const cleanHash = ipfsHash.replace(/\/*$/, '');
+    // Remove any trailing slashes AND leading 'ipfs/' from the hash
+    const cleanHash = ipfsHash.replace(/\/*$/, '').replace(/^ipfs\//g, '');
     
     // Process through our CDN if available
     if (CDN_CONFIG.baseUrl) {

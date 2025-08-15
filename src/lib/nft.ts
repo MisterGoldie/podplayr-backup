@@ -115,7 +115,10 @@ const processMediaUrl = (url: string | undefined): string => {
 
   // Handle IPFS URLs
   if (url.startsWith('ipfs://')) {
-    return `https://nftstorage.link/ipfs/${url.slice(7)}`;
+    const hash = url.slice(7); // Remove 'ipfs://'
+    // Remove any leading 'ipfs/' from the hash to prevent duplication
+    const cleanHash = hash.replace(/^ipfs\//g, '');
+    return `https://nftstorage.link/ipfs/${cleanHash}`;
   }
 
   // Handle Arweave URLs
