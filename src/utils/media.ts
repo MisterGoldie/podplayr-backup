@@ -16,11 +16,11 @@ export const getCleanIPFSUrl = (url: string): string => {
 
 // Update IPFS_GATEWAYS array (around line 18)
 export const IPFS_GATEWAYS = [
-  'https://cloudflare-ipfs.com/ipfs/',  // Most reliable - Cloudflare's IPFS gateway
-  'https://gateway.pinata.cloud/ipfs/', // Second choice
-  'https://nftstorage.link/ipfs/',      // Third choice
+  'https://ipfs.io/ipfs/',              // Most reliable - IPFS.io official gateway
+  'https://gateway.pinata.cloud/ipfs/', // Second choice - Pinata
+  'https://nftstorage.link/ipfs/',      // Third choice - NFT.Storage
   'https://dweb.link/ipfs/',            // Additional fallback
-  'https://ipfs.io/ipfs/',              // Move ipfs.io to last as fallback
+  'https://gateway.ipfs.io/ipfs/',      // Another official gateway
 ];
 
 // Enhanced Arweave fallback with immediate default
