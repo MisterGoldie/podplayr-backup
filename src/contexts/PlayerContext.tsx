@@ -18,15 +18,24 @@ interface PlayerContextType {
   setIsPlayerMinimized: (minimized: boolean) => void;
 }
 
-interface PlayerProviderProps {
-  children: ReactNode;
-}
-
+// Add this missing PlayerContext declaration
 const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
 
-export const PlayerProvider: React.FC<PlayerProviderProps> = ({ children }) => {
+interface PlayerProviderProps {
+  children: ReactNode;
+  fid?: number;
+  setRecentlyPlayedNFTs?: React.Dispatch<React.SetStateAction<NFT[]>>;
+  recentlyAddedNFT?: React.MutableRefObject<string | null>;
+}
+
+export const PlayerProvider: React.FC<PlayerProviderProps> = ({ 
+  children, 
+  fid, 
+  setRecentlyPlayedNFTs, 
+  recentlyAddedNFT 
+}) => {
   const [isPlayerMinimized, setIsPlayerMinimized] = useState(true);
-  const player = useAudioPlayer();
+  const player = useAudioPlayer({ fid, setRecentlyPlayedNFTs, recentlyAddedNFT });
 
   const value = {
     ...player,

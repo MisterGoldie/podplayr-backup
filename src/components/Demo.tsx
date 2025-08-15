@@ -29,7 +29,7 @@ import {
 } from '../lib/firebase';
 import { fetchUserNFTsFromAlchemy } from '../lib/alchemy';
 import type { NFT, FarcasterUser, SearchedUser, UserContext, LibraryViewProps, ProfileViewProps, NFTFile, NFTPlayData, GroupedNFT } from '../types/user';
-import { usePlayer } from '../contexts/PlayerContext';
+import { usePlayer, PlayerProvider } from '../contexts/PlayerContext';
 import { useTopPlayedNFTs } from '../hooks/useTopPlayedNFTs';
 import { useFirebase } from '../contexts/FirebaseContext';
 import { UserDataLoader } from './data/UserDataLoader';
@@ -1146,35 +1146,41 @@ const DemoBase: React.FC = () => {
   }
 
   return (
-    <div className="relative min-h-screen bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082] text-white">
-      {renderCurrentView()}
-      {selectedUser && (
-        <UserDataLoader
-          userFid={selectedUser.fid}
-          onNFTsLoaded={handleNFTsLoaded}
-          onError={handleUserDataError}
-        />
-      )}
-      {currentPlayingNFT && (
-        <PlayerWithAds
-          nft={currentPlayingNFT}
-          isPlaying={isPlaying}
-          progress={audioProgress}
-          duration={audioDuration}
-          onSeek={handleSeek}
-          onPlayPause={handlePlayPause}
-          onNext={handlePlayNext}
-          onPrevious={handlePlayPrevious}
-          isMinimized={isPlayerMinimized}
-          onMinimizeToggle={() => setIsPlayerMinimized(!isPlayerMinimized)}
-          onPlayNFT={handlePlayNFT}
-          onLikeToggle={() => currentPlayingNFT && onLikeToggle(currentPlayingNFT)}
-          isLiked={currentPlayingNFT ? isNFTLiked(currentPlayingNFT) : false}
-          onPictureInPicture={togglePictureInPicture}
-          onAdStateChange={setIsAdPlaying}
-        />
-      )}
-    </div>
+    <PlayerProvider 
+      fid={fid}
+      setRecentlyPlayedNFTs={setRecentlyPlayedNFTs}
+      recentlyAddedNFT={recentlyAddedNFT}
+    >
+      <div className="relative min-h-screen bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082] text-white">
+        {renderCurrentView()}
+        {selectedUser && (
+          <UserDataLoader
+            userFid={selectedUser.fid}
+            onNFTsLoaded={handleNFTsLoaded}
+            onError={handleUserDataError}
+          />
+        )}
+        {currentPlayingNFT && (
+          <PlayerWithAds
+            nft={currentPlayingNFT}
+            isPlaying={isPlaying}
+            progress={audioProgress}
+            duration={audioDuration}
+            onSeek={handleSeek}
+            onPlayPause={handlePlayPause}
+            onNext={handlePlayNext}
+            onPrevious={handlePlayPrevious}
+            isMinimized={isPlayerMinimized}
+            onMinimizeToggle={() => setIsPlayerMinimized(!isPlayerMinimized)}
+            onPlayNFT={handlePlayNFT}
+            onLikeToggle={() => currentPlayingNFT && onLikeToggle(currentPlayingNFT)}
+            isLiked={currentPlayingNFT ? isNFTLiked(currentPlayingNFT) : false}
+            onPictureInPicture={togglePictureInPicture}
+            onAdStateChange={setIsAdPlaying}
+          />
+        )}
+      </div>
+    </PlayerProvider>
   );
 };
 
