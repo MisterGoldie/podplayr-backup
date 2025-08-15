@@ -265,7 +265,10 @@ class LibraryView extends React.Component<LibraryViewProps> {
           case 'name':
             return (a.name || '').localeCompare(b.name || '');
           case 'recent':
-            return -1; // Keep most recent first
+            // Sort by most recent liked first (descending order)
+            const aTime = a.likedTimestamp || a.timestamp?.toMillis?.() || 0;
+            const bTime = b.likedTimestamp || b.timestamp?.toMillis?.() || 0;
+            return bTime - aTime; // Most recent first
           default:
             return 0;
         }

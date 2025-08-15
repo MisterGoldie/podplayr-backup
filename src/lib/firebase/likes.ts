@@ -329,7 +329,11 @@ export const getLikedNFTs = async (userIdOrWallet: number | string): Promise<NFT
         audio: data.audioUrl || '',
         collection: data.collection ? { name: data.collection } : undefined,
         network: data.network || 'ethereum',
-        metadata: data.metadata || {} // Include all metadata
+        metadata: data.metadata || {}, // Include all metadata
+        // Add timestamp fields for sorting
+        likedAt: data.likedAt || data.timestampISO,
+        timestamp: data.timestamp,
+        likedTimestamp: data.timestamp?.toMillis ? data.timestamp.toMillis() : (data.timestamp || Date.now())
       };
       
       // If we have a nested nft object, prioritize those values

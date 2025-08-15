@@ -140,6 +140,10 @@ export interface NFT {
   // Local state properties (not persisted to Firebase)
   addedToRecentlyPlayed?: boolean; // Whether this NFT was added to locally tracked recently played
   addedToRecentlyPlayedAt?: number; // Timestamp when the NFT was added to locally tracked recently played
+  // Add timestamp fields for liked NFTs sorting
+  likedAt?: string; // ISO string timestamp when liked
+  timestamp?: any; // Firebase timestamp when liked
+  likedTimestamp?: number; // Numeric timestamp for sorting
 }
 
 export interface GroupedNFT extends Omit<NFT, 'quantity'> {
