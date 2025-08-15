@@ -1744,8 +1744,8 @@ export const fetchUserNFTs = async (fid: number): Promise<NFT[]> => {
       
       try {
         // Direct import to avoid dynamic import issues
-        const { fetchUserNFTsFromAlchemy } = await import('./alchemy');
-        firebaseLogger.info('Successfully imported alchemy module for ENS user');
+        const { fetchUserNFTsFromAlchemy } = await import('./nft');
+        firebaseLogger.info('Successfully imported nft module for ENS user');
         
         // Fetch NFTs for the ENS address with explicit logging
         firebaseLogger.info(`Calling Alchemy API to fetch NFTs for ENS ${ensName} at address: ${address}`);
@@ -1893,7 +1893,7 @@ export const fetchUserNFTs = async (fid: number): Promise<NFT[]> => {
 
     // Fetch NFTs from Alchemy for all addresses
     firebaseLogger.info('Fetching NFTs from Alchemy...');
-    const { fetchUserNFTsFromAlchemy } = await import('./alchemy');
+    const { fetchUserNFTsFromAlchemy } = await import('./nft');
     const alchemyPromises = uniqueAddresses.map(address => {
       firebaseLogger.info('Fetching NFTs for address:', address);
       return fetchUserNFTsFromAlchemy(address);
