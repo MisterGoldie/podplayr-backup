@@ -16,10 +16,11 @@ export const getCleanIPFSUrl = (url: string): string => {
 
 // Update IPFS_GATEWAYS array (around line 18)
 export const IPFS_GATEWAYS = [
-  'https://ipfs.io/ipfs/',           // Most reliable
+  'https://cloudflare-ipfs.com/ipfs/',  // Most reliable - Cloudflare's IPFS gateway
   'https://gateway.pinata.cloud/ipfs/', // Second choice
-  'https://nftstorage.link/ipfs/',   // Third choice
-  'https://dweb.link/ipfs/',         // Additional fallback
+  'https://nftstorage.link/ipfs/',      // Third choice
+  'https://dweb.link/ipfs/',            // Additional fallback
+  'https://ipfs.io/ipfs/',              // Move ipfs.io to last as fallback
 ];
 
 // Enhanced Arweave fallback with immediate default
@@ -206,6 +207,7 @@ export const ARWEAVE_AUDIO_GATEWAYS = [
 // Function to process media URLs to ensure they're properly formatted
 export const processMediaUrl = (url: string, fallbackUrl: string = '/default-nft.png', mediaType: 'image' | 'audio' | 'metadata' = 'image'): string => {
   if (!url) return fallbackUrl;
+  if (typeof url !== 'string') return fallbackUrl;
   
   // CRITICAL FIX: Check if URL is already a properly formatted IPFS gateway URL
   // Don't reprocess URLs that are already using IPFS gateways
@@ -251,14 +253,14 @@ export const processMediaUrl = (url: string, fallbackUrl: string = '/default-nft
     }
   }
 
-  // Handle IPFS URLs
+  // Handle IPFS URLs with better gateway selection
   if (url.startsWith('ipfs://')) {
-    // Remove ipfs:// prefix and any trailing slashes
     const hash = url.replace('ipfs://', '').replace(/\/*$/, '');
     
     // Process through our CDN if available
     if (CDN_CONFIG.baseUrl) {
-      const ipfsUrl = `${IPFS_GATEWAYS[0]}${hash}`;
+      // Use a more reliable gateway for CDN processing
+      const ipfsUrl = `https://cloudflare-ipfs.com/ipfs/${hash}`;
       return getCdnUrl(ipfsUrl, mediaType);
     }
     
@@ -272,18 +274,19 @@ export const processMediaUrl = (url: string, fallbackUrl: string = '/default-nft
       return `https://cloudflare-ipfs.com/ipfs/${hash}`;
     }
     
-    return `${IPFS_GATEWAYS[0]}${hash}`;
+    // Use Cloudflare IPFS gateway as primary instead of ipfs.io for better reliability
+    return `https://cloudflare-ipfs.com/ipfs/${hash}`;
   }
 
   // Try to extract IPFS hash from other formats
   const ipfsHash = extractIPFSHash(url);
   if (ipfsHash) {
-    // Remove any trailing slashes AND leading 'ipfs/' from the hash
     const cleanHash = ipfsHash.replace(/\/*$/, '').replace(/^ipfs\//g, '');
     
     // Process through our CDN if available
     if (CDN_CONFIG.baseUrl) {
-      const ipfsUrl = `${IPFS_GATEWAYS[0]}${cleanHash}`;
+      // Use a more reliable gateway for CDN processing
+      const ipfsUrl = `https://cloudflare-ipfs.com/ipfs/${cleanHash}`;
       return getCdnUrl(ipfsUrl, mediaType);
     }
     
@@ -297,7 +300,8 @@ export const processMediaUrl = (url: string, fallbackUrl: string = '/default-nft
       return `https://cloudflare-ipfs.com/ipfs/${cleanHash}`;
     }
     
-    return `${IPFS_GATEWAYS[0]}${cleanHash}`;
+    // Use Cloudflare IPFS gateway as primary instead of ipfs.io for better reliability
+    return `https://cloudflare-ipfs.com/ipfs/${cleanHash}`;
   }
 
   // Handle Arweave URLs directly within processMediaUrl for consistency
