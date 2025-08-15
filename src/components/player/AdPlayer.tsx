@@ -191,7 +191,7 @@ export const AdPlayer: React.FC<AdPlayerProps> = ({ onAdComplete }) => {
       {/* Ad link container - only show if the ad has a URL */}
       {selectedAd.url && (
         <div className={`absolute left-1/2 -translate-x-1/2 bg-purple-900/90 rounded-lg overflow-hidden border border-purple-500/30 ${
-          videoOrientation === 'portrait' ? 'bottom-32' : 'bottom-8'
+          videoOrientation === 'portrait' ? 'bottom-8' : 'bottom-8'
         }`}>
           <div className="flex items-center space-x-3 p-3">
             <div className="flex-1">
