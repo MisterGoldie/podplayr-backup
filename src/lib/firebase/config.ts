@@ -26,7 +26,7 @@ export const auth = getAuth(app);
 export const storage = getStorage(app);
 
 // PODPLAYR official account details
-export const PODPLAYR_FID = 1736;
+export const PODPLAYR_FID = 1014485;
 export const PODPLAYR_USERNAME = 'podplayr';
 export const PODPLAYR_DISPLAY_NAME = 'PODPLAYR';
 export const PODPLAYR_PFP_URL = 'https://i.imgur.com/m6AuNqy.png';
