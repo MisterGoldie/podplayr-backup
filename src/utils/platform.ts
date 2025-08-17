@@ -63,3 +63,4 @@ export async function detectMiniAppEnvironment(): Promise<'farcaster' | 'coinbas
   const result = await detectMiniKitEnvironment();
   return result.environment;
 }
+//
