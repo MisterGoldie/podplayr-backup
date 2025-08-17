@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState } from 'react';
 import { isFarcasterMiniApp } from '../utils/platform';
-import { updatePodplayrFollowerCount } from '../lib/firebase';
+import { updatePodplayrFollowerCount, ensurePodplayrFollow } from '../lib/firebase';
 import { VideoPlayProvider } from '../contexts/VideoPlayContext';
 import { NFTNotificationProvider } from '../context/NFTNotificationContext';
 import { PlayerProvider } from '../contexts/PlayerContext';
@@ -220,6 +220,10 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (fid) {
       console.log(`🔑 User has FID: ${fid} in ${environment} environment`);
+      // Add the missing ensurePodplayrFollow call
+      ensurePodplayrFollow(fid).catch(error => {
+        console.error('Error ensuring PODPlayr follow:', error);
+      });
     }
   }, [fid, environment]);
 
