@@ -6,7 +6,7 @@ export async function GET() {
       signature: "MHhkMDVjZjE1NjRiYjZhNWIwMmQ0Nzk2ZjEyNjU3M2UyOTU0OTY4N2IwZjkwMWJlNWJhMjFhOTYyNDY1MzZkMTU4NjM2YWVhZGQzYWI2ZDE1NDIwNDJjOTdiYzY3ZjJiNjcxNjMyYzlmMWUzNTU2YjVlYWE1MjIxYWI3MmMyMGZkNjFj"
     },
     baseBuilder: {
-      allowedAddresses: ["0x9ba22806cD8F65131E5ad00E017FB8B1Ae3A2faA"]
+      allowedAddresses: ["0x389355CBa617EA0b305e5105DC483251c80960d1"]
     },
     frame: {
       version: "1", // Required: Must be '1'
