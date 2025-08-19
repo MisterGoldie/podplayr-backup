@@ -5,6 +5,9 @@ export async function GET() {
       payload: "eyJkb21haW4iOiJwb2RwbGF5ci54eXoifQ",
       signature: "MHhkMDVjZjE1NjRiYjZhNWIwMmQ0Nzk2ZjEyNjU3M2UyOTU0OTY4N2IwZjkwMWJlNWJhMjFhOTYyNDY1MzZkMTU4NjM2YWVhZGQzYWI2ZDE1NDIwNDJjOTdiYzY3ZjJiNjcxNjMyYzlmMWUzNTU2YjVlYWE1MjIxYWI3MmMyMGZkNjFj"
     },
+    baseBuilder: {
+      allowedAddresses: ["0x9ba22806cD8F65131E5ad00E017FB8B1Ae3A2faA"]
+    },
     frame: {
       version: "1", // Required: Must be '1'
       name: "PODPLAYR", // Required: Mini App name (max 32 chars)
