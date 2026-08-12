@@ -107,16 +107,21 @@ export const getFastestGateway = async (nft: NFT): Promise<string | null> => {
   return null;
 };
 
-export const preloadAudio = async (url: string): Promise<void> => {
+export const preloadAudio = async (url: string, timeoutMs = 6000): Promise<void> => {
   try {
     const audio = new Audio();
     audio.preload = 'metadata';
     audio.src = url;
-    await new Promise((resolve, reject) => {
-      audio.addEventListener('loadedmetadata', resolve);
-      audio.addEventListener('error', reject);
-    });
-  } catch (error) {
-    console.error('Error preloading audio:', error);
+    await Promise.race([
+      new Promise<void>((resolve, reject) => {
+        audio.addEventListener('loadedmetadata', () => resolve());
+        audio.addEventListener('error', () => reject(new Error('load error')));
+      }),
+      new Promise<void>((_, reject) =>
+        setTimeout(() => reject(new Error('preload timeout')), timeoutMs)
+      ),
+    ]);
+  } catch {
+    // Silently skip — dead/slow URLs should never block the UI
   }
 };

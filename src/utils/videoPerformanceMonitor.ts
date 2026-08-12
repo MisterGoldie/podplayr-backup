@@ -107,6 +107,11 @@ export const videoPerformanceMonitor = {
   
   optimizeVideoElement(video: HTMLVideoElement, mediaKey?: string) {
     if (!video) return;
+    // Never touch the active PodPlayr player companion
+    if (
+      (video.id && video.id.startsWith('video-')) ||
+      video.dataset.podplayrPlayer === '1'
+    ) return;
     
     // Add to active videos set for tracking
     activeVideoElements.add(video);
@@ -170,10 +175,16 @@ export const videoPerformanceMonitor = {
   },
   
   pruneBackgroundVideos() {
-    // Find videos that are not in viewport and pause them
+    // Find videos that are not in viewport and pause them.
+    // Never touch the active PodPlayr player companion (id="video-*").
     const videos = Array.from(document.querySelectorAll('video'));
     
     videos.forEach(video => {
+      if (
+        (video.id && video.id.startsWith('video-')) ||
+        video.dataset.podplayrPlayer === '1'
+      ) return;
+
       if (!video.paused) {
         const rect = video.getBoundingClientRect();
         const isVisible = 

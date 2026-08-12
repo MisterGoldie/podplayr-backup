@@ -36,7 +36,7 @@ const trackNFTPlay = (nft: NFT, fid: number, options?: { forceTrack?: boolean, t
   return Promise.resolve();
 };
 import { processMediaUrl, getMediaKey, buildArweaveAudioFallbackUrls, buildIpfsFallbackUrls, extractIPFSPath } from '../utils/media';
-import { applyPlaybackPlanToNft, resolveNftPlaybackPlan } from '../utils/isMediaNFT';
+import { applyPlaybackPlanToNft, getNftPlaybackPlan, resolveNftPlaybackPlan } from '../utils/isMediaNFT';
 import { logger } from '../utils/logger';
 
 // Create a dedicated logger for this module
@@ -230,11 +230,8 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
       });
       if (video) {
         video.muted = true;
-        try {
-          video.currentTime = audioRef.current.currentTime;
-        } catch {
-          // ignore
-        }
+        // No seeking on resume — many Arweave gateways don't support Range requests,
+        // so forcing currentTime forces a full re-fetch that stalls/"skips" playback.
         video.play().catch(() => {});
       }
     }
@@ -287,9 +284,14 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
     }
     audioLogger.info('handlePlayAudio called with NFT:', nft);
 
-    // Classify layout; probe Content-Type when audioUrl is an extensionless video (e.g. Music Mondays)
-    const plan = await resolveNftPlaybackPlan(nft);
+    // Use sync plan so audio starts immediately — never block on network probes here.
+    // resolveNftPlaybackPlan (which probes Content-Type) runs in background and updates
+    // nft fields so MaximizedPlayer picks up the video layer after open.
+    const plan = getNftPlaybackPlan(nft);
     applyPlaybackPlanToNft(nft, plan);
+    if (!plan.videoUrl && !nft.metadata?.mimeType) {
+      void resolveNftPlaybackPlan(nft).then((resolved) => applyPlaybackPlanToNft(nft, resolved));
+    }
     audioLogger.info('NFT playback plan:', {
       mode: plan.mode,
       audioUrl: plan.audioUrl?.slice(0, 80),
@@ -314,11 +316,20 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
     
     // Special handling for Arweave / PODs URLs — try multiple gateways + direct file tx
     if (rawAudioUrl.startsWith('ar://') || /arweave\.(net|dev)|permagate\.io|turbo-gateway\.com|irys\.xyz|ar-io\.dev|g8way\.io/i.test(rawAudioUrl)) {
-      const arweaveFallbacks = buildArweaveAudioFallbackUrls(rawAudioUrl);
-      audioUrls.push(...arweaveFallbacks);
+      // Plain https://arweave.net/{tx} URLs work via arweave.net's CDN — keep them first.
+      // Only ar:// and non-arweave.net gateway URLs need to be rebuilt through turbo/permagate.
+      if (rawAudioUrl.startsWith('https://arweave.net/') || rawAudioUrl.startsWith('http://arweave.net/')) {
+        audioUrls.push(rawAudioUrl);
+        // Turbo/permagate as fallbacks in case arweave.net CDN misses
+        const fallbacks = buildArweaveAudioFallbackUrls(rawAudioUrl).filter(u => u !== rawAudioUrl);
+        audioUrls.push(...fallbacks);
+      } else {
+        const arweaveFallbacks = buildArweaveAudioFallbackUrls(rawAudioUrl);
+        audioUrls.push(...arweaveFallbacks);
+      }
       audioLogger.info('Generated Arweave audio URLs across gateways:', {
-        count: arweaveFallbacks.length,
-        urls: arweaveFallbacks.slice(0, 8),
+        count: audioUrls.length,
+        primary: audioUrls[0],
       });
     }
     // IPFS — try multiple gateways (cloudflare-ipfs.com DNS is dead)
@@ -606,11 +617,8 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
           ) as HTMLVideoElement | null;
           if (newVideo) {
             newVideo.muted = true;
-            try {
-              newVideo.currentTime = audio.currentTime;
-            } catch {
-              // ignore
-            }
+            // No seeking — many Arweave gateways don't support Range requests, so
+            // forcing currentTime forces a full re-fetch that stalls/"skips" playback.
             newVideo.play().catch((error) => {
               if (!(error instanceof DOMException && error.name === 'AbortError')) {
                 audioLogger.error('Error playing muted companion video:', error);
@@ -764,20 +772,9 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
     if (!audioRef.current) return;
     audioRef.current.currentTime = time;
     setAudioProgress(time);
-
-    if (currentPlayingNFT) {
-      const video = document.getElementById(
-        `video-${currentPlayingNFT.contract}-${currentPlayingNFT.tokenId}`
-      ) as HTMLVideoElement | null;
-      if (video) {
-        video.muted = true;
-        try {
-          video.currentTime = time;
-        } catch {
-          // ignore
-        }
-      }
-    }
+    // Deliberately not seeking the companion video — many Arweave gateways don't
+    // support Range requests, so forcing currentTime stalls playback (looks like
+    // skipping). It's a muted cosmetic loop; audio position is what matters.
   }, [currentPlayingNFT]);
 
   // Add a function to set fallback URLs

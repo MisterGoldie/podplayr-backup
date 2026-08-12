@@ -388,9 +388,17 @@ export const probeMediaContentType = async (url: string): Promise<string> => {
     return '';
   };
 
+  const timedFetch = (u: string, init: RequestInit) => {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 1500);
+    return fetch(u, { ...init, signal: ctrl.signal, mode: 'cors' }).finally(() =>
+      clearTimeout(t)
+    );
+  };
+
   for (const probeUrl of candidates) {
     try {
-      const head = await fetch(probeUrl, { method: 'HEAD', mode: 'cors' });
+      const head = await timedFetch(probeUrl, { method: 'HEAD' });
       const headCt = head.headers.get('content-type');
       if (head.ok && headCt) {
         const mime = store(headCt);
@@ -401,10 +409,9 @@ export const probeMediaContentType = async (url: string): Promise<string> => {
     }
 
     try {
-      const get = await fetch(probeUrl, {
+      const get = await timedFetch(probeUrl, {
         method: 'GET',
         headers: { Range: 'bytes=0-0' },
-        mode: 'cors',
       });
       const getCt = get.headers.get('content-type');
       if (getCt) {

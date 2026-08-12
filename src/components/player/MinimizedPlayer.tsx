@@ -147,9 +147,8 @@ export const MinimizedPlayer: React.FC<MinimizedPlayerProps> = ({
       const videoElement = document.getElementById(videoId) as HTMLVideoElement;
       
       if (videoElement) {
-        playerLogger.debug("Animation detected, syncing video position to:", lastPosition);
-        videoElement.currentTime = lastPosition;
-        
+        // No seeking — many Arweave gateways don't support Range requests, so
+        // forcing currentTime forces a full re-fetch that stalls/"skips" playback.
         if (isPlaying) {
           // Add a small delay to prevent overlapping with other play/pause operations
           setTimeout(() => {

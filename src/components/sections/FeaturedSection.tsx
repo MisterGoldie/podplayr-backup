@@ -13,21 +13,6 @@ import { formatPlayCount } from '~/utils/format';
 // Hardcoded featured NFTs
 export const FEATURED_NFTS: NFT[] = [
   {
-    name: 'Seasoning with Sazón - COD Zombies Terminus EP1',
-    image: 'https://arweave.net/HvZ4oE2mDf6G1o1rX9Y_lkqegYA_0ZsRyY1JxQpL2v0',
-    contract: '0x27430c3ef4b04f7d223df7f280ae8fc0b3a407b7',
-    tokenId: '50dc9fb449e0', // Already in correct format
-    audio: 'https://arweave.net/noYvGupxQyo2P7C2GMNNUseml29HEN6HLyvXOBD7jYQ',
-    metadata: {
-      animation_url: 'https://arweave.net/noYvGupxQyo2P7C2GMNNUseml29HEN6HLyvXOBD7jYQ',
-      description: 'Seasoning with Sazón, Call of Duty Black Ops 6 - Zombies - Terminus Episode 1 of 5 | @themrsazon',
-      attributes: [
-        {"trait_type":"Game","value":"Call of Duty Black Ops 6"},
-        {"trait_type":"Map","value":"Terminus"}
-      ]
-    }
-  },
-  {
     name: 'I Found It',
     image: 'https://arweave.net/Wvad7CgtidFMH3mOBjRHOeV5_bKvvAR9zZH2BhQSl7M',
     contract: '0x27430c3ef4b04f7d223df7f280ae8fc0b3a407b7',
@@ -143,30 +128,14 @@ const FeaturedSection: React.FC<FeaturedSectionProps> = ({
 
     const preloadFeaturedContent = async () => {
       if (!isMounted) return;
-      console.log('🎵 Starting to preload featured NFTs...');
-      
-      try {
-        for (const nft of nfts) {
-          if (!isMounted) return;
-          try {
-            const audioUrl = nft.audio || nft.metadata?.animation_url;
-            if (audioUrl) {
-              await preloadAudio(audioUrl);
-            }
-          } catch (error) {
-            console.warn(`Failed to preload NFT ${nft.name || nft.tokenId}:`, error);
-          }
-        }
-        if (isMounted) {
-          console.log('✨ All featured NFTs preloaded!');
-          setPreloaded(true);
-        }
-      } catch (error) {
-        console.warn('Failed to preload some featured NFTs:', error);
-        if (isMounted) {
-          setPreloaded(true);
-        }
-      }
+      // Fire all preloads in parallel — a single slow/dead URL can't block others
+      await Promise.allSettled(
+        nfts.map((nft) => {
+          const audioUrl = nft.audio || nft.metadata?.animation_url;
+          return audioUrl ? preloadAudio(audioUrl) : Promise.resolve();
+        })
+      );
+      if (isMounted) setPreloaded(true);
     };
 
     if (!preloaded) {

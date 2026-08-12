@@ -108,7 +108,12 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
   useEffect(() => {
     let cancelled = false;
     const sync = getNftPlaybackPlan(nft);
-    setPlaybackPlan(sync);
+    // Avoid a redundant re-render (and possible reload) when the plan hasn't actually changed
+    setPlaybackPlan((prev) =>
+      prev.mode === sync.mode && prev.videoUrl === sync.videoUrl && prev.audioUrl === sync.audioUrl
+        ? prev
+        : sync
+    );
     if (sync.videoUrl) {
       applyPlaybackPlanToNft(nft, sync);
       return;
@@ -116,12 +121,17 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
     resolveNftPlaybackPlan(nft).then((plan) => {
       if (cancelled) return;
       applyPlaybackPlanToNft(nft, plan);
-      setPlaybackPlan(plan);
+      setPlaybackPlan((prev) =>
+        prev.mode === plan.mode && prev.videoUrl === plan.videoUrl && prev.audioUrl === plan.audioUrl
+          ? prev
+          : plan
+      );
     });
     return () => {
       cancelled = true;
     };
-  }, [nft, nft.audio, nft.videoUrl, nft.isVideo, nft.playbackMode, nft.metadata?.animation_url]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nft.contract, nft.tokenId, nft.audio, nft.videoUrl, nft.isVideo, nft.playbackMode, nft.metadata?.animation_url]);
 
   useEffect(() => {
     if (nft?.image) {
@@ -391,6 +401,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
         <video
           ref={videoRef}
           id={`video-${nft.contract}-${nft.tokenId}`}
+          data-podplayr-player="1"
           src={videoUrl}
           playsInline
           loop
@@ -408,15 +419,11 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
             const video = videoRef.current;
             if (!video) return;
             video.muted = true;
-            const syncTo = Math.max(lastPosition || 0, progress || 0);
-            if (syncTo > 0.05) {
-              try {
-                video.currentTime = syncTo;
-                playerLogger.info('Synced maximized video to audio position:', syncTo);
-              } catch {
-                // ignore
-              }
-            }
+            // NOTE: deliberately NOT seeking here. Many Arweave gateways don't support
+            // HTTP Range requests (confirmed: Range request returns 200, not 206), so
+            // setting currentTime forces a full re-fetch that stalls playback and looks
+            // like the video "skipping". This is a muted cosmetic loop — let it play
+            // from wherever it naturally starts instead of forcing sync to audio time.
             if (isPlaying) {
               video.play().catch((e) => {
                 playerLogger.warn('Video play after load failed:', e);
@@ -514,14 +521,8 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
       }
 
       video.muted = true;
-      const syncTo = Math.max(progress || 0, lastPosition || 0);
-      if (syncTo > 0.05 && Number.isFinite(syncTo)) {
-        try {
-          video.currentTime = syncTo;
-        } catch {
-          // ignore until metadata ready
-        }
-      }
+      // No seeking — see note in onLoadedData. Range requests aren't supported by
+      // many Arweave gateways, so forcing currentTime causes a full re-fetch stall.
       if (video.paused) {
         video.play().catch(() => {
           if (attempts++ < 10) {
@@ -537,38 +538,22 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
     };
   }, [hasVideoLayer, isPlaying, nft.contract, nft.tokenId]);
 
-  // Mirror play/pause; keep video muted (Audio owns sound)
+  // Mirror play/pause only — do NOT seek here, audio owns the position
   useEffect(() => {
-    if (!videoRef.current) return;
-    videoRef.current.muted = true;
-
+    const video = videoRef.current;
+    if (!video) return;
+    video.muted = true;
     if (isPlaying) {
-      if (Math.abs(videoRef.current.currentTime - progress) > 1) {
-        try {
-          videoRef.current.currentTime = progress;
-        } catch {
-          // ignore
-        }
-      }
-      videoRef.current.play().catch((e) => {
-        console.error('Video play error:', e);
-      });
+      video.play().catch(() => {});
     } else {
-      videoRef.current.pause();
+      video.pause();
     }
   }, [isPlaying]);
 
-  // Soft sync for big drift only (avoid constant seeking/skipping)
-  useEffect(() => {
-    if (!videoRef.current || videoRef.current.readyState < 1) return;
-    if (Math.abs(videoRef.current.currentTime - progress) > 1.5) {
-      try {
-        videoRef.current.currentTime = progress;
-      } catch {
-        // ignore
-      }
-    }
-  }, [progress]);
+  // No drift-correction seeking here — many Arweave gateways don't support Range
+  // requests, so any forced currentTime assignment stalls playback (looks like
+  // skipping). Since this video is a muted cosmetic loop, we accept drift from
+  // the audio's position rather than repeatedly re-triggering that stall.
 
   // Add these helper functions below your existing functions
   const handleProgressBarMouseDown = (e: React.MouseEvent) => {
