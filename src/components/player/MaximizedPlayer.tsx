@@ -3,6 +3,7 @@ import { usePlayerState } from './hooks/usePlayerState';
 import { NFTImage } from '../media/NFTImage';
 // PlaybackButton is already imported below - removing duplicate import
 import { processMediaUrl, getMediaKey } from '../../utils/media';
+import { applyPlaybackPlanToNft, getNftPlaybackPlan, mediaUrlNeedsMimeProbe, resolveNftPlaybackPlan } from '../../utils/isMediaNFT';
 import type { NFT } from '../../types/user';
 // Dynamic import for Farcaster SDK - will use miniapp-sdk in mini-app environment
 import { getNftCdnUrl, preloadNftMedia } from '../../utils/cdn';
@@ -77,6 +78,50 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
   const progressBarRef = useRef<HTMLDivElement>(null);
   const [pipActive, setPipActive] = useState(false);
   const [resolvedImageUrl, setResolvedImageUrl] = useState<string>('');
+  const [videoLayerFailed, setVideoLayerFailed] = useState(false);
+  const syncPlan = getNftPlaybackPlan(nft);
+  const [playbackPlan, setPlaybackPlan] = useState(syncPlan);
+  // Extensionless sound URL may be a video file (Music Mondays) — try <video> until it errors
+  const speculativeVideoUrl =
+    !playbackPlan.videoUrl &&
+    !nft.videoUrl &&
+    mediaUrlNeedsMimeProbe(playbackPlan.audioUrl || nft.audio || nft.metadata?.animation_url)
+      ? playbackPlan.audioUrl || nft.audio || nft.metadata?.animation_url || null
+      : null;
+  const rawVideoSrc =
+    (!videoLayerFailed &&
+      (playbackPlan.videoUrl ||
+        nft.videoUrl ||
+        speculativeVideoUrl ||
+        (nft.isVideo &&
+        nft.metadata?.animation_url &&
+        !/\.(mp3|wav|m4a|aac|ogg|flac)(?:\?|#|$)/i.test(nft.metadata.animation_url)
+          ? nft.metadata.animation_url
+          : null))) ||
+    null;
+  const hasVideoLayer = Boolean(rawVideoSrc);
+
+  useEffect(() => {
+    setVideoLayerFailed(false);
+  }, [nft.contract, nft.tokenId, nft.audio, nft.videoUrl]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const sync = getNftPlaybackPlan(nft);
+    setPlaybackPlan(sync);
+    if (sync.videoUrl) {
+      applyPlaybackPlanToNft(nft, sync);
+      return;
+    }
+    resolveNftPlaybackPlan(nft).then((plan) => {
+      if (cancelled) return;
+      applyPlaybackPlanToNft(nft, plan);
+      setPlaybackPlan(plan);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [nft, nft.audio, nft.videoUrl, nft.isVideo, nft.playbackMode, nft.metadata?.animation_url]);
 
   useEffect(() => {
     if (nft?.image) {
@@ -190,7 +235,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
         return;
       }
       
-      if (!nft?.isVideo && !nft?.metadata?.animation_url) {
+      if (!nft?.isVideo && !hasVideoLayer) {
         console.log('No video content to put in PiP mode');
         return;
       }
@@ -323,22 +368,24 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
   // Track the last logged mediaKey to prevent duplicate logs
   const lastLoggedMediaKeyRef = useRef<string>('');
   
-  // Render video with proper fallbacks
+  // Render video with proper fallbacks — only when plan has a real video URL
   const renderVideo = () => {
-    // Get the processed URL - this will use CDN if enabled or fall back to direct URL
-    const videoUrl = processMediaUrl(nft.metadata?.animation_url || '', '', 'audio');
+    const rawVideo = rawVideoSrc || '';
+    if (!rawVideo) return null;
+
+    const videoUrl = processMediaUrl(rawVideo, '', 'audio');
     const currentMediaKey = getMediaKey(nft);
-    
-    // Only log when the mediaKey changes to avoid excessive logging
+
     if (lastLoggedMediaKeyRef.current !== currentMediaKey) {
       playerLogger.info('Video playback source:', {
         nft: nft.name || 'Unknown NFT',
         mediaKey: currentMediaKey,
-        url: videoUrl
+        mode: playbackPlan.mode,
+        url: videoUrl,
       });
       lastLoggedMediaKeyRef.current = currentMediaKey;
     }
-    
+
     return (
       <div className="relative w-full h-full flex items-center justify-center">
         <video
@@ -347,34 +394,72 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
           src={videoUrl}
           playsInline
           loop
-          muted={true}  // CHANGE THIS - mute the video so only audio player handles sound
+          muted={true}
           autoPlay={isPlaying}
           preload="auto"
           className="w-auto h-auto object-contain rounded-lg max-h-[60vh] min-h-[40vh] min-w-[60%] max-w-full"
-          style={{ 
-            opacity: 1, 
+          style={{
+            opacity: 1,
             willChange: 'transform',
-            objectFit: 'contain'
+            objectFit: 'contain',
           }}
           onLoadedData={() => {
             setVideoLoading(false);
-            playerLogger.info('Video loaded successfully:', {
-              nft: nft.name || 'Unknown NFT',
-              mediaKey: getMediaKey(nft)
-            });
-            
-            // Set the video time to the saved position when loaded
-            if (videoRef.current && lastPosition && lastPosition > 0) {
-              videoRef.current.currentTime = lastPosition;
-              playerLogger.info("Restored position to:", lastPosition);
+            const video = videoRef.current;
+            if (!video) return;
+            video.muted = true;
+            const syncTo = Math.max(lastPosition || 0, progress || 0);
+            if (syncTo > 0.05) {
+              try {
+                video.currentTime = syncTo;
+                playerLogger.info('Synced maximized video to audio position:', syncTo);
+              } catch {
+                // ignore
+              }
+            }
+            if (isPlaying) {
+              video.play().catch((e) => {
+                playerLogger.warn('Video play after load failed:', e);
+              });
+            }
+          }}
+          onCanPlay={() => {
+            const video = videoRef.current;
+            if (!video || !isPlaying) return;
+            video.muted = true;
+            if (video.paused) {
+              video.play().catch(() => {});
             }
           }}
           onError={(e) => {
             playerLogger.warn('Error loading video:', {
               nft: nft.name || 'Unknown NFT',
               mediaKey: getMediaKey(nft),
-              error: e.currentTarget.error?.message || 'Unknown error'
+              error: e.currentTarget.error?.message || 'Unknown error',
             });
+            // Speculative extensionless URL wasn't video — fall back to poster image
+            setVideoLayerFailed(true);
+          }}
+          onLoadedMetadata={() => {
+            const video = videoRef.current;
+            if (!video) return;
+            // Real video frame (not an audio-only file mistaken as video)
+            if (video.videoWidth > 0 && video.videoHeight > 0 && speculativeVideoUrl) {
+              applyPlaybackPlanToNft(nft, {
+                mode: 'video-with-audio',
+                audioUrl: speculativeVideoUrl,
+                videoUrl: speculativeVideoUrl,
+                muteVideo: true,
+              });
+              setPlaybackPlan({
+                mode: 'video-with-audio',
+                audioUrl: speculativeVideoUrl,
+                videoUrl: speculativeVideoUrl,
+                muteVideo: true,
+              });
+            } else if (video.videoWidth === 0 && speculativeVideoUrl) {
+              setVideoLayerFailed(true);
+            }
           }}
         />
 
@@ -406,28 +491,82 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
     position: 'relative' as 'relative'
   };
 
-  // Add one simple effect to handle play/pause
+  // When maximizing mid-playback, isPlaying may already be true — force companion video to start
   useEffect(() => {
-    // Only run this if we have a video element
+    if (!hasVideoLayer || !isPlaying) return;
+
+    let cancelled = false;
+    let attempts = 0;
+
+    const kickVideo = () => {
+      if (cancelled) return;
+      const video =
+        videoRef.current ||
+        (document.getElementById(
+          `video-${nft.contract}-${nft.tokenId}`
+        ) as HTMLVideoElement | null);
+
+      if (!video) {
+        if (attempts++ < 20) {
+          window.setTimeout(kickVideo, 50);
+        }
+        return;
+      }
+
+      video.muted = true;
+      const syncTo = Math.max(progress || 0, lastPosition || 0);
+      if (syncTo > 0.05 && Number.isFinite(syncTo)) {
+        try {
+          video.currentTime = syncTo;
+        } catch {
+          // ignore until metadata ready
+        }
+      }
+      if (video.paused) {
+        video.play().catch(() => {
+          if (attempts++ < 10) {
+            window.setTimeout(kickVideo, 100);
+          }
+        });
+      }
+    };
+
+    kickVideo();
+    return () => {
+      cancelled = true;
+    };
+  }, [hasVideoLayer, isPlaying, nft.contract, nft.tokenId]);
+
+  // Mirror play/pause; keep video muted (Audio owns sound)
+  useEffect(() => {
     if (!videoRef.current) return;
-    
-    // Simple play/pause logic
+    videoRef.current.muted = true;
+
     if (isPlaying) {
-      videoRef.current.play().catch(e => {
-        console.error("Video play error:", e);
+      if (Math.abs(videoRef.current.currentTime - progress) > 1) {
+        try {
+          videoRef.current.currentTime = progress;
+        } catch {
+          // ignore
+        }
+      }
+      videoRef.current.play().catch((e) => {
+        console.error('Video play error:', e);
       });
     } else {
       videoRef.current.pause();
     }
   }, [isPlaying]);
 
-  // Optional: Add a simple effect to handle time sync for big jumps
+  // Soft sync for big drift only (avoid constant seeking/skipping)
   useEffect(() => {
-    if (!videoRef.current) return;
-    
-    // Only sync time if the difference is significant (>1 second)
-    if (Math.abs(videoRef.current.currentTime - progress) > 1) {
-      videoRef.current.currentTime = progress;
+    if (!videoRef.current || videoRef.current.readyState < 1) return;
+    if (Math.abs(videoRef.current.currentTime - progress) > 1.5) {
+      try {
+        videoRef.current.currentTime = progress;
+      } catch {
+        // ignore
+      }
     }
   }, [progress]);
 
@@ -595,7 +734,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
                     </button>
                   )}
                 </div>
-                {(nft.isVideo || nft.metadata?.animation_url) && (
+                {hasVideoLayer && (
                   <button
                     onClick={handlePictureInPicture}
                     className="text-white hover:text-white/80 p-2"
@@ -608,7 +747,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
               </div>
 
               <div className={`transition-transform duration-500 ease-in-out transform ${isPlaying ? 'scale-100' : 'scale-90'} max-h-[60vh] flex items-center justify-center`}>
-                {nft.isVideo || nft.metadata?.animation_url ? (
+                {hasVideoLayer ? (
                   renderVideo()
                 ) : (
                   <div className="relative rounded-lg overflow-hidden max-h-[60vh]">

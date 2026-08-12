@@ -36,6 +36,7 @@ const trackNFTPlay = (nft: NFT, fid: number, options?: { forceTrack?: boolean, t
   return Promise.resolve();
 };
 import { processMediaUrl, getMediaKey, buildArweaveAudioFallbackUrls, buildIpfsFallbackUrls, extractIPFSPath } from '../utils/media';
+import { applyPlaybackPlanToNft, resolveNftPlaybackPlan } from '../utils/isMediaNFT';
 import { logger } from '../utils/logger';
 
 // Create a dedicated logger for this module
@@ -211,29 +212,31 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
 
   const handlePlayPause = useCallback(() => {
     if (!audioRef.current) return;
-    
+
+    const video =
+      currentPlayingNFT
+        ? (document.getElementById(
+            `video-${currentPlayingNFT.contract}-${currentPlayingNFT.tokenId}`
+          ) as HTMLVideoElement | null)
+        : null;
+
     if (isPlaying) {
       audioRef.current.pause();
-      // Pause video if it exists
-      if (currentPlayingNFT) {
-        const video = document.querySelector(`#video-${currentPlayingNFT.contract}-${currentPlayingNFT.tokenId}`);
-        if (video instanceof HTMLVideoElement) {
-          video.pause();
-        }
-      }
+      video?.pause();
     } else {
-      audioRef.current.play().catch(error => {
-        audioLogger.error("Error in handlePlayPause:", error);
+      audioRef.current.play().catch((error) => {
+        audioLogger.error('Error in handlePlayPause:', error);
         setIsPlaying(false);
-      }).then(() => {
-        // Play video if it exists
-        const video = document.querySelector('video');
-        if (video) {
-          video.play().catch(error => {
-            audioLogger.error("Error playing video:", error);
-          });
-        }
       });
+      if (video) {
+        video.muted = true;
+        try {
+          video.currentTime = audioRef.current.currentTime;
+        } catch {
+          // ignore
+        }
+        video.play().catch(() => {});
+      }
     }
   }, [isPlaying, currentPlayingNFT]);
 
@@ -284,8 +287,23 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
     }
     audioLogger.info('handlePlayAudio called with NFT:', nft);
 
-    // Get the raw audio URL from NFT
-    const rawAudioUrl = nft.metadata?.animation_url || nft.audio;
+    // Classify layout; probe Content-Type when audioUrl is an extensionless video (e.g. Music Mondays)
+    const plan = await resolveNftPlaybackPlan(nft);
+    applyPlaybackPlanToNft(nft, plan);
+    audioLogger.info('NFT playback plan:', {
+      mode: plan.mode,
+      audioUrl: plan.audioUrl?.slice(0, 80),
+      videoUrl: plan.videoUrl?.slice(0, 80),
+      name: nft.name,
+    });
+
+    // Sound source: dedicated audio, or the video file's audio track
+    const rawAudioUrl =
+      plan.audioUrl ||
+      nft.audio ||
+      plan.videoUrl ||
+      nft.metadata?.animation_url;
+
     if (!rawAudioUrl) {
       audioLogger.error('No audio URL found for NFT');
       return;
@@ -378,180 +396,13 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
     
     // Make sure the NFT has mediaKey for proper deduplication
     const mediaKey = nft.mediaKey || getMediaKey(nft);
+
+    // IMPORTANT: Do NOT use unmuted <video> as the sound source.
+    // Audio element always owns sound. If there's a video layer, it stays muted
+    // and is synced as a visual companion (avoids double-audio + minimize/maximize desync).
+    // Fall through to Audio element setup below.
     
-    // Check if this is a video with embedded audio
-    const isVideoWithEmbeddedAudio = nft.isVideo && nft.metadata?.animation_url;
-    
-    if (isVideoWithEmbeddedAudio) {
-      audioLogger.info('Playing video with embedded audio');
-      
-      // Wait for video element to be created with retry mechanism
-      const waitForVideoElement = async (maxAttempts = 20, delay = 200): Promise<HTMLVideoElement | null> => {
-        for (let attempt = 0; attempt < maxAttempts; attempt++) {
-          const videoElement = document.getElementById(`video-${nft.contract}-${nft.tokenId}`) as HTMLVideoElement;
-          if (videoElement) {
-            // Wait a bit more to ensure the video element is fully initialized
-            await new Promise(resolve => setTimeout(resolve, 100));
-            audioLogger.info(`Video element found on attempt ${attempt + 1}`);
-            return videoElement;
-          }
-          
-          // Wait before next attempt
-          await new Promise(resolve => setTimeout(resolve, delay));
-        }
-        
-        audioLogger.warn(`Video element not found after ${maxAttempts} attempts`);
-        return null;
-      };
-      
-      // Try to find video element with retry
-      const videoElement = await waitForVideoElement();
-      
-      if (videoElement) {
-        // Store references to all event listeners so we can remove them later
-        const videoEventHandlers: Record<string, EventListener> = {};
-        
-        // Clean up any existing video event listeners to prevent memory leaks
-        const cleanupVideoListeners = () => {
-          Object.entries(videoEventHandlers).forEach(([event, handler]) => {
-            try {
-              videoElement.removeEventListener(event, handler);
-              audioLogger.info(`Removed ${event} listener from video element`);
-            } catch (error) {
-              audioLogger.error(`Error removing ${event} listener:`, error);
-            }
-          });
-        };
-        
-        // Clean up existing listeners first
-        cleanupVideoListeners();
-        
-        // Unmute the video to hear its audio - with additional safety checks
-        if (videoElement.muted) {
-          videoElement.muted = false;
-          audioLogger.info('Video unmuted for audio playback');
-        }
-        
-        // Ensure the video volume is set appropriately
-        if (videoElement.volume === 0) {
-          videoElement.volume = 1.0;
-          audioLogger.info('Video volume set to 1.0');
-        }
-        
-        // Create a closure variable to track if this particular NFT play has been counted
-        let playTracked = false;
-        const mediaKey = getMediaKey(nft);
-        const nftKey = `${nft.contract}-${nft.tokenId}`;
-        
-        // Add event listeners
-        const timeupdateHandler: EventListener = () => {
-          // Check for 25% threshold without using component state
-          if (!playTracked && videoElement.duration > 0 && videoElement.currentTime >= (videoElement.duration * 0.25)) {
-            playTracked = true; // Mark as tracked to prevent duplicate counting
-            
-            // Only log mediaKey if available
-            if (mediaKey) {
-              audioLogger.info(`🎵 25% threshold reached for NFT: ${nft.name} (${Math.round(videoElement.currentTime)}s of ${Math.round(videoElement.duration)}s) [mediaKey: ${mediaKey.substring(0, 20)}...]`);
-            } else {
-              audioLogger.info(`🎵 25% threshold reached for NFT: ${nft.name} (${Math.round(videoElement.currentTime)}s of ${Math.round(videoElement.duration)}s)`);
-            }
-            
-            // Track the play in Firebase with threshold flag
-            trackNFTPlay(nft, fid, { thresholdReached: true }).catch(error => {
-              audioLogger.error('Error tracking NFT play after 25% threshold:', error);
-            });
-          }
-        };
-        videoEventHandlers['timeupdate'] = timeupdateHandler;
-        
-        const playHandler: EventListener = () => {
-          setIsPlaying(true);
-          audioLogger.info('Video playback started');
-        };
-        videoEventHandlers['play'] = playHandler;
-        
-        const pauseHandler: EventListener = () => {
-          setIsPlaying(false);
-          audioLogger.info('Video playback paused');
-        };
-        videoEventHandlers['pause'] = pauseHandler;
-        
-        const endedHandler: EventListener = () => {
-          setIsPlaying(false);
-          audioLogger.info('Video playback ended');
-          cleanupVideoListeners();
-        };
-        videoEventHandlers['ended'] = endedHandler;
-        
-        const errorHandler: EventListener = (e) => {
-          audioLogger.error('Video playback error:', {
-            error: e,
-            videoSrc: videoElement.src,
-            nft: nft.name
-          });
-          setIsPlaying(false);
-          
-          // Clean up listeners on error
-          cleanupVideoListeners();
-        };
-        videoEventHandlers['error'] = errorHandler;
-        
-        // Add all event listeners
-        Object.entries(videoEventHandlers).forEach(([event, handler]) => {
-          videoElement.addEventListener(event, handler);
-        });
-        
-        // Set up automatic cleanup after 30 minutes to prevent memory leaks
-        // This is a safety measure in case the ended or error events don't fire
-        const cleanupTimeout = setTimeout(() => {
-          audioLogger.info('Automatic cleanup of video listeners after timeout');
-          cleanupVideoListeners();
-        }, 30 * 60 * 1000);
-        
-        // Try to play the video with better error handling
-        try {
-          // Set playsInline for better mobile playback
-          if ('playsInline' in videoElement) {
-            videoElement.playsInline = true;
-          }
-          
-          // Limit video buffer size for better memory usage
-          if ('mozAutoplayEnabled' in videoElement || 'webkitPreservesPitch' in videoElement) {
-            // These properties indicate we're on a mobile browser
-            // Reduce buffer size to prevent memory issues
-            videoElement.preload = 'metadata';
-          }
-          
-          // Play the video with proper error handling
-          const playPromise = videoElement.play();
-          if (playPromise !== undefined) {
-            playPromise
-              .then(() => {
-                setIsPlaying(true);
-                audioLogger.info('Video playback started successfully');
-              })
-              .catch(error => {
-                audioLogger.error('Error playing video:', error);
-                setIsPlaying(false);
-                cleanupVideoListeners();
-                clearTimeout(cleanupTimeout);
-              });
-          }
-        } catch (error) {
-          audioLogger.error('Exception during video playback setup:', error);
-          setIsPlaying(false);
-          cleanupVideoListeners();
-        }
-        
-        // We're using the video element directly, so don't need the audio element
-        return;
-      } else {
-        // Fall back to audio-only playback
-        audioLogger.info('Falling back to audio-only playback');
-      }
-    }
-    
-    // EXISTING CODE for audio-only or separate audio+image NFTs
+    // EXISTING CODE for audio playback (all modes)
     if (audioRef.current) {
       // Create a new audio element for this NFT using the already processed URL
       audioLogger.info('Creating Audio element with URL:', audioUrl);
@@ -748,15 +599,24 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
           setIsPlaying(true);
         }
         
-        // Start the new video
-        const newVideo = document.querySelector(`#video-${nft.contract}-${nft.tokenId}`);
-        if (newVideo instanceof HTMLVideoElement) {
-          newVideo.play().catch(error => {
-            // Only log video errors if they're not abort errors
-            if (!(error instanceof DOMException && error.name === 'AbortError')) {
-              audioLogger.error("Error playing video:", error);
+        // Muted visual companion only — never unmute (Audio owns sound)
+        if (plan.videoUrl || plan.mode !== 'audio-only') {
+          const newVideo = document.getElementById(
+            `video-${nft.contract}-${nft.tokenId}`
+          ) as HTMLVideoElement | null;
+          if (newVideo) {
+            newVideo.muted = true;
+            try {
+              newVideo.currentTime = audio.currentTime;
+            } catch {
+              // ignore
             }
-          });
+            newVideo.play().catch((error) => {
+              if (!(error instanceof DOMException && error.name === 'AbortError')) {
+                audioLogger.error('Error playing muted companion video:', error);
+              }
+            });
+          }
         }
       } catch (error) {
         // Don't treat AbortError as an error - it's normal when ads trigger
@@ -778,37 +638,24 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
       }
     }
 
-    // iOS-specific audio-video sync fix
+    // iOS audio unlock only — do not reset video to 0 (desyncs from Audio)
     const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
-    if (isIOS && nft.isVideo) {
-      // iOS often needs a user interaction to properly sync audio and video
-      // Create a silent audio context to unlock audio
-      const unlockAudio = () => {
+    if (isIOS && (plan.videoUrl || nft.isVideo)) {
+      try {
         const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
         if (AudioContext) {
           const audioCtx = new AudioContext();
-          // Create buffer for short sound
           const buffer = audioCtx.createBuffer(1, 1, 22050);
           const source = audioCtx.createBufferSource();
           source.buffer = buffer;
           source.connect(audioCtx.destination);
           source.start(0);
-          
-          // Resume audio context
           if (audioCtx.state === 'suspended') {
             audioCtx.resume();
           }
         }
-      };
-      
-      unlockAudio();
-      
-      // For iOS, we need to ensure the video element is properly reset
-      const videoElement = document.querySelector(`#video-${nft.contract}-${nft.tokenId}`);
-      if (videoElement instanceof HTMLVideoElement) {
-        // Reset video element for iOS
-        videoElement.currentTime = 0;
-        videoElement.load();
+      } catch {
+        // ignore
       }
     }
   }, [currentlyPlaying, handlePlayPause, fid, setRecentlyPlayedNFTs]);
@@ -917,7 +764,21 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
     if (!audioRef.current) return;
     audioRef.current.currentTime = time;
     setAudioProgress(time);
-  }, []);
+
+    if (currentPlayingNFT) {
+      const video = document.getElementById(
+        `video-${currentPlayingNFT.contract}-${currentPlayingNFT.tokenId}`
+      ) as HTMLVideoElement | null;
+      if (video) {
+        video.muted = true;
+        try {
+          video.currentTime = time;
+        } catch {
+          // ignore
+        }
+      }
+    }
+  }, [currentPlayingNFT]);
 
   // Add a function to set fallback URLs
   const setFallbackSources = useCallback((urls: string[]) => {

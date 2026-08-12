@@ -30,7 +30,7 @@ import type { FarcasterUser, SearchedUser, NFTPlayData, FollowedUser } from '../
 import type { NFT } from '../types/nft';
 import { fetchUserNFTsFromAlchemy } from './nft';
 import { getMediaKey } from '~/utils/media';
-import { isPlayableMediaNFT } from '../utils/isMediaNFT';
+import { getNftPlaybackPlan, isPlayableMediaNFT } from '../utils/isMediaNFT';
 import { logger } from '../utils/logger';
 import { v4 as uuidv4 } from 'uuid';
 import { isENSUser } from '../utils/ensUtils';
@@ -38,6 +38,59 @@ import { isENSUser } from '../utils/ensUtils';
 // Create module-specific loggers
 const firebaseLogger = logger.getModuleLogger('firebase');
 const authLogger = logger.getModuleLogger('auth');
+
+/** Playback fields persisted on play/like docs (legacy docs may omit these). */
+const playbackFieldsForStore = (nft: NFT) => {
+  const plan = getNftPlaybackPlan(nft);
+  return {
+    videoUrl: plan.videoUrl || nft.videoUrl || '',
+    isVideo: plan.mode !== 'audio-only',
+    playbackMode: plan.mode,
+    mediaMime: (nft.metadata as { mimeType?: string; mime_type?: string } | undefined)?.mimeType
+      || (nft.metadata as { mimeType?: string; mime_type?: string } | undefined)?.mime_type
+      || '',
+  };
+};
+
+/** Reconstruct NFT playback fields from a Firebase play/like document. */
+const nftFromPlayRecord = (data: DocumentData): NFT => {
+  const audioUrl = data.audioUrl || '';
+  const videoUrl =
+    data.videoUrl ||
+    (data.isVideo || data.playbackMode === 'video-with-audio' || data.playbackMode === 'video-plus-audio'
+      ? audioUrl
+      : '') ||
+    '';
+  const playbackMode =
+    data.playbackMode ||
+    (videoUrl ? 'video-with-audio' : audioUrl ? 'audio-only' : undefined);
+  const isVideo =
+    data.isVideo ?? Boolean(videoUrl && playbackMode && playbackMode !== 'audio-only');
+
+  return {
+    contract: data.nftContract || data.contract,
+    tokenId: data.tokenId,
+    name: data.name || 'Untitled NFT',
+    description: data.description || '',
+    image: data.image || '',
+    audio: audioUrl,
+    videoUrl: videoUrl || undefined,
+    isVideo: isVideo || undefined,
+    playbackMode,
+    hasValidAudio: Boolean(audioUrl || videoUrl),
+    metadata: {
+      name: data.name || 'Untitled NFT',
+      description: data.description || '',
+      image: data.image || '',
+      animation_url: videoUrl || audioUrl,
+      ...(data.mediaMime ? { mimeType: data.mediaMime } : {}),
+    } as NFT['metadata'],
+    collection: {
+      name: data.collection || 'Unknown Collection',
+    },
+    network: data.network || 'ethereum',
+  };
+};
 const dataLogger = logger.getModuleLogger('data');
 
 // Call deduplication cache
@@ -644,8 +697,10 @@ export const trackNFTPlay = async (nft: NFT, fid: number, options?: { forceTrack
       nft.name = nft.metadata?.name || `NFT #${nft.tokenId}`;
     }
 
-    // Get audio URL with fallbacks
-    const audioUrl = nft.metadata?.animation_url || nft.audio;
+    // Get audio URL with fallbacks — may be a video file (video-with-audio)
+    const plan = getNftPlaybackPlan(nft);
+    const playbackStore = playbackFieldsForStore(nft);
+    const audioUrl = plan.audioUrl || nft.metadata?.animation_url || nft.audio;
     if (!audioUrl) {
       firebaseLogger.error('No audio URL found for NFT:', {
         contract: nft.contract,
@@ -692,6 +747,10 @@ export const trackNFTPlay = async (nft: NFT, fid: number, options?: { forceTrack
         name: nft.name || data.name || 'Untitled',
         image: nft.image || data.image || '',
         audioUrl: audioUrl || data.audioUrl,
+        videoUrl: playbackStore.videoUrl || data.videoUrl || '',
+        isVideo: playbackStore.isVideo,
+        playbackMode: playbackStore.playbackMode,
+        mediaMime: playbackStore.mediaMime || data.mediaMime || '',
         description: nft.description || nft.metadata?.description || data.description || '',
         collection: nft.collection?.name || data.collection || 'Unknown Collection',
         network: nft.network || data.network || 'ethereum'
@@ -706,6 +765,10 @@ export const trackNFTPlay = async (nft: NFT, fid: number, options?: { forceTrack
         description: nft.description || nft.metadata?.description || '',
         image: nft.image || nft.metadata?.image || '',
         audioUrl,
+        videoUrl: playbackStore.videoUrl,
+        isVideo: playbackStore.isVideo,
+        playbackMode: playbackStore.playbackMode,
+        mediaMime: playbackStore.mediaMime,
         collection: nft.collection?.name || 'Unknown Collection',
         network: nft.network || 'ethereum',
         playCount: 1,
@@ -765,6 +828,10 @@ export const trackNFTPlay = async (nft: NFT, fid: number, options?: { forceTrack
         name: nft.name || 'Untitled',
         image: nft.image || '',
         audioUrl: audioUrl,
+        videoUrl: playbackStore.videoUrl,
+        isVideo: playbackStore.isVideo,
+        playbackMode: playbackStore.playbackMode,
+        mediaMime: playbackStore.mediaMime,
         description: nft.description || nft.metadata?.description || '',
         collection: nft.collection?.name || 'Unknown Collection',
         network: nft.network || 'ethereum',
@@ -782,6 +849,10 @@ export const trackNFTPlay = async (nft: NFT, fid: number, options?: { forceTrack
         name: nft.name || data.name || 'Untitled',
         image: nft.image || data.image || '',
         audioUrl: audioUrl || data.audioUrl,
+        videoUrl: playbackStore.videoUrl || data.videoUrl || '',
+        isVideo: playbackStore.isVideo,
+        playbackMode: playbackStore.playbackMode,
+        mediaMime: playbackStore.mediaMime || data.mediaMime || '',
         description: nft.description || nft.metadata?.description || data.description || '',
         collection: nft.collection?.name || data.collection || 'Unknown Collection',
         network: nft.network || data.network || 'ethereum'
@@ -798,6 +869,10 @@ export const trackNFTPlay = async (nft: NFT, fid: number, options?: { forceTrack
       description: nft.description || nft.metadata?.description || '',
       image: nft.image || nft.metadata?.image || '',
       audioUrl: audioUrl,
+      videoUrl: playbackStore.videoUrl,
+      isVideo: playbackStore.isVideo,
+      playbackMode: playbackStore.playbackMode,
+      mediaMime: playbackStore.mediaMime,
       collection: nft.collection?.name || 'Unknown Collection',
       network: nft.network || 'ethereum',
       timestamp: serverTimestamp(),
@@ -845,25 +920,7 @@ export async function getTopPlayedNFTs(): Promise<{ nft: NFT; count: number }[]>
       if (!data.mediaKey || !data.nftContract || !data.tokenId) return;
       
       // Create NFT object from global_plays data
-      const nft: NFT = {
-        contract: data.nftContract,
-        tokenId: data.tokenId,
-        name: data.name || 'Untitled NFT',
-        description: data.description || '',
-        image: data.image || '',
-        audio: data.audioUrl,
-        hasValidAudio: Boolean(data.audioUrl),
-        metadata: {
-          name: data.name || 'Untitled NFT',
-          description: data.description || '',
-          image: data.image || '',
-          animation_url: data.audioUrl
-        },
-        collection: {
-          name: data.collection || 'Unknown Collection'
-        },
-        network: data.network || 'ethereum'
-      };
+      const nft = nftFromPlayRecord(data);
 
       topPlayed.push({
         nft,
@@ -1131,25 +1188,7 @@ export const getLikedNFTs = (fid: number): Promise<NFT[]> => {
             }
             seenNFTKeys.add(nftKey);
             
-            const nft: NFT = {
-              contract: globalData.nftContract,
-              tokenId: globalData.tokenId,
-              name: globalData.name || 'Untitled',
-              description: globalData.description || '',
-              image: globalData.image || '',
-              audio: globalData.audioUrl || '',
-              hasValidAudio: Boolean(globalData.audioUrl),
-              metadata: {
-                name: globalData.name || 'Untitled',
-                description: globalData.description || '',
-                image: globalData.image || '',
-                animation_url: globalData.audioUrl || ''
-              },
-              collection: {
-                name: globalData.collection || 'Unknown Collection'
-              },
-              network: globalData.network || 'ethereum'
-            };
+            const nft = nftFromPlayRecord(globalData);
             
             return nft;
           })
@@ -1545,23 +1584,7 @@ export const subscribeToRecentPlays = (fid: number, callback: (nfts: NFT[]) => v
       
       // Create NFT object from play data
       const nft: NFT = {
-        contract: playData.nftContract,
-        tokenId: playData.tokenId,
-        name: playData.name || 'Untitled NFT',
-        description: playData.description || '',
-        image: playData.image || '',
-        audio: playData.audioUrl || '',
-        hasValidAudio: Boolean(playData.audioUrl),
-        metadata: {
-          name: playData.name || 'Untitled NFT',
-          description: playData.description || '',
-          image: playData.image || '',
-          animation_url: playData.audioUrl || ''
-        },
-        collection: {
-          name: playData.collection || 'Unknown Collection'
-        },
-        network: playData.network || 'ethereum',
+        ...nftFromPlayRecord(playData),
         // ALWAYS generate fresh mediaKey using centralized function
         // This ensures consistency across all components
         mediaKey: getMediaKey({

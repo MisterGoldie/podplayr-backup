@@ -166,8 +166,19 @@ export const processArweaveUrl = (url: string, mediaType: 'image' | 'audio' | 'm
   };
   
   try {
-    // If it's already an https://arweave.net URL, return it as is
-    if (url.startsWith('https://arweave.net/')) {
+    // Plain gateway URLs → turbo /raw/{tx} (arweave.net often 302s / fails for large media)
+    if (/^https?:\/\/(www\.)?arweave\.net\//i.test(url)) {
+      const { fileTxId, manifestId, filePath } = parseArweaveMediaPath(url);
+      if (fileTxId) {
+        return toArweaveRawUrl(fileTxId);
+      }
+      if (manifestId && filePath) {
+        return `${PRIMARY_ARWEAVE_GATEWAY}${manifestId}/${filePath}`;
+      }
+      const m = url.match(/arweave\.net\/(?:raw\/)?([a-zA-Z0-9_-]{20,})/i);
+      if (m?.[1]) {
+        return toArweaveRawUrl(m[1].replace(MEDIA_EXT_RE, ''));
+      }
       return url;
     }
     
@@ -358,6 +369,14 @@ export const processMediaUrl = (url: string, fallbackUrl: string = '/default-nft
   if (!url) return fallbackUrl;
   if (typeof url !== 'string') return fallbackUrl;
   
+  // Rewrite https://arweave.net/{tx} → turbo /raw/{tx} before CDN / passthrough
+  if (/^https?:\/\/(www\.)?arweave\.net\//i.test(url)) {
+    const rewritten = processArweaveUrl(url, mediaType === 'metadata' ? 'image' : mediaType);
+    if (rewritten && rewritten !== url) {
+      url = rewritten;
+    }
+  }
+
   // Rewrite dead IPFS gateway hosts (cloudflare-ipfs.com DNS no longer resolves)
   if ((url.startsWith('http://') || url.startsWith('https://')) && url.includes('/ipfs/')) {
     try {

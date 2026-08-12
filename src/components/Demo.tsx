@@ -41,7 +41,7 @@ import { shouldDelayOperation } from '../utils/videoFirstMode';
 import { logger } from '../utils/logger';
 import { useNFTLike } from '../hooks/useNFTLike';
 import { NFTCard } from './NFTCard';
-import { filterPlayableMediaNFTs, hasPlayableAudio, hasPlayableVideo, isPlayableMediaNFT } from '../utils/isMediaNFT';
+import { filterPlayableMediaNFTs, hasPlayableAudio, hasPlayableVideo, isPlayableMediaNFT, getNftPlaybackPlan } from '../utils/isMediaNFT';
 
 import { UserImageProvider } from '../contexts/UserImageContext';
 
@@ -665,8 +665,13 @@ const DemoBase: React.FC = () => {
 
       if (!isPlayableMediaNFT(nft)) continue;
 
-      nft.isVideo = hasPlayableVideo(nft);
-      nft.hasValidAudio = hasPlayableAudio(nft);
+      const plan = getNftPlaybackPlan(nft);
+      nft.playbackMode = plan.mode;
+      nft.isVideo = plan.mode !== 'audio-only';
+      nft.hasValidAudio = Boolean(plan.audioUrl) || hasPlayableAudio(nft);
+      if (plan.videoUrl) {
+        nft.videoUrl = nft.videoUrl || plan.videoUrl;
+      }
       mediaOnly.push(nft);
     }
 

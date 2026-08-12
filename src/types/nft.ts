@@ -32,6 +32,9 @@ export interface NFT {
   audio?: string;
   hasValidAudio?: boolean;
   isVideo?: boolean;
+  /** Explicit playback layout (preferred over isVideo heuristics). */
+  playbackMode?: 'audio-only' | 'video-with-audio' | 'video-plus-audio';
+  videoUrl?: string;
   isAnimation?: boolean;
   collection?: {
     name: string;

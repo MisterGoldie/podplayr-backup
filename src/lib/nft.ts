@@ -3,9 +3,8 @@ import { Alchemy, Network } from 'alchemy-sdk';
 import { processMediaUrl, getMediaKey } from '../utils/media';
 import {
   hasPlayableAudio,
-  hasPlayableVideo,
   isPlayableMediaNFT,
-  pickRawMediaUrl,
+  getNftPlaybackPlan,
 } from '../utils/isMediaNFT';
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -70,7 +69,10 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
     }
 
     const rawMeta = metadata.raw.metadata || {};
-    const audioUrl = processMediaUrl(pickRawMediaUrl(rawMeta), '', 'audio');
+    const plan = getNftPlaybackPlan({ metadata: rawMeta });
+    const soundRaw = plan.audioUrl || plan.videoUrl || '';
+    const audioUrl = processMediaUrl(soundRaw, '', 'audio');
+    const videoUrl = plan.videoUrl ? processMediaUrl(plan.videoUrl, '', 'audio') : '';
     const imageUrl = processMediaUrl(
       rawMeta.image ||
       rawMeta.image_url ||
@@ -93,8 +95,10 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
       description: metadata.description || rawMeta.description || '',
       image: imageUrl || '',
       audio: audioUrl || '',
-      hasValidAudio: hasPlayableAudio({ audio: audioUrl, metadata: rawMeta }),
-      isVideo: hasPlayableVideo({ audio: audioUrl, animationUrl: audioUrl, metadata: rawMeta }),
+      videoUrl: videoUrl || undefined,
+      playbackMode: plan.mode,
+      hasValidAudio: Boolean(audioUrl) || hasPlayableAudio({ audio: audioUrl, metadata: rawMeta }),
+      isVideo: plan.mode !== 'audio-only',
       collection: {
         name: metadata.contract?.name || '',
         image: metadata.contract?.openSeaMetadata?.imageUrl || ''
@@ -102,11 +106,13 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
       metadata: {
         ...rawMeta,
         image: imageUrl || '',
-        animation_url: rawMeta.animation_url || audioUrl || ''
+        // Preserve original animation_url; don't overwrite with audio-only pick
+        animation_url: rawMeta.animation_url || plan.videoUrl || plan.audioUrl || '',
+        audio: rawMeta.audio || (plan.mode === 'video-plus-audio' ? plan.audioUrl : rawMeta.audio) || undefined,
       }
     };
 
-    if (nft.hasValidAudio) {
+    if (nft.hasValidAudio || nft.isVideo) {
       nft.mediaKey = getMediaKey(nft);
     }
 
@@ -213,8 +219,10 @@ export const fetchUserNFTsFromAlchemy = async (address: string): Promise<NFT[]> 
     const processedNFTs = (ownedNfts as AlchemyNFT[])
       .map((nft) => {
         const meta = nft.metadata || {};
-        const rawMediaUrl = pickRawMediaUrl(meta);
-        const audioUrl = processMediaUrl(rawMediaUrl, '', 'audio');
+        const plan = getNftPlaybackPlan({ metadata: meta });
+        const soundRaw = plan.audioUrl || plan.videoUrl || '';
+        const audioUrl = processMediaUrl(soundRaw, '', 'audio');
+        const videoUrl = plan.videoUrl ? processMediaUrl(plan.videoUrl, '', 'audio') : '';
         const imageUrl = processMediaUrl(
           meta.image ||
           meta.image_url ||
@@ -232,16 +240,13 @@ export const fetchUserNFTsFromAlchemy = async (address: string): Promise<NFT[]> 
         }
 
         const candidate = {
-          audio: audioUrl,
-          animationUrl: audioUrl,
-          metadata: {
-            ...meta,
-            animation_url: meta.animation_url || rawMediaUrl || '',
-          },
+          audio: plan.audioUrl || audioUrl,
+          animationUrl: plan.videoUrl || meta.animation_url,
+          metadata: meta,
         };
 
-        const hasAudio = hasPlayableAudio(candidate);
-        const isVideo = hasPlayableVideo(candidate);
+        const hasAudio = Boolean(soundRaw) || hasPlayableAudio(candidate);
+        const isVideo = plan.mode !== 'audio-only';
 
         const processedNFT: NFT = {
           contract: nft.contract.address.toLowerCase(),
@@ -249,8 +254,10 @@ export const fetchUserNFTsFromAlchemy = async (address: string): Promise<NFT[]> 
           name: meta.name || `NFT #${tokenId}`,
           description: meta.description || '',
           image: imageUrl || '',
-          animationUrl: audioUrl || '',
-          audio: hasAudio ? (audioUrl || '') : '',
+          animationUrl: plan.videoUrl || audioUrl || '',
+          audio: audioUrl || '',
+          videoUrl: videoUrl || undefined,
+          playbackMode: plan.mode,
           hasValidAudio: hasAudio,
           isVideo,
           isAnimation: false,
@@ -261,11 +268,15 @@ export const fetchUserNFTsFromAlchemy = async (address: string): Promise<NFT[]> 
           metadata: {
             ...meta,
             image: imageUrl || '',
-            animation_url: meta.animation_url || rawMediaUrl || '',
+            animation_url: meta.animation_url || plan.videoUrl || plan.audioUrl || '',
+            audio:
+              meta.audio ||
+              meta.audio_url ||
+              (plan.mode === 'video-plus-audio' ? plan.audioUrl || undefined : meta.audio),
           }
         };
 
-        if (hasAudio) {
+        if (hasAudio || isVideo) {
           processedNFT.mediaKey = getMediaKey(processedNFT);
         }
 
@@ -278,7 +289,7 @@ export const fetchUserNFTsFromAlchemy = async (address: string): Promise<NFT[]> 
       contract: nft.contract.toLowerCase(),
       tokenId: nft.tokenId.toString().replace(/^0x/, ''),
       image: nft.image || '',
-      animationUrl: nft.audio || nft.animationUrl || '',
+      animationUrl: nft.videoUrl || nft.audio || nft.animationUrl || '',
       audio: nft.audio || '',
     }));
   } catch (error) {

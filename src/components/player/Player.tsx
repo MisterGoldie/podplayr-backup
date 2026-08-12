@@ -77,7 +77,7 @@ export const Player: React.FC<PlayerProps> = ({
         onLikeToggle={onLikeToggle}
         isLiked={isLiked}
         onPictureInPicture={onPictureInPicture}
-        lastPosition={0}
+        lastPosition={progress}
         isMinimized={isMinimized}
         isAnimating={false}
         userFid={typeof userFid === 'number' ? userFid : undefined}
@@ -101,7 +101,7 @@ export const Player: React.FC<PlayerProps> = ({
       onLikeToggle={onLikeToggle}
       isLiked={isLiked}
       onPictureInPicture={onPictureInPicture}
-      lastPosition={0}
+      lastPosition={progress}
     />
   );
 };

@@ -132,6 +132,10 @@ export interface NFT {
   hasValidAudio?: boolean;
   isVideo?: boolean;
   isAnimation?: boolean;
+  /** Explicit playback layout from getNftPlaybackPlan (preferred over isVideo heuristics). */
+  playbackMode?: 'audio-only' | 'video-with-audio' | 'video-plus-audio';
+  /** Processed URL for visual <video> when present. */
+  videoUrl?: string;
   playTracked?: boolean;
   quantity?: number;
   lastPlayed?: any; // Firestore Timestamp
