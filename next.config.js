@@ -31,11 +31,12 @@ const nextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
-  // Allow ngrok domains in development
+  // Allow tunnel domains (ngrok, Cloudflare Tunnel) in development
   allowedDevOrigins: [
     'b252fcf49668.ngrok.app',
     '*.ngrok.app',
-    '*.ngrok-free.app'
+    '*.ngrok-free.app',
+    '*.trycloudflare.com'
   ],
 };
 
