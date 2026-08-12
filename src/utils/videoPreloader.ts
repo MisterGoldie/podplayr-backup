@@ -66,7 +66,7 @@ export const preloadVideoMetadata = async (nft: NFT): Promise<void> => {
     const { isCellular } = isCellularConnection();
     
     // Process the URL to handle special protocols (ar://, ipfs://, etc.)
-    const processedUrl = processMediaUrl(nft.metadata.animation_url);
+    const processedUrl = processMediaUrl(nft.metadata.animation_url, '', 'audio');
     
     // For cellular connections, just load headers to get content length
     if (isCellular) {
@@ -116,7 +116,7 @@ export const preloadVideoInitialChunk = async (nft: NFT): Promise<void> => {
       : 1000000; // 1MB for WiFi
     
     // Process the URL to handle special protocols (ar://, ipfs://, etc.)
-    const processedUrl = processMediaUrl(nft.metadata.animation_url);
+    const processedUrl = processMediaUrl(nft.metadata.animation_url, '', 'audio');
 
     // Fetch just the initial chunk
     const response = await fetch(processedUrl, {

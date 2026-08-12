@@ -35,7 +35,7 @@ const trackNFTPlay = (nft: NFT, fid: number, options?: { forceTrack?: boolean, t
   // Default case - shouldn't happen but included for completeness
   return Promise.resolve();
 };
-import { processMediaUrl, getMediaKey } from '../utils/media';
+import { processMediaUrl, getMediaKey, buildArweaveAudioFallbackUrls } from '../utils/media';
 import { logger } from '../utils/logger';
 
 // Create a dedicated logger for this module
@@ -294,30 +294,13 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
     // Generate multiple potential URLs for fallback
     const audioUrls: string[] = [];
     
-    // Special handling for PODs audio URLs (ar:// protocol with path)
-    if (rawAudioUrl.startsWith('ar://')) {
-      // Extract the transaction ID and path
-      const arPath = rawAudioUrl.replace('ar://', '');
-      const segments = arPath.split('/');
-      const txId = segments[0];
-      const filePath = segments.slice(1).join('/');
-      
-      // 1. Full path URL - this is the most reliable for PODs audio
-      const fullPathUrl = `https://arweave.net/${txId}/${filePath}`;
-      audioUrls.push(fullPathUrl);
-      
-      // 2. Alternative gateway URL as fallback
-      const altGatewayUrl = `https://arweave.dev/${txId}/${filePath}`;
-      audioUrls.push(altGatewayUrl);
-      
-      // 3. Direct transaction URL as last resort
-      const directTxUrl = `https://arweave.net/${txId}`;
-      audioUrls.push(directTxUrl);
-      
-      audioLogger.info('Generated Arweave audio URLs:', {
-        fullPath: fullPathUrl,
-        altGateway: altGatewayUrl,
-        directTx: directTxUrl
+    // Special handling for Arweave / PODs URLs — try multiple gateways + direct file tx
+    if (rawAudioUrl.startsWith('ar://') || /arweave\.(net|dev)|permagate\.io|turbo-gateway\.com|irys\.xyz|ar-io\.dev|g8way\.io/i.test(rawAudioUrl)) {
+      const arweaveFallbacks = buildArweaveAudioFallbackUrls(rawAudioUrl);
+      audioUrls.push(...arweaveFallbacks);
+      audioLogger.info('Generated Arweave audio URLs across gateways:', {
+        count: arweaveFallbacks.length,
+        urls: arweaveFallbacks.slice(0, 8),
       });
     } 
     // Standard URL processing for non-Arweave URLs
@@ -617,23 +600,26 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
         }
         
         // If we've exhausted all fallbacks, try one last approach for Arweave URLs
-        if (audioUrl.includes('arweave.net') && audio.error?.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED) {
+        if (/arweave\.|permagate\.io|turbo-gateway|irys\.xyz|ar-io\.dev|g8way\.io/i.test(audioUrl) &&
+            audio.error?.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED) {
           audioLogger.error('All fallbacks failed. Attempting direct transaction access...', errorInfo);
           
-          // Extract just the transaction ID and try direct access
-          const urlParts = audioUrl.split('/');
+          // Extract just the transaction ID and try direct access across gateways
+          const urlParts = audio.src.split('/');
           let txId = '';
           
           // Find the part that looks like a transaction ID (43-character alphanumeric string)
           for (const part of urlParts) {
-            if (/^[a-zA-Z0-9_-]{43}$/.test(part)) {
-              txId = part;
+            const cleaned = part.replace(/\.(mp3|wav|ogg|m4a|flac|aac)$/i, '');
+            if (/^[a-zA-Z0-9_-]{43}$/.test(cleaned)) {
+              txId = cleaned;
               break;
             }
           }
           
           if (txId) {
-            const lastResortUrl = `https://arweave.net/${txId}`;
+            const lastResortUrls = buildArweaveAudioFallbackUrls(`ar://${txId}`);
+            const lastResortUrl = lastResortUrls[0] || `https://arweave.net/${txId}`;
             audioLogger.info('Last resort: trying direct transaction URL:', lastResortUrl);
             
             // Reset the audio element
@@ -651,125 +637,10 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
         }
       };
       
-      // For PODs audio files, we need to handle them specially
-      if (rawAudioUrl.startsWith('ar://') && rawAudioUrl.includes('/')) {
-        // Extract the transaction ID and file path
-        const segments = rawAudioUrl.replace('ar://', '').split('/');
-        const txId = segments[0];
-        const filePath = segments.slice(1).join('/');
-        
-        // Clean up any existing blob URLs to prevent memory leaks
-        const cleanupBlobUrls = () => {
-          blobUrlsRef.current.forEach(url => {
-            try {
-              URL.revokeObjectURL(url);
-              audioLogger.info('Revoked blob URL:', url);
-            } catch (error) {
-              audioLogger.error('Error revoking blob URL:', error);
-            }
-          });
-          blobUrlsRef.current = [];
-        };
-        
-        // Clean up existing blob URLs before creating new ones
-        cleanupBlobUrls();
-        
-        // Create a blob URL from the audio data to ensure proper playback
-        const fetchAndCreateBlobUrl = async (url: string) => {
-          try {
-            audioLogger.info('Fetching audio file directly:', url);
-            const response = await fetch(url, { 
-              method: 'GET',
-              headers: {
-                'Accept': 'audio/*'
-              }
-            });
-            
-            if (!response.ok) {
-              throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            
-            const blob = await response.blob();
-            const blobUrl = URL.createObjectURL(blob);
-            
-            // Track this blob URL for later cleanup
-            blobUrlsRef.current.push(blobUrl);
-            
-            audioLogger.info('Created blob URL for audio:', blobUrl);
-            return blobUrl;
-          } catch (error) {
-            audioLogger.error('Error fetching audio file:', { url, error });
-            return null;
-          }
-        };
-        
-        // Try to fetch the audio file directly
-        const arweaveUrl = `https://arweave.net/${txId}/${filePath}`;
-        fetchAndCreateBlobUrl(arweaveUrl)
-          .then(blobUrl => {
-            if (blobUrl) {
-              audio.src = blobUrl;
-              audioLogger.info('Using blob URL for audio playback:', blobUrl);
-            } else {
-              // Try alternative gateway
-              const altUrl = `https://arweave.dev/${txId}/${filePath}`;
-              return fetchAndCreateBlobUrl(altUrl);
-            }
-          })
-          .then(altBlobUrl => {
-            if (altBlobUrl) {
-              audio.src = altBlobUrl;
-              audioLogger.info('Using alternative gateway blob URL:', altBlobUrl);
-            }
-          })
-          .catch(error => {
-            audioLogger.error('All audio fetch attempts failed:', error);
-          });
-      } else {
-        // For non-PODs audio files, use the sequential fallback system
-        let currentUrlIndex = 0;
-        const tryNextUrl = () => {
-          if (currentUrlIndex < audioUrls.length) {
-            const urlToTry = audioUrls[currentUrlIndex];
-            audioLogger.info(`Trying audio URL ${currentUrlIndex + 1}/${audioUrls.length}:`, urlToTry);
-            
-            // Check if URL ends with a known audio extension
-            const hasAudioExtension = /\.(mp3|wav|ogg|m4a|flac|aac)$/i.test(urlToTry);
-            let finalUrl = urlToTry;
-            
-            // If it's an Arweave URL without extension, try adding .mp3
-            if (!hasAudioExtension && urlToTry.includes('arweave.net') && !urlToTry.includes('/')) {
-              finalUrl = `${urlToTry}.mp3`;
-              audioLogger.info('Adding .mp3 extension to URL:', finalUrl);
-            }
-            
-            // Set the source and try to play
-            audio.src = finalUrl;
-            
-            // Increment the index for the next attempt
-            currentUrlIndex++;
-          } else {
-            audioLogger.error('All audio URLs failed, no more fallbacks available', {
-              nft: nft.name,
-              mediaKey: getMediaKey(nft),
-              triedUrls: audioUrls
-            });
-          }
-        };
-        
-        // Start with the first URL
-        tryNextUrl();
-        
-        // Set up error handler to try the next URL
-        audio.onerror = (e) => {
-          audioLogger.error('Audio playback error, trying next URL', {
-            error: e,
-            currentUrl: audio.src,
-            urlIndex: currentUrlIndex - 1
-          });
-          tryNextUrl();
-        };
-      }
+      // Stream Arweave / PODs audio directly (avoid blobbing large files like ~100MB episodes)
+      // audio.onerror above walks fallbackUrls across turbo/permagate/raw gateways
+      audio.src = audioUrl;
+      audioLogger.info('Using Arweave gateway URL for audio playback:', audioUrl);
       
       // Set up event listeners before loading
       audio.addEventListener('loadedmetadata', () => {

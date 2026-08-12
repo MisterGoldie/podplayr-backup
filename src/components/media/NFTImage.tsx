@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { processMediaUrl, IPFS_GATEWAYS, isAudioUrlUsedAsImage, getCleanIPFSUrl, processArweaveUrl, getMediaKey } from '../../utils/media';
+import { processMediaUrl, IPFS_GATEWAYS, isAudioUrlUsedAsImage, getCleanIPFSUrl, processArweaveUrl, getMediaKey, buildArweaveMediaFallbackUrls } from '../../utils/media';
 import Image from 'next/image';
 import type { SyntheticEvent } from 'react';
 import type { NFT } from '../../types/user';
@@ -39,9 +39,16 @@ const isArweaveUrl = (url: string): boolean => {
   
   try {
     const parsedUrl = new URL(url);
-    // Only check hostname - not paths or query parameters
-    return parsedUrl.hostname === 'arweave.net' || 
-           parsedUrl.hostname.endsWith('.arweave.net');
+    const host = parsedUrl.hostname;
+    return host === 'arweave.net' ||
+           host.endsWith('.arweave.net') ||
+           host === 'turbo-gateway.com' ||
+           host.endsWith('.turbo-gateway.com') ||
+           host === 'permagate.io' ||
+           host.endsWith('.permagate.io') ||
+           host === 'gateway.irys.xyz' ||
+           host === 'ar-io.dev' ||
+           host === 'g8way.io';
   } catch (error) {
     // Only log for non-default images to reduce console spam
     if (!url.includes('default-nft.png')) {
@@ -307,10 +314,14 @@ export const NFTImage: React.FC<NFTImageProps> = ({
 
   // Cache for processed image URLs to avoid redundant processing
   const processedUrlCache = useRef<Record<string, string>>({});
+  const arweaveFallbackUrls = useRef<string[]>([]);
+  const arweaveFallbackIndex = useRef(0);
   
   useEffect(() => {
     // Reset states when src changes, but only if src is valid
     const isValidSrc = src && src !== '' && src !== 'undefined' && src !== 'null';
+    arweaveFallbackUrls.current = [];
+    arweaveFallbackIndex.current = 0;
     
     if (isValidSrc) {
       // Check if we've already processed this URL
@@ -448,22 +459,31 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       preloadNftMedia(nft);
     }
     
-    // Special handling for Arweave URLs - using proper URL validation
-    if (src && isArweaveUrl(src) && retryCount < 1) {
-      try {
-        // Safe extraction of transaction ID
-        const arweaveTxId = src.startsWith('ar://') 
-          ? src.substring(5).split('/')[0].split('.')[0]  // Safe string operations on protocol
-          : new URL(src).pathname.substring(1).split('/')[0]; // Safe URL parsing
-        
-        if (arweaveTxId) {
-          const directArweaveUrl = `https://arweave.net/${arweaveTxId}`;
-          setImgSrc(directArweaveUrl);
-          setRetryCount(retryCount + 1);
-          return;
-        }
-      } catch (err) {
-        // Silent failure, just continue to fallback
+    // Special handling for Arweave / PODs URLs — cycle turbo/permagate /raw/ fallbacks
+    if (src && isArweaveUrl(src)) {
+      if (arweaveFallbackUrls.current.length === 0) {
+        arweaveFallbackUrls.current = buildArweaveMediaFallbackUrls(src);
+        arweaveFallbackIndex.current = 0;
+      }
+
+      // Skip the URL that already failed
+      while (
+        arweaveFallbackIndex.current < arweaveFallbackUrls.current.length &&
+        (arweaveFallbackUrls.current[arweaveFallbackIndex.current] === failedSrc ||
+          attemptedFallbacks.current[`${arweaveFallbackUrls.current[arweaveFallbackIndex.current]}-ar`])
+      ) {
+        arweaveFallbackIndex.current += 1;
+      }
+
+      if (arweaveFallbackIndex.current < arweaveFallbackUrls.current.length) {
+        const nextUrl = arweaveFallbackUrls.current[arweaveFallbackIndex.current];
+        attemptedFallbacks.current[`${nextUrl}-ar`] = true;
+        arweaveFallbackIndex.current += 1;
+        setImgSrc(nextUrl);
+        setRetryCount(retryCount + 1);
+        setError(false);
+        setIsLoadingFallback(false);
+        return;
       }
     }
     
@@ -480,17 +500,6 @@ export const NFTImage: React.FC<NFTImageProps> = ({
         imgElement.src = fallbackSrc;
       }
     }, 0);
-    
-    // Disabled gateway cycling for now to ensure fallback image works reliably
-    /* 
-    // Try next IPFS gateway (disabled)
-    const nextGateway = getNextIPFSUrl(imgSrc, currentGatewayIndex);
-    if (nextGateway) {
-      setImgSrc(nextGateway.url);
-      setCurrentGatewayIndex(nextGateway.nextIndex);
-      setRetryCount(prev => prev + 1);
-    }
-    */
   };
 
   // SECURITY: Use proper URL validation for determining render method

@@ -8,6 +8,7 @@ import type { NFT } from '../../types/user';
 import { getNftCdnUrl, preloadNftMedia } from '../../utils/cdn';
 import { logger } from '../../utils/logger';
 import { triggerHaptic } from '../../utils/haptics';
+import { ipfsGatewayManager } from '../../utils/ipfsGatewayManager';
 import { PlaybackButton } from '../buttons/PlaybackButton';
 
 // Fix the MaximizedPlayerProps interface to include isAnimating
@@ -75,6 +76,15 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
   const [longPressTimer, setLongPressTimer] = useState<NodeJS.Timeout | null>(null);
   const progressBarRef = useRef<HTMLDivElement>(null);
   const [pipActive, setPipActive] = useState(false);
+  const [resolvedImageUrl, setResolvedImageUrl] = useState<string>('');
+
+  useEffect(() => {
+    if (nft?.image) {
+      ipfsGatewayManager.resolveIPFSUrl(nft.image).then(url => {
+        setResolvedImageUrl(url);
+      });
+    }
+  }, [nft]);
   
   // Auto-hide controls after inactivity
   useEffect(() => {
@@ -561,77 +571,12 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
                         // Build the base share URL without image
                         let shareUrlWithEmbeds = `https://warpcast.com/~/compose?text=${encodeURIComponent(shareText)}&embeds[]=${encodeURIComponent(shareUrl)}`;
                         
-                        // Get the NFT image URL for sharing
-                        let shareImage = nft.image || nft.metadata?.image || '';
-                        logger.debug('player', 'Original image URL:', shareImage);
-                        
-                        // Skip sharing image completely if it contains known problematic patterns
-                        const skipImagePatterns = [
-                          'dweb.link/COMPRESSED', 
-                          'ipfs.dweb.link/COMPRESSED',
-                          'bafybeie7mejoxle27ki56vxmzebb67kcrttu54stlin74xowaq5ugu3sdi',
-                          '.ipfs.dweb.link/COMPRESSED'
-                        ];
-                        
-                        const shouldSkipImage = skipImagePatterns.some(pattern => 
-                          shareImage.includes(pattern)
-                        );
-                        
-                        if (shouldSkipImage) {
-                          logger.debug('player', 'Skipping problematic image URL:', shareImage);
-                          // Use the share URL without any image embed
-                          try {
-                            const { sdk } = await import('@farcaster/miniapp-sdk');
-                            await sdk.actions.openUrl(shareUrlWithEmbeds);
-                          } catch (error) {
-                            console.error('Error opening URL:', error);
-                          }
-                          return;
-                        }
-                        
-                        // Only include the image if it exists and is likely to be valid
+                        let shareImage = resolvedImageUrl;
+                        logger.debug('player', 'Resolved image URL for sharing:', shareImage);
+
+                        // Only include the image if it exists
                         if (shareImage) {
-                          // Special handling for IPFS URLs
-                          if (shareImage.includes('ipfs') || 
-                              shareImage.includes('dweb.link') || 
-                              shareImage.startsWith('ipfs://')) {
-                            // Skip IPFS URLs completely as they often cause 422 errors
-                            logger.debug('player', 'Skipping IPFS URL for sharing:', shareImage);
-                            // Just use the base URL without image
-                          }
-                          // Special handling for Arweave URLs - use them directly without CDN transformation
-                          else if (shareImage.includes('arweave.net') || shareImage.startsWith('ar://')) {
-                            // If it's an ar:// URL, convert to https format
-                            if (shareImage.startsWith('ar://')) {
-                              const txId = shareImage.replace('ar://', '');
-                              shareImage = `https://arweave.net/${txId}`;
-                            }
-                            
-                            // For Arweave URLs, use them directly without CDN processing
-                            logger.debug('player', 'Using direct Arweave URL for sharing:', shareImage);
-                            
-                            // Only add the image URL if it's a valid Arweave URL (contains a transaction ID)
-                            if (shareImage.includes('arweave.net/') && shareImage.split('arweave.net/')[1]?.length > 10) {
-                              shareUrlWithEmbeds += `&embeds[]=${encodeURIComponent(shareImage)}`;
-                            }
-                          } else {
-                            // For non-Arweave URLs, process normally
-                            const processedUrl = processMediaUrl(shareImage, '', 'image');
-                            
-                            // Ensure the URL is absolute
-                            let finalUrl = processedUrl;
-                            if (!finalUrl.startsWith('http')) {
-                              finalUrl = `https://${finalUrl}`;
-                            }
-                            
-                            // Only add the image if it's likely to be a valid URL
-                            // and doesn't contain any problematic patterns
-                            if (finalUrl.startsWith('http') && finalUrl.length > 15 && 
-                                !skipImagePatterns.some(pattern => finalUrl.includes(pattern))) {
-                              logger.debug('player', 'Sharing NFT with processed image URL:', finalUrl);
-                              shareUrlWithEmbeds += `&embeds[]=${encodeURIComponent(finalUrl)}`;
-                            }
-                          }
+                          shareUrlWithEmbeds += `&embeds[]=${encodeURIComponent(shareImage)}`;
                         }
                         
                         // Use the imported SDK directly with the appropriate share URL
@@ -670,7 +615,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
                     {/* Special handling for GIF images */}
                     {(nft.name === 'ACYL RADIO - Hidden Tales' || nft.name === 'ACYL RADIO - WILL01' || nft.name === 'ACYL RADIO - Chili Sounds 🌶️') ? (
                       <img
-                        src={nft.image}
+                        src={resolvedImageUrl}
                         alt={nft.name}
                         className="w-auto h-auto object-contain rounded-lg max-h-[60vh]"
                         width={400}
@@ -684,7 +629,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
                       />
                     ) : (
                       <NFTImage
-                        src={nft.image || nft.metadata?.image || ''}
+                        src={resolvedImageUrl}
                         alt={nft.name}
                         className="w-auto h-auto object-contain rounded-lg max-h-[60vh]"
                         width={400}

@@ -1,15 +1,11 @@
-import React from 'react';
-// Change from:
-// import { useFarcasterContext } from '~/contexts/FarcasterContext';
-// To:
+'use client';
+
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useFarcasterContext } from '~/app/providers';
 import { NFT } from '~/types/nft';
 import { useNFTLikeState } from '~/hooks/useNFTLikeState';
-import { useNFTPlayCount } from '~/hooks/useNFTPlayCount';
-import { useNFTPreloader } from '~/hooks/useNFTPreloader';
-import { formatPlayCount } from '~/utils/format';
 import { useNFTLike } from '~/hooks/useNFTLike';
-import { toggleLikeNFT } from '~/lib/firebase';
+import { processMediaUrl, buildArweaveMediaFallbackUrls } from '~/utils/media';
 
 interface NFTCardProps {
   nft: NFT;
@@ -38,13 +34,11 @@ export const NFTCard: React.FC<NFTCardProps> = ({
   animationDelay = 0,
   smallCard
 }) => {
-  const { isFarcaster, fid } = useFarcasterContext();
+  const { fid } = useFarcasterContext();
   // Use userFid prop if available, otherwise fall back to context fid
   const effectiveFid = userFid ? parseInt(userFid) : fid;
   
   const { isLiked, likesCount, toggleLike } = useNFTLikeState(nft, effectiveFid);
-  // Remove useNFTPlayCount hook since we're not displaying play counts
-  const { getPreloadedImage } = useNFTPreloader([nft]);
 
   // Use the NFT like hook
   const { handleLike, handleUnlike } = useNFTLike({
@@ -60,6 +54,40 @@ export const NFTCard: React.FC<NFTCardProps> = ({
       }
     }
   });
+
+  const rawImageUrl = nft.image || nft.metadata?.image || '';
+  const primaryImageUrl = useMemo(
+    () => processMediaUrl(rawImageUrl, '/default-nft.png', 'image'),
+    [rawImageUrl]
+  );
+
+  const fallbackUrls = useRef<string[]>([]);
+  const fallbackIndex = useRef(0);
+  const [imageUrl, setImageUrl] = useState(primaryImageUrl);
+
+  // Reset when the NFT image source changes
+  useEffect(() => {
+    fallbackUrls.current = [];
+    fallbackIndex.current = 0;
+    setImageUrl(primaryImageUrl);
+  }, [primaryImageUrl]);
+
+  const handleImageError = () => {
+    if (fallbackUrls.current.length === 0 && rawImageUrl) {
+      fallbackUrls.current = buildArweaveMediaFallbackUrls(rawImageUrl).filter(
+        (url) => url !== primaryImageUrl
+      );
+      fallbackIndex.current = 0;
+    }
+
+    if (fallbackIndex.current < fallbackUrls.current.length) {
+      const nextUrl = fallbackUrls.current[fallbackIndex.current++];
+      setImageUrl(nextUrl);
+      return;
+    }
+
+    setImageUrl('/default-nft.png');
+  };
 
   const handlePlay = () => {
     if (onPlay) {
@@ -79,8 +107,6 @@ export const NFTCard: React.FC<NFTCardProps> = ({
       handleLike(nft);
     }
   };
-
-  const imageUrl = nft.image || nft.metadata?.image || '/default-nft.png';
 
   // Add animation styles - same as LibraryView
   const animationStyle = {
@@ -121,6 +147,7 @@ export const NFTCard: React.FC<NFTCardProps> = ({
             alt={nft.name}
             className="w-full h-full object-cover"
             loading="lazy"
+            onError={handleImageError}
           />
           
           {/* Change this condition to use effectiveFid */}

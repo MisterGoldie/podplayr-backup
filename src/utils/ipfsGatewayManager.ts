@@ -18,8 +18,8 @@ class IPFSGatewayManager {
     'https://cloudflare-ipfs.com/ipfs/',
     'https://ipfs.io/ipfs/',
     'https://gateway.pinata.cloud/ipfs/',
-    'https://dweb.link/ipfs/',
-    'https://ipfs.fleek.co/ipfs/',
+    'https://4everland.io/ipfs/',
+    'https://cf-ipfs.com/ipfs/',
     'https://gateway.ipfs.io/ipfs/'
   ];
 

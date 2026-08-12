@@ -129,41 +129,34 @@ export const processArweaveUrl = (url: string, mediaType: 'image' | 'audio' | 'm
       return url;
     }
 
-    // Special handling for audio files to preserve exact path structure
+    // Special handling for audio files — prefer /raw/{fileTxId} (works when path URLs 404)
     if (mediaType === 'audio' && url.startsWith('ar://') && url.includes('/')) {
-      const arPath = url.replace('ar://', '');
-      const segments = arPath.split('/');
-      const txId = segments[0];
-      const filePath = segments.slice(1).join('/');
-      
-      arLogger.debug(`Audio file with path structure: ${txId}/${filePath}`);
-      
-      // For audio files, preserve the exact path structure which is critical for playback
-      return `https://arweave.net/${txId}/${filePath}`;
+      const { fileTxId, manifestId, filePath } = parseArweaveMediaPath(url);
+      if (fileTxId) {
+        const rawUrl = toArweaveRawUrl(fileTxId);
+        arLogger.debug(`Audio file via raw gateway: ${rawUrl}`);
+        return rawUrl;
+      }
+      if (manifestId && filePath) {
+        return `${PRIMARY_ARWEAVE_GATEWAY}${manifestId}/${filePath}`;
+      }
     }
     
-    // PODs media special format: ar://<txid1>/<txid2>.mp3
-    // Example: ar://qILNpSrUH8TcX_-_zGDicXiaAYaqLDF6Xxu2WVz1Uek/ykXQJ6ujmaciYiWHitm_Q_vcWtw_ER8nLjt3FocR9eo.mp3
+    // PODs media special format: ar://<txid1>/<txid2>.ext
     const podsMediaPattern = /^ar:\/\/([a-zA-Z0-9_-]+)\/([a-zA-Z0-9_-]+)(\.[a-zA-Z0-9]+)?$/;
     const podsMatch = url.match(podsMediaPattern);
     
-    if (podsMatch && mediaType !== 'audio') {
-      // Handle PODs media format (for non-audio files)
-      const firstTxId = podsMatch[1];
+    if (podsMatch) {
       const secondTxId = podsMatch[2];
-      const extension = podsMatch[3] || '';
-      
-      arLogger.debug(`Detected PODs media format: ${firstTxId}/${secondTxId}${extension}`);
-      
-      // Use the second transaction ID as the main ID
-      return `https://arweave.net/${secondTxId}${extension}`;
+      arLogger.debug(`Detected PODs media format, using raw file tx: ${secondTxId}`);
+      return toArweaveRawUrl(secondTxId);
     }
     
     // Simple ar:// format
     if (!url.includes('/')) {
       const txId = url.replace('ar://', '');
       arLogger.debug(`Simple Arweave URL detected: ${txId}`);
-      return `https://arweave.net/${txId}`;
+      return toArweaveRawUrl(txId);
     }
     
     // Parse the URL to extract components
@@ -172,20 +165,17 @@ export const processArweaveUrl = (url: string, mediaType: 'image' | 'audio' | 'm
     
     // If there's only one segment, use it directly
     if (segments.length === 1) {
-      const cleanId = segments[0].split('?')[0].split('#')[0];
+      const cleanId = segments[0].split('?')[0].split('#')[0].replace(MEDIA_EXT_RE, '');
       arLogger.debug(`Single segment Arweave URL: ${cleanId}`);
-      return `https://arweave.net/${cleanId}`;
+      return toArweaveRawUrl(cleanId);
     }
     
     // For multi-segment paths, use the last segment as the transaction ID
     const lastSegment = segments[segments.length - 1];
+    const cleanId = lastSegment.split('?')[0].split('#')[0].replace(MEDIA_EXT_RE, '');
     
-    // Clean the ID by removing query parameters and hash fragments
-    // But keep file extensions for media files
-    const cleanId = lastSegment.split('?')[0].split('#')[0];
-    
-    arLogger.debug(`Multi-segment Arweave URL, using last segment: ${cleanId}`);
-    return `https://arweave.net/${cleanId}`;
+    arLogger.debug(`Multi-segment Arweave URL, using last segment raw: ${cleanId}`);
+    return toArweaveRawUrl(cleanId);
   } catch (error) {
     // If there was an error processing the URL, log it and return the original
     arLogger.error('Error processing Arweave URL:', {
@@ -196,13 +186,125 @@ export const processArweaveUrl = (url: string, mediaType: 'image' | 'audio' | 'm
   }
 };
 
-// List of alternative Arweave gateways to try for audio files
+// Prefer gateways that actually serve PODs / large media (arweave.net often 404s these)
+export const PRIMARY_ARWEAVE_GATEWAY = 'https://turbo-gateway.com/';
+
 export const ARWEAVE_AUDIO_GATEWAYS = [
+  'https://turbo-gateway.com/',
+  'https://permagate.io/',
   'https://arweave.net/',
-  'https://arweave.dev/',
-  'https://gateway.arweave.net/',
-  'https://arweave.crustapps.net/'
+  'https://gateway.irys.xyz/',
+  'https://ar-io.dev/',
+  'https://g8way.io/',
 ];
+
+export const ARWEAVE_GATEWAYS = [
+  'https://turbo-gateway.com/',
+  'https://permagate.io/',
+  'https://arweave.net/',
+  'https://ar-io.dev/',
+  'https://g8way.io/',
+];
+
+const ARWEAVE_TX_ID_RE = /^[a-zA-Z0-9_-]{43}$/;
+const MEDIA_EXT_RE = /\.(mp3|wav|ogg|m4a|flac|aac|gif|png|jpe?g|webp|mp4|webm|mov)$/i;
+
+/** Parse ar:// or https gateway URLs into manifest + file tx parts (PODs-style). */
+export const parseArweaveMediaPath = (url: string): {
+  manifestId?: string;
+  fileTxId?: string;
+  filePath?: string;
+} => {
+  if (!url || typeof url !== 'string') return {};
+
+  let path = url;
+  if (path.startsWith('ar://')) {
+    path = path.slice(5);
+  } else {
+    try {
+      path = new URL(path).pathname.replace(/^\/+/, '');
+      // Strip /raw/ prefix if present
+      if (path.startsWith('raw/')) path = path.slice(4);
+    } catch {
+      return {};
+    }
+  }
+
+  const segments = path.split('/').filter(Boolean);
+  if (segments.length === 0) return {};
+
+  if (segments.length === 1) {
+    const fileTxId = segments[0].replace(MEDIA_EXT_RE, '');
+    return ARWEAVE_TX_ID_RE.test(fileTxId) ? { fileTxId } : {};
+  }
+
+  const manifestId = segments[0];
+  const filePath = segments.slice(1).join('/');
+  const fileTxId = filePath.replace(MEDIA_EXT_RE, '');
+
+  return {
+    manifestId: ARWEAVE_TX_ID_RE.test(manifestId) ? manifestId : undefined,
+    filePath,
+    fileTxId: ARWEAVE_TX_ID_RE.test(fileTxId) ? fileTxId : undefined,
+  };
+};
+
+/** Prefer /raw/{txId} — works when path manifests 404 on arweave.net. */
+export const toArweaveRawUrl = (txId: string, gateway: string = PRIMARY_ARWEAVE_GATEWAY): string => {
+  const base = gateway.endsWith('/') ? gateway : `${gateway}/`;
+  return `${base}raw/${txId}`;
+};
+
+/** Build ordered Arweave URLs across gateways (raw file tx first, then path, then direct). */
+export const buildArweaveAudioFallbackUrls = (rawUrl: string): string[] => {
+  return buildArweaveMediaFallbackUrls(rawUrl);
+};
+
+export const buildArweaveMediaFallbackUrls = (rawUrl: string): string[] => {
+  if (!rawUrl || typeof rawUrl !== 'string') return [];
+
+  const urls: string[] = [];
+  const seen = new Set<string>();
+  const push = (url: string) => {
+    if (!url || seen.has(url)) return;
+    seen.add(url);
+    urls.push(url);
+  };
+
+  const { manifestId, fileTxId, filePath } = parseArweaveMediaPath(rawUrl);
+  const gateways = ARWEAVE_AUDIO_GATEWAYS;
+
+  // 1. /raw/{fileTxId} on preferred gateways (confirmed working for PODs media)
+  if (fileTxId) {
+    for (const gateway of gateways) {
+      push(toArweaveRawUrl(fileTxId, gateway));
+    }
+    for (const gateway of gateways) {
+      push(`${gateway}${fileTxId}`);
+    }
+  }
+
+  // 2. Full manifest path (PODs-style)
+  if (manifestId && filePath) {
+    for (const gateway of gateways) {
+      push(`${gateway}${manifestId}/${filePath}`);
+    }
+  }
+
+  // 3. Manifest alone / original https remap
+  if (manifestId && manifestId !== fileTxId) {
+    for (const gateway of gateways) {
+      push(toArweaveRawUrl(manifestId, gateway));
+      push(`${gateway}${manifestId}`);
+    }
+  }
+
+  if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) {
+    push(rawUrl);
+  }
+
+  return urls;
+};
 
 // Function to process media URLs to ensure they're properly formatted
 export const processMediaUrl = (url: string, fallbackUrl: string = '/default-nft.png', mediaType: 'image' | 'audio' | 'metadata' = 'image'): string => {
@@ -306,53 +408,32 @@ export const processMediaUrl = (url: string, fallbackUrl: string = '/default-nft
 
   // Handle Arweave URLs directly within processMediaUrl for consistency
   if (url.startsWith('ar://')) {
-    // Extract the transaction ID, removing the ar:// prefix
-    let txId = url.replace('ar://', '');
-    
-    // Log the processing details
     console.log(`[processMediaUrl] Processing Arweave URL: ${url}, mediaType: ${mediaType}`);
-    
-    // Special handling for PODs audio URLs - we need to preserve the full path for audio files
-    if (mediaType === 'audio' && txId.includes('/')) {
-      // Format: ar://TRANSACTION_ID/PATH/TO/FILE.ext
-      const segments = txId.split('/');
-      const arTxId = segments[0]; // First segment is the transaction ID
-      const filePath = segments.slice(1).join('/');
-      
-      // For audio files, use the full path which is required for PODs audio
-      const fullPathUrl = `https://arweave.net/${arTxId}/${filePath}`;
-      console.log(`[processMediaUrl] Using full path URL for audio: ${fullPathUrl}`);
-      
-      // Process through our CDN if available
-      if (CDN_CONFIG.baseUrl) {
-        return getCdnUrl(fullPathUrl, mediaType);
-      }
-      return fullPathUrl;
-    }
-    // Handle PODs-style URLs with multiple segments (for non-audio or as fallback)
-    else if (txId.includes('/')) {
-      // Format: ar://TRANSACTION_ID/PATH/TO/FILE.ext
-      const segments = txId.split('/');
-      txId = segments[0]; // First segment is the transaction ID
-      
-      // Reconstruct the path
-      const path = segments.slice(1).join('/');
-      const arweaveUrl = `https://arweave.net/${txId}/${path}`;
-      
-      console.log(`[processMediaUrl] Converted PODs-style URL: ${arweaveUrl}`);
-      
-      // Process through our CDN if available
+
+    const { fileTxId, manifestId, filePath } = parseArweaveMediaPath(url);
+
+    // Prefer /raw/{fileTxId} — turbo/permagate serve PODs media that arweave.net 404s
+    if (fileTxId) {
+      const arweaveUrl = toArweaveRawUrl(fileTxId);
+      console.log(`[processMediaUrl] Using raw file tx URL: ${arweaveUrl}`);
       if (CDN_CONFIG.baseUrl) {
         return getCdnUrl(arweaveUrl, mediaType);
       }
       return arweaveUrl;
     }
-    
-    // Simple ar://TRANSACTION_ID format
-    const arweaveUrl = `https://arweave.net/${txId}`;
+
+    if (manifestId && filePath) {
+      const arweaveUrl = `${PRIMARY_ARWEAVE_GATEWAY}${manifestId}/${filePath}`;
+      console.log(`[processMediaUrl] Using path URL: ${arweaveUrl}`);
+      if (CDN_CONFIG.baseUrl) {
+        return getCdnUrl(arweaveUrl, mediaType);
+      }
+      return arweaveUrl;
+    }
+
+    const txId = url.replace('ar://', '').split('/')[0];
+    const arweaveUrl = toArweaveRawUrl(txId);
     console.log(`[processMediaUrl] Converted simple Arweave URL: ${arweaveUrl}`);
-    
-    // Process through our CDN if available
     if (CDN_CONFIG.baseUrl) {
       return getCdnUrl(arweaveUrl, mediaType);
     }
@@ -505,10 +586,3 @@ export const isPlaybackActive = (): boolean => {
   
   return false;
 };
-
-// Add after processArweaveUrl function
-export const ARWEAVE_GATEWAYS = [
-  'https://arweave.net/',
-  'https://ar-io.net/',
-  'https://g8way.io/',
-];
