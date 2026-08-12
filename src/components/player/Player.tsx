@@ -60,48 +60,61 @@ export const Player: React.FC<PlayerProps> = ({
   const handleMinimizeToggle = () => {
     onMinimizeToggle();
   };
-  
-  // Only render one player component at a time to prevent conflicts
-  if (isMinimized) {
-    return (
-      <MinimizedPlayer
-        nft={nft}
-        isPlaying={isPlaying}
-        onPlayPause={onPlayPause}
-        onNext={onNext}  // Use the prop directly
-        onPrevious={onPrevious}  // Use the prop directly
-        onMinimizeToggle={handleMinimizeToggle}
-        progress={progress}
-        duration={duration}
-        onSeek={onSeek}
-        onLikeToggle={onLikeToggle}
-        isLiked={isLiked}
-        onPictureInPicture={onPictureInPicture}
-        lastPosition={progress}
-        isMinimized={isMinimized}
-        isAnimating={false}
-        userFid={typeof userFid === 'number' ? userFid : undefined}
-      />
-    );
-  }
-  
+
+  // MaximizedPlayer owns the <video> element. Once the user opens it for the
+  // first time, keep it mounted (just hidden via CSS) instead of unmounting
+  // on every minimize — unmounting destroys the <video> node and forces a
+  // full refetch the next time it's maximized, which is what caused the
+  // multi-second reload delay. Before the first maximize we skip mounting it
+  // entirely so audio-only listening doesn't pay for video downloads.
+  const [hasMaximizedOnce, setHasMaximizedOnce] = useState(!isMinimized);
+  useEffect(() => {
+    if (!isMinimized) setHasMaximizedOnce(true);
+  }, [isMinimized]);
+
   return (
-    <MaximizedPlayer
-      nft={nft}
-      isMinimized={isMinimized}
-      isAnimating={false}
-      isPlaying={isPlaying}
-      onPlayPause={onPlayPause}
-      onNext={onNext}  // Use the prop directly
-      onPrevious={onPrevious}  // Use the prop directly
-      onMinimizeToggle={handleMinimizeToggle}
-      progress={progress}
-      duration={duration}
-      onSeek={onSeek}
-      onLikeToggle={onLikeToggle}
-      isLiked={isLiked}
-      onPictureInPicture={onPictureInPicture}
-      lastPosition={progress}
-    />
+    <>
+      {hasMaximizedOnce && (
+        <div className={isMinimized ? 'hidden' : ''}>
+          <MaximizedPlayer
+            nft={nft}
+            isMinimized={isMinimized}
+            isAnimating={false}
+            isPlaying={isPlaying}
+            onPlayPause={onPlayPause}
+            onNext={onNext}  // Use the prop directly
+            onPrevious={onPrevious}  // Use the prop directly
+            onMinimizeToggle={handleMinimizeToggle}
+            progress={progress}
+            duration={duration}
+            onSeek={onSeek}
+            onLikeToggle={onLikeToggle}
+            isLiked={isLiked}
+            onPictureInPicture={onPictureInPicture}
+            lastPosition={progress}
+          />
+        </div>
+      )}
+      {isMinimized && (
+        <MinimizedPlayer
+          nft={nft}
+          isPlaying={isPlaying}
+          onPlayPause={onPlayPause}
+          onNext={onNext}  // Use the prop directly
+          onPrevious={onPrevious}  // Use the prop directly
+          onMinimizeToggle={handleMinimizeToggle}
+          progress={progress}
+          duration={duration}
+          onSeek={onSeek}
+          onLikeToggle={onLikeToggle}
+          isLiked={isLiked}
+          onPictureInPicture={onPictureInPicture}
+          lastPosition={progress}
+          isMinimized={isMinimized}
+          isAnimating={false}
+          userFid={typeof userFid === 'number' ? userFid : undefined}
+        />
+      )}
+    </>
   );
 };
