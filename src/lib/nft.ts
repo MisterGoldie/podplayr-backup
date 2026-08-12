@@ -1,5 +1,12 @@
 import type { NFT } from '../types/user';
 import { Alchemy, Network } from 'alchemy-sdk';
+import { processMediaUrl, getMediaKey } from '../utils/media';
+import {
+  hasPlayableAudio,
+  hasPlayableVideo,
+  isPlayableMediaNFT,
+  pickRawMediaUrl,
+} from '../utils/isMediaNFT';
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -62,76 +69,52 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
       throw lastError || new Error('Failed to fetch metadata with any tokenId format');
     }
 
-    // Process media URLs
-    const audioUrl = processMediaUrl(
-      metadata.raw.metadata?.animation_url ||
-      metadata.raw.metadata?.audio ||
-      metadata.raw.metadata?.audio_url ||
-      metadata.raw.metadata?.properties?.audio ||
-      metadata.raw.metadata?.properties?.audio_url ||
-      metadata.raw.metadata?.properties?.audio_file ||
-      metadata.raw.metadata?.properties?.soundContent?.url
-    );
-
-    // Around line 70-80, update the imageUrl processing:
+    const rawMeta = metadata.raw.metadata || {};
+    const audioUrl = processMediaUrl(pickRawMediaUrl(rawMeta), '', 'audio');
     const imageUrl = processMediaUrl(
-      metadata.raw.metadata?.image ||
-      metadata.raw.metadata?.image_url ||
-      metadata.raw.metadata?.properties?.image ||
-      metadata.raw.metadata?.properties?.visual?.url ||
-      metadata.contract?.openSeaMetadata?.imageUrl  // ADD THIS LINE!
+      rawMeta.image ||
+      rawMeta.image_url ||
+      rawMeta.properties?.image ||
+      rawMeta.properties?.visual?.url ||
+      metadata.contract?.openSeaMetadata?.imageUrl ||
+      '',
+      '',
+      'image'
     );
 
     // Ensure contract address is lowercase
     const contractAddress = metadata.contract.address.toLowerCase();
     const formattedTokenId = metadata.tokenId.toString().replace(/^0x/, '');
 
-    return {
+    const nft: NFT = {
       contract: contractAddress,
       tokenId: formattedTokenId,
-      name: metadata.raw.metadata?.name || `NFT #${formattedTokenId}`,
-      description: metadata.description || metadata.raw.metadata?.description || '',
+      name: rawMeta.name || `NFT #${formattedTokenId}`,
+      description: metadata.description || rawMeta.description || '',
       image: imageUrl || '',
       audio: audioUrl || '',
-      hasValidAudio: !!audioUrl,
+      hasValidAudio: hasPlayableAudio({ audio: audioUrl, metadata: rawMeta }),
+      isVideo: hasPlayableVideo({ audio: audioUrl, animationUrl: audioUrl, metadata: rawMeta }),
       collection: {
         name: metadata.contract?.name || '',
         image: metadata.contract?.openSeaMetadata?.imageUrl || ''
       },
       metadata: {
-        ...metadata.raw.metadata,
+        ...rawMeta,
         image: imageUrl || '',
-        animation_url: audioUrl || ''
+        animation_url: rawMeta.animation_url || audioUrl || ''
       }
     };
+
+    if (nft.hasValidAudio) {
+      nft.mediaKey = getMediaKey(nft);
+    }
+
+    return nft;
   } catch (error) {
     console.error('Error fetching NFT metadata:', error);
     throw error;
   }
-};
-
-const processMediaUrl = (url: string | undefined): string => {
-  if (!url) return '';
-
-  // Handle IPFS URLs
-  if (url.startsWith('ipfs://')) {
-    const hash = url.slice(7); // Remove 'ipfs://'
-    // Remove any leading 'ipfs/' from the hash to prevent duplication
-    const cleanHash = hash.replace(/^ipfs\//g, '');
-    return `https://nftstorage.link/ipfs/${cleanHash}`;
-  }
-
-  // Handle Arweave URLs
-  if (url.startsWith('ar://')) {
-    return `https://arweave.net/${url.slice(5)}`;
-  }
-
-  // Handle direct Arweave hashes
-  if (url.match(/^[a-zA-Z0-9_-]{43}$/)) {
-    return `https://arweave.net/${url}`;
-  }
-
-  return url;
 };
 
 export const fetchUserNFTsFromAlchemy = async (address: string): Promise<NFT[]> => {
@@ -170,7 +153,6 @@ export const fetchUserNFTsFromAlchemy = async (address: string): Promise<NFT[]> 
       baseResponse.json()
     ]);
 
-    // Log raw data from both networks
     console.log('📦 ETH Network NFTs:', {
       count: ethData.ownedNfts?.length || 0,
       sampleNFT: ethData.ownedNfts?.[0]?.contract?.address
@@ -180,11 +162,9 @@ export const fetchUserNFTsFromAlchemy = async (address: string): Promise<NFT[]> 
       sampleNFT: baseData.ownedNfts?.[0]?.contract?.address
     });
 
-    const data = {
-      ownedNfts: [...(ethData.ownedNfts || []), ...(baseData.ownedNfts || [])]
-    };
+    const ownedNfts = [...(ethData.ownedNfts || []), ...(baseData.ownedNfts || [])];
     console.log(`✨ Combined NFTs for ${address}:`, {
-      total: data.ownedNfts?.length || 0,
+      total: ownedNfts.length,
       fromEth: ethData.ownedNfts?.length || 0,
       fromBase: baseData.ownedNfts?.length || 0
     });
@@ -221,6 +201,8 @@ export const fetchUserNFTsFromAlchemy = async (address: string): Promise<NFT[]> 
           soundContent?: { url?: string };
           mimeType?: string;
           files?: any[];
+          video?: string;
+          animation_url?: string;
         };
         content?: {
           mime?: string;
@@ -228,144 +210,76 @@ export const fetchUserNFTsFromAlchemy = async (address: string): Promise<NFT[]> 
       };
     }
 
-    // Process NFTs to identify audio content
-    const processedNFTs = (data.ownedNfts || [] as AlchemyNFT[])
-      .map((nft: AlchemyNFT) => {
-        const audioUrl = processMediaUrl(
-          nft.metadata?.animation_url ||
-          nft.metadata?.audio ||
-          nft.metadata?.audio_url ||
-          nft.metadata?.properties?.audio ||
-          nft.metadata?.properties?.audio_url ||
-          nft.metadata?.properties?.audio_file ||
-          nft.metadata?.properties?.soundContent?.url
-        );
-
+    const processedNFTs = (ownedNfts as AlchemyNFT[])
+      .map((nft) => {
+        const meta = nft.metadata || {};
+        const rawMediaUrl = pickRawMediaUrl(meta);
+        const audioUrl = processMediaUrl(rawMediaUrl, '', 'audio');
         const imageUrl = processMediaUrl(
-          nft.metadata?.image ||
-          nft.metadata?.image_url ||
-          nft.metadata?.properties?.image ||
-          nft.metadata?.properties?.visual?.url
+          meta.image ||
+          meta.image_url ||
+          meta.properties?.image ||
+          meta.properties?.visual?.url ||
+          '',
+          '',
+          'image'
         );
 
-        // Check if it's a video/animation based on MIME type or file extension
-        const mimeType = nft.metadata?.mimeType || 
-                        nft.metadata?.mime_type || 
-                        nft.metadata?.properties?.mimeType ||
-                        nft.metadata?.content?.mime;
-
-        const isVideo = audioUrl && (
-          mimeType?.startsWith('video/') ||
-          /\.(mp4|webm|mov|m4v)$/i.test(audioUrl)
-        );
-
-        const isAnimation = audioUrl && (
-          mimeType?.startsWith('model/') ||
-          /\.(glb|gltf)$/i.test(audioUrl)
-        );
-
-        // Ensure tokenId is a string and properly formatted
         const tokenId = nft.id?.tokenId?.toString()?.replace(/^0x/, '');
         if (!tokenId) {
           console.warn('Missing tokenId for NFT:', nft);
           return null;
         }
-        if (!tokenId) {
-          console.warn('Missing tokenId for NFT:', nft);
-          return null;
-        }
-        
-        // Log NFT details for debugging
-        console.log('Processing NFT:', {
-          contract: nft.contract.address,
-          tokenId,
-          name: nft.metadata?.name,
-          audioUrl,
-          imageUrl
-        });
+
+        const candidate = {
+          audio: audioUrl,
+          animationUrl: audioUrl,
+          metadata: {
+            ...meta,
+            animation_url: meta.animation_url || rawMediaUrl || '',
+          },
+        };
+
+        const hasAudio = hasPlayableAudio(candidate);
+        const isVideo = hasPlayableVideo(candidate);
 
         const processedNFT: NFT = {
           contract: nft.contract.address.toLowerCase(),
-          tokenId: tokenId,
-          name: nft.metadata?.name || `NFT #${tokenId}`,
-          description: nft.metadata?.description || '',
+          tokenId,
+          name: meta.name || `NFT #${tokenId}`,
+          description: meta.description || '',
           image: imageUrl || '',
           animationUrl: audioUrl || '',
-          audio: audioUrl || '',
-          hasValidAudio: !!audioUrl,
+          audio: hasAudio ? (audioUrl || '') : '',
+          hasValidAudio: hasAudio,
           isVideo,
-          isAnimation,
+          isAnimation: false,
           collection: {
             image: nft.contract.openSea?.imageUrl,
             name: nft.contract.name || ''
           },
-          metadata: nft.metadata
-        } as NFT;
+          metadata: {
+            ...meta,
+            image: imageUrl || '',
+            animation_url: meta.animation_url || rawMediaUrl || '',
+          }
+        };
+
+        if (hasAudio) {
+          processedNFT.mediaKey = getMediaKey(processedNFT);
+        }
+
         return processedNFT;
       })
-      .filter((nft: NFT | null): nft is NFT => {
-        if (!nft) return false;
-        
-        // Check for any type of media content
-        const hasAudio = Boolean(nft.hasValidAudio || nft.audio);
-        const hasVideo = Boolean(nft.isVideo);
-        const hasAnimation = Boolean(nft.isAnimation);
-        
-        // Also check metadata for media URLs
-        const hasMediaUrl = Boolean(
-          nft.metadata?.animation_url &&
-          (nft.metadata.animation_url.toLowerCase().includes('.mp3') ||
-           nft.metadata.animation_url.toLowerCase().includes('.wav') ||
-           nft.metadata.animation_url.toLowerCase().includes('.m4a') ||
-           nft.metadata.animation_url.toLowerCase().includes('.mp4') ||
-           nft.metadata.animation_url.toLowerCase().includes('.webm') ||
-           nft.metadata.animation_url.toLowerCase().includes('.mov') ||
-           nft.metadata.animation_url.toLowerCase().includes('audio/') ||
-           nft.metadata.animation_url.toLowerCase().includes('video/'))
-        );
-        
-        // Check properties.files for media
-        const hasMediaInProperties = nft.metadata?.properties?.files?.some((file: any) => {
-          if (!file) return false;
-          const fileUrl = (file.uri || file.url || '').toLowerCase();
-          const fileType = (file.type || file.mimeType || '').toLowerCase();
-          
-          return fileUrl.endsWith('.mp3') || 
-                 fileUrl.endsWith('.wav') || 
-                 fileUrl.endsWith('.m4a') ||
-                 fileUrl.endsWith('.mp4') || 
-                 fileUrl.endsWith('.webm') || 
-                 fileUrl.endsWith('.mov') ||
-                 fileType.includes('audio/') ||
-                 fileType.includes('video/');
-        }) ?? false;
-        
-        const hasMedia = hasAudio || hasVideo || hasAnimation || hasMediaUrl || hasMediaInProperties;
-        
-        console.log('Filtering NFT:', {
-          contract: nft.contract,
-          tokenId: nft.tokenId,
-          hasAudio,
-          hasVideo,
-          hasAnimation,
-          hasMediaUrl,
-          hasMediaInProperties,
-          hasMedia
-        });
-        
-        return hasMedia;
-      });
+      .filter((nft): nft is NFT => !!nft && isPlayableMediaNFT(nft));
 
-    return processedNFTs.map((nft: NFT) => ({
+    return processedNFTs.map((nft) => ({
       ...nft,
-      // Ensure contract and tokenId are properly formatted
       contract: nft.contract.toLowerCase(),
       tokenId: nft.tokenId.toString().replace(/^0x/, ''),
-      // Ensure all required fields have values
       image: nft.image || '',
-      animationUrl: nft.audio || '',
+      animationUrl: nft.audio || nft.animationUrl || '',
       audio: nft.audio || '',
-      hasValidAudio: true as const
     }));
   } catch (error) {
     console.error(`Error fetching NFTs for address ${address}:`, error);

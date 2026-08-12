@@ -5,9 +5,10 @@ import { fetchNFTDetails } from '../../../lib/firebase';
 
 // Server-safe media URL processing functions (extracted from media.ts)
 const IPFS_GATEWAYS = [
+  'https://gateway.pinata.cloud/ipfs/',
+  'https://dweb.link/ipfs/',
+  'https://nftstorage.link/ipfs/',
   'https://ipfs.io/ipfs/',
-  'https://cloudflare-ipfs.com/ipfs/',
-  'https://gateway.pinata.cloud/ipfs/'
 ];
 
 const extractIPFSHash = (url: string): string | null => {

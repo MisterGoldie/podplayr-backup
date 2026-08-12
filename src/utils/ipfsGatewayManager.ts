@@ -13,14 +13,14 @@ class IPFSGatewayManager {
   private readonly maxFailures = 3;
   private readonly timeout = 5000; // 5 seconds timeout
 
-  // Primary gateways first, fallbacks after
+  // Prefer pinata/dweb — cloudflare-ipfs.com DNS is dead; ipfs.io often 504s
   private gateways = [
-    'https://cloudflare-ipfs.com/ipfs/',
-    'https://ipfs.io/ipfs/',
     'https://gateway.pinata.cloud/ipfs/',
-    'https://4everland.io/ipfs/',
-    'https://cf-ipfs.com/ipfs/',
-    'https://gateway.ipfs.io/ipfs/'
+    'https://dweb.link/ipfs/',
+    'https://nftstorage.link/ipfs/',
+    'https://ipfs.io/ipfs/',
+    'https://w3s.link/ipfs/',
+    'https://gateway.ipfs.io/ipfs/',
   ];
 
   private constructor() {
@@ -48,6 +48,7 @@ class IPFSGatewayManager {
   }
 
   private startPeriodicCheck() {
+    if (typeof window === 'undefined') return;
     setInterval(() => {
       this.checkGateways();
     }, this.checkInterval);
@@ -58,14 +59,14 @@ class IPFSGatewayManager {
       const start = Date.now();
       const response = await Promise.race([
         fetch(gateway + 'QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG/readme'),
-        new Promise<Response>((_, reject) => 
+        new Promise<Response>((_, reject) =>
           setTimeout(() => reject(new Error('Timeout')), this.timeout)
         )
       ]);
 
       const responseTime = Date.now() - start;
       const status = this.gatewayStatuses.get(gateway);
-      
+
       if ((response as Response).ok && status) {
         status.isWorking = true;
         status.failureCount = 0;
@@ -74,7 +75,7 @@ class IPFSGatewayManager {
         this.gatewayStatuses.set(gateway, status);
         return true;
       }
-    } catch (error) {
+    } catch {
       const status = this.gatewayStatuses.get(gateway);
       if (status) {
         status.failureCount++;
@@ -92,24 +93,34 @@ class IPFSGatewayManager {
     }
   }
 
-  public async getWorkingGateway(hash: string): Promise<string> {
-    // Try to get a gateway that we know is working
+  private extractPath(url: string): string | null {
+    if (!url) return null;
+    if (url.startsWith('ipfs://')) {
+      return url.replace(/^ipfs:\/\//, '').replace(/^\/+/, '') || null;
+    }
+    const match = url.match(/\/ipfs\/(.+)$/i);
+    if (match?.[1]) return decodeURIComponent(match[1]);
+    if (/^(Qm[1-9A-HJ-NP-Za-km-z]{44}|bafy[a-zA-Z0-9]+)(\/.*)?$/i.test(url)) {
+      return url;
+    }
+    return null;
+  }
+
+  public async getWorkingGateway(path: string): Promise<string> {
     const workingGateways = this.gateways.filter(gateway => {
       const status = this.gatewayStatuses.get(gateway);
       return status?.isWorking;
     });
 
-    // If we have working gateways, use the one with best response time
     if (workingGateways.length > 0) {
       workingGateways.sort((a, b) => {
         const statusA = this.gatewayStatuses.get(a);
         const statusB = this.gatewayStatuses.get(b);
         return (statusA?.avgResponseTime || Infinity) - (statusB?.avgResponseTime || Infinity);
       });
-      return workingGateways[0] + hash;
+      return workingGateways[0] + path;
     }
 
-    // If all gateways are marked as not working, reset their status and try again
     this.gateways.forEach(gateway => {
       const status = this.gatewayStatuses.get(gateway);
       if (status) {
@@ -119,22 +130,17 @@ class IPFSGatewayManager {
       }
     });
 
-    // Return the first gateway as a last resort
-    return this.gateways[0] + hash;
+    return this.gateways[0] + path;
   }
 
   public async resolveIPFSUrl(url: string): Promise<string> {
     try {
-      // Extract IPFS hash from URL
-      const hash = url.match(/ipfs\/([^/]+)/)?.[1];
-      if (!hash) return url; // Not an IPFS URL
-
-      // Get working gateway
-      const resolvedUrl = await this.getWorkingGateway(hash);
-      return resolvedUrl;
+      const path = this.extractPath(url);
+      if (!path) return url;
+      return await this.getWorkingGateway(path);
     } catch (error) {
       console.warn('Failed to resolve IPFS URL:', error);
-      return url; // Return original URL as fallback
+      return url;
     }
   }
 }

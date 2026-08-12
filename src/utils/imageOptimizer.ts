@@ -135,10 +135,14 @@ export function getOptimizedImageUrl(url: string, options: {
     isMobile = false
   } = options;
 
-  // For IPFS URLs: Use an IPFS gateway that supports image optimization
-  if (typeof url === 'string' && url.startsWith('ipfs://')) {
-    const ipfsHash = url.replace('ipfs://', '');
-    return `https://cloudflare-ipfs.com/ipfs/${ipfsHash}?img-width=${width}&img-height=${height}&img-format=${format}&img-quality=${quality}`;
+  // For IPFS URLs: use a working gateway (cloudflare-ipfs.com DNS is dead)
+  if (typeof url === 'string' && (url.startsWith('ipfs://') || url.includes('/ipfs/'))) {
+    const path = url.startsWith('ipfs://')
+      ? url.replace(/^ipfs:\/\//, '')
+      : (url.match(/\/ipfs\/(.+)$/i)?.[1] ?? '');
+    if (path) {
+      return `https://gateway.pinata.cloud/ipfs/${path}`;
+    }
   }
   
   // For Arweave URLs

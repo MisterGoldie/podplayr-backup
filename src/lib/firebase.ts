@@ -28,8 +28,9 @@ import {
 } from 'firebase/firestore';
 import type { FarcasterUser, SearchedUser, NFTPlayData, FollowedUser } from '../types/user';
 import type { NFT } from '../types/nft';
-import { fetchUserNFTsFromAlchemy } from './alchemy';
+import { fetchUserNFTsFromAlchemy } from './nft';
 import { getMediaKey } from '~/utils/media';
+import { isPlayableMediaNFT } from '../utils/isMediaNFT';
 import { logger } from '../utils/logger';
 import { v4 as uuidv4 } from 'uuid';
 import { isENSUser } from '../utils/ensUtils';
@@ -1769,15 +1770,8 @@ export const fetchUserNFTs = async (fid: number): Promise<NFT[]> => {
         firebaseLogger.info('=== ENS NFT FETCH COMPLETE ===');
         firebaseLogger.info(`Total NFTs found for ENS user ${ensName} (${fid}): ${processedNFTs.length} NFTs`);
         
-        // Process NFTs for media content
-        const mediaNFTs = processedNFTs.filter((nft: NFT) => {
-          const hasAudio = nft.audio || (nft.metadata?.animation_url && (
-            nft.metadata.animation_url.includes('.mp3') || 
-            nft.metadata.animation_url.includes('.wav') ||
-            nft.metadata.animation_url.includes('audio')
-          ));
-          return hasAudio;
-        });
+        // Process NFTs for media content (logging only; nft.ts already filtered)
+        const mediaNFTs = processedNFTs.filter((nft: NFT) => isPlayableMediaNFT(nft));
         
         firebaseLogger.info(`Found ${mediaNFTs.length} media NFTs out of ${processedNFTs.length} total NFTs for ENS ${ensName} (${address})`);
         
@@ -1928,15 +1922,8 @@ export const fetchUserNFTs = async (fid: number): Promise<NFT[]> => {
     firebaseLogger.info('=== NFT FETCH COMPLETE ===');
     firebaseLogger.info('Total unique NFTs found:', uniqueNFTs.length);
     
-    // Process NFTs for media content
-    const mediaNFTs = uniqueNFTs.filter((nft: NFT) => {
-      const hasAudio = nft.audio || (nft.metadata?.animation_url && (
-        nft.metadata.animation_url.includes('.mp3') || 
-        nft.metadata.animation_url.includes('.wav') ||
-        nft.metadata.animation_url.includes('audio')
-      ));
-      return hasAudio;
-    });
+    // Process NFTs for media content (logging only; nft.ts already filtered)
+    const mediaNFTs = uniqueNFTs.filter((nft: NFT) => isPlayableMediaNFT(nft));
     
     firebaseLogger.info(`Found ${mediaNFTs.length} media NFTs out of ${uniqueNFTs.length} total NFTs`);
     

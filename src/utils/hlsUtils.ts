@@ -58,8 +58,11 @@ export function getHlsUrl(url: string): string {
     const allowedIpfsHosts = [
       'ipfs.io',
       'dweb.link',
+      'nftstorage.link',
+      'gateway.pinata.cloud',
+      'w3s.link',
+      'gateway.ipfs.io',
       'cloudflare-ipfs.com',
-      'gateway.ipfs.io'
     ];
     
     // Check if hostname exactly matches one of our allowed hosts

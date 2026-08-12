@@ -1,6 +1,14 @@
 import { NFT } from '../types/user';
 import { isCellularConnection } from './cellularOptimizer';
-import { processMediaUrl } from './media';
+import { processMediaUrl, buildIpfsFallbackUrls, extractIPFSPath } from './media';
+
+const resolveMediaUrls = (rawUrl: string): string[] => {
+  if (rawUrl.startsWith('ipfs://') || extractIPFSPath(rawUrl)) {
+    return buildIpfsFallbackUrls(rawUrl);
+  }
+  const processed = processMediaUrl(rawUrl, '', 'audio');
+  return processed ? [processed] : [];
+};
 
 // LRU Cache for video chunks
 class VideoCache {
@@ -61,40 +69,54 @@ const videoCache = new VideoCache();
 // Function to preload video metadata
 export const preloadVideoMetadata = async (nft: NFT): Promise<void> => {
   if (!nft.metadata?.animation_url) return;
-  
+
+  const urls = resolveMediaUrls(nft.metadata.animation_url);
+  if (urls.length === 0) return;
+
   try {
     const { isCellular } = isCellularConnection();
-    
-    // Process the URL to handle special protocols (ar://, ipfs://, etc.)
-    const processedUrl = processMediaUrl(nft.metadata.animation_url, '', 'audio');
-    
-    // For cellular connections, just load headers to get content length
+
     if (isCellular) {
-      const response = await fetch(processedUrl, { 
-        method: 'HEAD',
-        headers: {
-          'Range': 'bytes=0-0' // Just request the first byte to get headers
+      let lastError: unknown;
+      for (const url of urls) {
+        try {
+          const response = await fetch(url, {
+            method: 'HEAD',
+            headers: { Range: 'bytes=0-0' },
+          });
+          if (response.ok || response.status === 206) {
+            console.log(`Preloaded metadata for ${nft.name}, size: ${response.headers.get('content-length')} bytes`);
+            return;
+          }
+        } catch (err) {
+          lastError = err;
         }
-      });
-      
-      console.log(`Preloaded metadata for ${nft.name}, size: ${response.headers.get('content-length')} bytes`);
+      }
+      if (lastError) throw lastError;
     } else {
-      // For WiFi, we can be more aggressive with preloading
-      const video = document.createElement('video');
-      video.preload = 'metadata';
-      video.src = processedUrl;
-      
-      // Remove after loading metadata
-      video.onloadedmetadata = () => {
-        console.log(`Preloaded metadata for ${nft.name}, duration: ${video.duration}s`);
-        video.src = '';
-      };
-      
-      // Handle errors
-      video.onerror = () => {
-        console.error(`Failed to preload metadata for ${nft.name}`);
-        video.src = '';
-      };
+      await new Promise<void>((resolve) => {
+        let index = 0;
+        const video = document.createElement('video');
+        video.preload = 'metadata';
+
+        const tryNext = () => {
+          if (index >= urls.length) {
+            console.error(`Failed to preload metadata for ${nft.name}`);
+            video.src = '';
+            resolve();
+            return;
+          }
+          video.src = urls[index++];
+        };
+
+        video.onloadedmetadata = () => {
+          console.log(`Preloaded metadata for ${nft.name}, duration: ${video.duration}s`);
+          video.src = '';
+          resolve();
+        };
+        video.onerror = () => tryNext();
+        tryNext();
+      });
     }
   } catch (error) {
     console.error(`Error preloading video metadata for ${nft.name}:`, error);
@@ -104,36 +126,41 @@ export const preloadVideoMetadata = async (nft: NFT): Promise<void> => {
 // Function to preload initial video chunk
 export const preloadVideoInitialChunk = async (nft: NFT): Promise<void> => {
   if (!nft.metadata?.animation_url) return;
-  
+
   try {
     const { isCellular, generation } = isCellularConnection();
-    
-    // Determine chunk size based on network
-    const chunkSize = isCellular 
-      ? (generation === '5G' ? 500000 : // 500KB for 5G
-         generation === '4G' ? 200000 : // 200KB for 4G
-         100000) // 100KB for 3G/2G
-      : 1000000; // 1MB for WiFi
-    
-    // Process the URL to handle special protocols (ar://, ipfs://, etc.)
-    const processedUrl = processMediaUrl(nft.metadata.animation_url, '', 'audio');
 
-    // Fetch just the initial chunk
-    const response = await fetch(processedUrl, {
-      headers: {
-        'Range': `bytes=0-${chunkSize - 1}`
+    const chunkSize = isCellular
+      ? generation === '5G'
+        ? 500000
+        : generation === '4G'
+          ? 200000
+          : 100000
+      : 1000000;
+
+    const urls = resolveMediaUrls(nft.metadata.animation_url);
+    let lastError: unknown;
+
+    for (const processedUrl of urls) {
+      try {
+        const response = await fetch(processedUrl, {
+          headers: { Range: `bytes=0-${chunkSize - 1}` },
+        });
+
+        if (!response.ok && response.status !== 206) {
+          throw new Error(`Failed to preload chunk: ${response.status}`);
+        }
+
+        const chunk = await response.arrayBuffer();
+        videoCache.setChunk(processedUrl, 0, chunkSize - 1, chunk);
+        console.log(`Preloaded initial ${chunkSize} bytes for ${nft.name}`);
+        return;
+      } catch (err) {
+        lastError = err;
       }
-    });
-    
-    if (!response.ok) {
-      throw new Error(`Failed to preload chunk: ${response.status}`);
     }
-    
-    // Store in cache
-    const chunk = await response.arrayBuffer();
-    videoCache.setChunk(processedUrl, 0, chunkSize - 1, chunk);
-    
-    console.log(`Preloaded initial ${chunkSize} bytes for ${nft.name}`);
+
+    if (lastError) throw lastError;
   } catch (error) {
     console.error(`Error preloading video chunk for ${nft.name}:`, error);
   }

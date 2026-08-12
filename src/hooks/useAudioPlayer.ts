@@ -35,7 +35,7 @@ const trackNFTPlay = (nft: NFT, fid: number, options?: { forceTrack?: boolean, t
   // Default case - shouldn't happen but included for completeness
   return Promise.resolve();
 };
-import { processMediaUrl, getMediaKey, buildArweaveAudioFallbackUrls } from '../utils/media';
+import { processMediaUrl, getMediaKey, buildArweaveAudioFallbackUrls, buildIpfsFallbackUrls, extractIPFSPath } from '../utils/media';
 import { logger } from '../utils/logger';
 
 // Create a dedicated logger for this module
@@ -302,8 +302,17 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
         count: arweaveFallbacks.length,
         urls: arweaveFallbacks.slice(0, 8),
       });
-    } 
-    // Standard URL processing for non-Arweave URLs
+    }
+    // IPFS — try multiple gateways (cloudflare-ipfs.com DNS is dead)
+    else if (rawAudioUrl.startsWith('ipfs://') || extractIPFSPath(rawAudioUrl)) {
+      const ipfsFallbacks = buildIpfsFallbackUrls(rawAudioUrl);
+      audioUrls.push(...ipfsFallbacks);
+      audioLogger.info('Generated IPFS audio URLs across gateways:', {
+        count: ipfsFallbacks.length,
+        urls: ipfsFallbacks.slice(0, 4),
+      });
+    }
+    // Standard URL processing for other URLs
     else {
       // 1. Process using our standard processMediaUrl function
       const processedUrl = processMediaUrl(rawAudioUrl, undefined, 'audio');

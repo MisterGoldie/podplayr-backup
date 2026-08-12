@@ -27,7 +27,6 @@ import {
   getRecentSearches,
   subscribeToRecentSearches
 } from '../lib/firebase';
-import { fetchUserNFTsFromAlchemy } from '../lib/alchemy';
 import type { NFT, FarcasterUser, SearchedUser, UserContext, LibraryViewProps, ProfileViewProps, NFTFile, NFTPlayData, GroupedNFT } from '../types/user';
 import { usePlayer, PlayerProvider } from '../contexts/PlayerContext';
 import { useTopPlayedNFTs } from '../hooks/useTopPlayedNFTs';
@@ -42,6 +41,7 @@ import { shouldDelayOperation } from '../utils/videoFirstMode';
 import { logger } from '../utils/logger';
 import { useNFTLike } from '../hooks/useNFTLike';
 import { NFTCard } from './NFTCard';
+import { filterPlayableMediaNFTs, hasPlayableAudio, hasPlayableVideo, isPlayableMediaNFT } from '../utils/isMediaNFT';
 
 import { UserImageProvider } from '../contexts/UserImageContext';
 
@@ -418,82 +418,9 @@ const DemoBase: React.FC = () => {
   // User data loading is now handled by UserDataLoader component
 
   useEffect(() => {
-    const filterMediaNFTs = () => {
-      const filtered = userNFTs.filter((nft) => {
-        let hasMedia = false;
-        
-        try {
-          // Check for audio in metadata
-          const hasAudio = Boolean(nft.hasValidAudio || 
-            nft.audio || 
-            (nft.metadata?.animation_url && (
-              nft.metadata.animation_url.toLowerCase().endsWith('.mp3') ||
-              nft.metadata.animation_url.toLowerCase().endsWith('.wav') ||
-              nft.metadata.animation_url.toLowerCase().endsWith('.m4a') ||
-              // Check for common audio content types
-              nft.metadata.animation_url.toLowerCase().includes('audio/') ||
-              // Some NFTs store audio in IPFS
-              nft.metadata.animation_url.toLowerCase().includes('ipfs')
-            )));
-
-          // Check for video in metadata
-          const hasVideo = Boolean(nft.isVideo || 
-            (nft.metadata?.animation_url && (
-              nft.metadata.animation_url.toLowerCase().endsWith('.mp4') ||
-              nft.metadata.animation_url.toLowerCase().endsWith('.webm') ||
-              nft.metadata.animation_url.toLowerCase().endsWith('.mov') ||
-              // Check for common video content types
-              nft.metadata.animation_url.toLowerCase().includes('video/')
-            )));
-
-          // Also check properties.files if they exist
-          const hasMediaInProperties = nft.metadata?.properties?.files?.some((file: NFTFile) => {
-            if (!file) return false;
-            const fileUrl = (file.uri || file.url || '').toLowerCase();
-            const fileType = (file.type || file.mimeType || '').toLowerCase();
-            
-            return fileUrl.endsWith('.mp3') || 
-                  fileUrl.endsWith('.wav') || 
-                  fileUrl.endsWith('.m4a') ||
-                  fileUrl.endsWith('.mp4') || 
-                  fileUrl.endsWith('.webm') || 
-                  fileUrl.endsWith('.mov') ||
-                  fileType.includes('audio/') ||
-                  fileType.includes('video/');
-          }) ?? false;
-
-          hasMedia = hasAudio || hasVideo || hasMediaInProperties;
-          
-          // Log detailed checks for debugging media detection issues
-          nftLogger.debug('Checking NFT for media:', {
-            name: nft.name,
-            audio: nft.audio,
-            animation_url: nft.metadata?.animation_url,
-            hasValidAudio: nft.hasValidAudio,
-            isVideo: nft.isVideo
-          });
-          
-          if (hasMedia) {
-            nftLogger.debug('Found media NFT:', {
-              name: nft.name,
-              hasAudio,
-              hasVideo,
-              hasMediaInProperties,
-              animation_url: nft.metadata?.animation_url
-            });
-          }
-        } catch (error) {
-          logger.error('Error checking media types:', error);
-        }
-
-        return hasMedia;
-      });
-
-      setFilteredNFTs(filtered);
-      nftLogger.info(`Found ${filtered.length} media NFTs out of ${userNFTs.length} total NFTs`);
-    };
-
-    filterMediaNFTs();
+    const filtered = filterPlayableMediaNFTs(userNFTs);
+    setFilteredNFTs(filtered);
+    nftLogger.info(`Found ${filtered.length} media NFTs out of ${userNFTs.length} total NFTs`);
   }, [userNFTs]);
 
   // Video synchronization is now handled by VideoSyncManager component
@@ -728,40 +655,21 @@ const DemoBase: React.FC = () => {
   }, []);
   // Add this near your NFT processing code to reduce redundant checks
   const processNFTs = useCallback((nfts: any[]) => {
-    // Use a Set to track media keys we've already processed
     const processedMediaKeys = new Set();
     const mediaOnly = [];
 
-    // Process each NFT just once with a single pass
     for (const nft of nfts) {
       const mediaKey = getMediaKey(nft);
-      
-      // Skip if we've already processed this NFT
       if (processedMediaKeys.has(mediaKey)) continue;
       processedMediaKeys.add(mediaKey);
-      
-      // Determine if it's a media NFT with a single consolidated check
-      const isMediaNFT = (
-        (nft.animation_url || nft.metadata?.animation_url || nft.audio) && 
-        (
-          nft.audio || 
-          (nft.animation_url?.toLowerCase().match(/\.(mp3|wav|ogg|mp4|webm)$/)) ||
-          (nft.metadata?.animation_url?.toLowerCase().match(/\.(mp3|wav|ogg|mp4|webm)$/))
-        )
-      );
-      
-      if (isMediaNFT) {
-        // Configure NFT properties in one pass
-        nft.isVideo = nft.animation_url?.toLowerCase().match(/\.(mp4|webm)$/) || 
-                      nft.metadata?.animation_url?.toLowerCase().match(/\.(mp4|webm)$/);
-        nft.hasValidAudio = Boolean(nft.audio || 
-                           nft.animation_url?.toLowerCase().match(/\.(mp3|wav|ogg)$/) ||
-                           nft.metadata?.animation_url?.toLowerCase().match(/\.(mp3|wav|ogg)$/));
-        
-        mediaOnly.push(nft);
-      }
+
+      if (!isPlayableMediaNFT(nft)) continue;
+
+      nft.isVideo = hasPlayableVideo(nft);
+      nft.hasValidAudio = hasPlayableAudio(nft);
+      mediaOnly.push(nft);
     }
-    
+
     return mediaOnly;
   }, []);
 

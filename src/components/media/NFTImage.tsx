@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { processMediaUrl, IPFS_GATEWAYS, isAudioUrlUsedAsImage, getCleanIPFSUrl, processArweaveUrl, getMediaKey, buildArweaveMediaFallbackUrls } from '../../utils/media';
+import { processMediaUrl, IPFS_GATEWAYS, isAudioUrlUsedAsImage, getCleanIPFSUrl, processArweaveUrl, getMediaKey, buildArweaveMediaFallbackUrls, buildIpfsFallbackUrls, extractIPFSPath } from '../../utils/media';
 import Image from 'next/image';
 import type { SyntheticEvent } from 'react';
 import type { NFT } from '../../types/user';
@@ -75,9 +75,11 @@ const isIpfsUrl = (url: string): boolean => {
     const knownIpfsHosts = [
       'ipfs.io',
       'dweb.link',
-      'cloudflare-ipfs.com',
       'nftstorage.link',
-      'ipfs.infura.io'
+      'gateway.pinata.cloud',
+      'w3s.link',
+      'gateway.ipfs.io',
+      'cloudflare-ipfs.com', // dead DNS; still recognize so we can rewrite/fallback
     ];
     
     // Check hostname (not full URL) against allowed list
@@ -100,110 +102,25 @@ const isIpfsUrl = (url: string): boolean => {
 };
 
 /**
- * Extract IPFS hash from a URL with secure parsing
- * SECURITY: This function properly parses URLs and uses path-based extraction
- */
-const extractIPFSHash = (url: string): string | null => {
-  if (!url || typeof url !== 'string') return null;
-  
-  // Handle ipfs:// protocol - exact protocol match is safe
-  if (url.startsWith('ipfs://')) {
-    return url.replace('ipfs://', '');
-  }
-
-  try {
-    // Properly parse the URL to safely extract components
-    const parsedUrl = new URL(url);
-    
-    // Extract hash from path component if it contains /ipfs/ segment
-    if (parsedUrl.pathname.includes('/ipfs/')) {
-      const parts = parsedUrl.pathname.split('/ipfs/');
-      if (parts.length > 1) {
-        // Take only the next segment after /ipfs/
-        return parts[1].split('/')[0];
-      }
-    }
-    
-    // Use regex only on the pathname, not the full URL
-    const ipfsRegex = /(?:ipfs\/|\/ipfs\/|ipfs:)([a-zA-Z0-9]{46,}|Qm[1-9A-HJ-NP-Za-km-z]{44}|bafy[a-zA-Z0-9]{55})/i;
-    const match = parsedUrl.pathname.match(ipfsRegex);
-    
-    if (match) return match[1];
-  } catch (error) {
-    // Fall back to regex on the full URL only if URL parsing fails
-    imageLogger.warn('URL parsing failed in extractIPFSHash', { url, error: String(error) });
-    
-    // Match IPFS hash patterns - support both v0 and v1 CIDs
-    const ipfsRegex = /(?:ipfs\/|\/ipfs\/|ipfs:)([a-zA-Z0-9]{46,}|Qm[1-9A-HJ-NP-Za-km-z]{44}|bafy[a-zA-Z0-9]{55})/i;
-    const match = url.match(ipfsRegex);
-    
-    if (match) return match[1];
-    
-    // Handle direct CID
-    if (/^(Qm[1-9A-HJ-NP-Za-km-z]{44}|bafy[a-zA-Z0-9]{55}|[a-zA-Z0-9]{46,})$/.test(url)) {
-      return url;
-    }
-  }
-  
-  return null;
-};
-
-/**
- * Get the next IPFS gateway URL for retry attempts
- * SECURITY: This function properly parses URLs to avoid substring vulnerabilities
+ * Get the next IPFS gateway URL for retry attempts (preserves CID/file subpaths).
  */
 const getNextIPFSUrl = (url: string, currentIndex: number): { url: string; nextIndex: number } | null => {
-  // Clean the URL first
   url = getCleanIPFSUrl(url);
-  
-  // If we've already tried all gateways, return null
+
   if (currentIndex >= IPFS_GATEWAYS.length - 1) {
     imageLogger.warn('All IPFS gateways have been tried', { url });
     return null;
   }
 
-  // Extract IPFS hash/CID from the URL
-  let cid = null;
-  
-  // Try to find which gateway we're currently using with proper URL parsing
-  let currentGateway = null;
-  try {
-    // Parse the URL to safely extract hostname
-    const parsedUrl = new URL(url);
-    
-    // Match gateway based on hostname comparison (not substring)
-    currentGateway = IPFS_GATEWAYS.find(gateway => {
-      try {
-        // Parse each gateway URL to get its hostname
-        const gatewayUrl = new URL(gateway);
-        return parsedUrl.hostname === gatewayUrl.hostname;
-      } catch {
-        return false;
-      }
-    });
-    
-    // If we found a gateway and have a path, extract the CID
-    if (currentGateway) {
-      // Extract CID from pathname safely
-      cid = extractIPFSHash(url);
-    } else {
-      // If not a gateway URL, try extracting hash directly
-      cid = extractIPFSHash(url);
-    }
-  } catch (error) {
-    // If URL parsing fails, fall back to extractIPFSHash function
-    imageLogger.warn('URL parsing failed in getNextIPFSUrl', { url });
-    cid = extractIPFSHash(url);
-  }
-  
-  if (!cid) {
-    imageLogger.warn('Could not extract IPFS CID from URL', { url });
+  const path = extractIPFSPath(url);
+  if (!path) {
+    imageLogger.warn('Could not extract IPFS path from URL', { url });
     return null;
   }
-  
-  const nextIndex = (currentIndex + 1) % IPFS_GATEWAYS.length;
+
+  const nextIndex = currentIndex + 1;
   return {
-    url: `${IPFS_GATEWAYS[nextIndex]}${cid}`,
+    url: `${IPFS_GATEWAYS[nextIndex]}${path}`,
     nextIndex
   };
 };
@@ -316,12 +233,16 @@ export const NFTImage: React.FC<NFTImageProps> = ({
   const processedUrlCache = useRef<Record<string, string>>({});
   const arweaveFallbackUrls = useRef<string[]>([]);
   const arweaveFallbackIndex = useRef(0);
+  const ipfsFallbackUrls = useRef<string[]>([]);
+  const ipfsFallbackIndex = useRef(0);
   
   useEffect(() => {
     // Reset states when src changes, but only if src is valid
     const isValidSrc = src && src !== '' && src !== 'undefined' && src !== 'null';
     arweaveFallbackUrls.current = [];
     arweaveFallbackIndex.current = 0;
+    ipfsFallbackUrls.current = [];
+    ipfsFallbackIndex.current = 0;
     
     if (isValidSrc) {
       // Check if we've already processed this URL
@@ -479,6 +400,33 @@ export const NFTImage: React.FC<NFTImageProps> = ({
         const nextUrl = arweaveFallbackUrls.current[arweaveFallbackIndex.current];
         attemptedFallbacks.current[`${nextUrl}-ar`] = true;
         arweaveFallbackIndex.current += 1;
+        setImgSrc(nextUrl);
+        setRetryCount(retryCount + 1);
+        setError(false);
+        setIsLoadingFallback(false);
+        return;
+      }
+    }
+
+    // Cycle working IPFS gateways (cloudflare-ipfs.com and others may fail)
+    if ((src && isIpfsUrl(src)) || (failedSrc && isIpfsUrl(failedSrc))) {
+      if (ipfsFallbackUrls.current.length === 0) {
+        ipfsFallbackUrls.current = buildIpfsFallbackUrls(src || failedSrc);
+        ipfsFallbackIndex.current = 0;
+      }
+
+      while (
+        ipfsFallbackIndex.current < ipfsFallbackUrls.current.length &&
+        (ipfsFallbackUrls.current[ipfsFallbackIndex.current] === failedSrc ||
+          attemptedFallbacks.current[`${ipfsFallbackUrls.current[ipfsFallbackIndex.current]}-ipfs`])
+      ) {
+        ipfsFallbackIndex.current += 1;
+      }
+
+      if (ipfsFallbackIndex.current < ipfsFallbackUrls.current.length) {
+        const nextUrl = ipfsFallbackUrls.current[ipfsFallbackIndex.current];
+        attemptedFallbacks.current[`${nextUrl}-ipfs`] = true;
+        ipfsFallbackIndex.current += 1;
         setImgSrc(nextUrl);
         setRetryCount(retryCount + 1);
         setError(false);

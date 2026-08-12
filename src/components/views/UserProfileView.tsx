@@ -11,6 +11,7 @@ import FollowsModal from '../FollowsModal';
 import { useNFTNotification } from '../../context/NFTNotificationContext';
 import NFTNotification from '../NFTNotification';
 import { getMediaKey } from '../../utils/media';
+import { filterPlayableMediaNFTs } from '../../utils/isMediaNFT';
 import { VirtualizedNFTGrid } from '../nft/VirtualizedNFTGrid';
 import { logger } from '../../utils/logger';
 import { useUserProfileBackground } from '../../hooks/useUserProfileBackground';
@@ -95,57 +96,10 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
   // Track if we've completed at least one full load cycle
   const [hasCompletedInitialLoad, setHasCompletedInitialLoad] = useState<boolean>(false);
   
-  // Filter NFTs to only show media (audio/video) NFTs - moved outside the render function
+  // Filter NFTs to only show playable media (shared detector)
   const filteredNFTs = useMemo(() => {
     if (!nfts || nfts.length === 0) return [];
-    
-    const filtered = nfts.filter((nft) => {
-      let hasMedia = false;
-      
-      try {
-        // Profile view filtering (more comprehensive)
-        const hasAudio = Boolean(nft.hasValidAudio || 
-          nft.audio || 
-          (nft.metadata?.animation_url && (
-            nft.metadata.animation_url.toLowerCase().endsWith('.mp3') ||
-            nft.metadata.animation_url.toLowerCase().endsWith('.wav') ||
-            nft.metadata.animation_url.toLowerCase().endsWith('.m4a') ||
-            nft.metadata.animation_url.toLowerCase().includes('audio/') ||
-            nft.metadata.animation_url.toLowerCase().includes('ipfs')
-          )));
-        
-        const hasVideo = Boolean(nft.isVideo || 
-          (nft.metadata?.animation_url && (
-            nft.metadata.animation_url.toLowerCase().endsWith('.mp4') ||
-            nft.metadata.animation_url.toLowerCase().endsWith('.webm') ||
-            nft.metadata.animation_url.toLowerCase().endsWith('.mov') ||
-            nft.metadata.animation_url.toLowerCase().includes('video/')
-          )));
-        
-        // Also checks properties.files
-        const hasMediaInProperties = nft.metadata?.properties?.files?.some((file: any) => {
-          if (!file) return false;
-          const fileUrl = (file.uri || file.url || '').toLowerCase();
-          const fileType = (file.type || file.mimeType || '').toLowerCase();
-          
-          return fileUrl.endsWith('.mp3') || 
-                fileUrl.endsWith('.wav') || 
-                fileUrl.endsWith('.m4a') ||
-                fileUrl.endsWith('.mp4') || 
-                fileUrl.endsWith('.webm') || 
-                fileUrl.endsWith('.mov') ||
-                fileType.includes('audio/') ||
-                fileType.includes('video/');
-        }) ?? false;
-
-        hasMedia = hasAudio || hasVideo || hasMediaInProperties;
-      } catch (error) {
-        console.error('Error checking media types:', error);
-      }
-
-      return hasMedia;
-    });
-
+    const filtered = filterPlayableMediaNFTs(nfts);
     nftLogger.info(`Showing ${filtered.length} media NFTs out of ${nfts.length} total NFTs on profile`);
     return filtered;
   }, [nfts]);
@@ -561,51 +515,7 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
                     }}
                     totalPlays={totalPlays}
                     likedNFTsCount={likedNFTsCount}
-                    nftCount={nfts ? nfts.filter(nft => {
-                      // Apply the same media filter to the count
-                      let hasMedia = false;
-                      try {
-                        // Profile view filtering (more comprehensive)
-                        const hasAudio = Boolean(nft.hasValidAudio || 
-                          nft.audio || 
-                          (nft.metadata?.animation_url && (
-                            nft.metadata.animation_url.toLowerCase().endsWith('.mp3') ||
-                            nft.metadata.animation_url.toLowerCase().endsWith('.wav') ||
-                            nft.metadata.animation_url.toLowerCase().endsWith('.m4a') ||
-                            nft.metadata.animation_url.toLowerCase().includes('audio/') ||
-                            nft.metadata.animation_url.toLowerCase().includes('ipfs')
-                          )));
-                        
-                        const hasVideo = Boolean(nft.isVideo || 
-                          (nft.metadata?.animation_url && (
-                            nft.metadata.animation_url.toLowerCase().endsWith('.mp4') ||
-                            nft.metadata.animation_url.toLowerCase().endsWith('.webm') ||
-                            nft.metadata.animation_url.toLowerCase().endsWith('.mov') ||
-                            nft.metadata.animation_url.toLowerCase().includes('video/')
-                          )));
-                        
-                        // Also checks properties.files
-                        const hasMediaInProperties = nft.metadata?.properties?.files?.some((file: any) => {
-                          if (!file) return false;
-                          const fileUrl = (file.uri || file.url || '').toLowerCase();
-                          const fileType = (file.type || file.mimeType || '').toLowerCase();
-                          
-                          return fileUrl.endsWith('.mp3') || 
-                                fileUrl.endsWith('.wav') || 
-                                fileUrl.endsWith('.m4a') ||
-                                fileUrl.endsWith('.mp4') || 
-                                fileUrl.endsWith('.webm') || 
-                                fileUrl.endsWith('.mov') ||
-                                fileType.includes('audio/') ||
-                                fileType.includes('video/');
-                        }) ?? false;
-
-                        hasMedia = hasAudio || hasVideo || hasMediaInProperties;
-                      } catch (error) {
-                        console.error('Error checking media types in count:', error);
-                      }
-                      return hasMedia;
-                    }).length : 0}
+                    nftCount={filteredNFTs.length}
                     onClose={() => setShowInfoPanel(false)}
                   />
                 )}

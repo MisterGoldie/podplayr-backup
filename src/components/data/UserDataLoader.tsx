@@ -3,7 +3,7 @@
 import { useEffect, useCallback, useRef } from 'react';
 import { searchUsers } from '../../lib/firebase';
 import { getLikedNFTs, subscribeToLikedNFTs } from '../../lib/firebase/likes';
-import { fetchUserNFTsFromAlchemy } from '../../lib/alchemy';
+import { fetchUserNFTsFromAlchemy } from '../../lib/nft';
 import { getMediaKey } from '../../utils/media';
 import type { NFT, FarcasterUser } from '../../types/user';
 

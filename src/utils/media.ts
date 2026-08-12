@@ -14,14 +14,65 @@ export const getCleanIPFSUrl = (url: string): string => {
   return url.replace(/\/ipfs\/ipfs\//g, '/ipfs/');
 };
 
-// Update IPFS_GATEWAYS array (around line 18)
+// Prefer gateways that currently resolve and serve NFT media reliably.
+// cloudflare-ipfs.com is dead (ERR_NAME_NOT_RESOLVED). ipfs.io often 504s.
+export const PRIMARY_IPFS_GATEWAY = 'https://gateway.pinata.cloud/ipfs/';
+
 export const IPFS_GATEWAYS = [
-  'https://ipfs.io/ipfs/',              // Most reliable - IPFS.io official gateway
-  'https://gateway.pinata.cloud/ipfs/', // Second choice - Pinata
-  'https://nftstorage.link/ipfs/',      // Third choice - NFT.Storage
-  'https://dweb.link/ipfs/',            // Additional fallback
-  'https://gateway.ipfs.io/ipfs/',      // Another official gateway
+  'https://gateway.pinata.cloud/ipfs/',
+  'https://dweb.link/ipfs/',
+  'https://nftstorage.link/ipfs/',
+  'https://ipfs.io/ipfs/',
+  'https://w3s.link/ipfs/',
+  'https://gateway.ipfs.io/ipfs/',
 ];
+
+const DEAD_IPFS_HOSTS = new Set([
+  'cloudflare-ipfs.com',
+  'cf-ipfs.com',
+]);
+
+/** Build https gateway URL for an IPFS path (CID or CID/file...). */
+export const toIpfsGatewayUrl = (
+  ipfsPath: string,
+  gateway: string = PRIMARY_IPFS_GATEWAY
+): string => {
+  const clean = ipfsPath.replace(/^ipfs\//, '').replace(/^\/+/, '');
+  const encoded = clean
+    .split('/')
+    .map((segment) => {
+      try {
+        return encodeURIComponent(decodeURIComponent(segment));
+      } catch {
+        return encodeURIComponent(segment);
+      }
+    })
+    .join('/');
+  const base = gateway.endsWith('/') ? gateway : `${gateway}/`;
+  return `${base}${encoded}`;
+};
+
+/** Ordered IPFS URLs across working gateways (preserves CID subpaths). */
+export const buildIpfsFallbackUrls = (url: string): string[] => {
+  const path = extractIPFSPath(url);
+  if (!path) return url ? [url] : [];
+
+  const urls: string[] = [];
+  const seen = new Set<string>();
+  const push = (u: string) => {
+    if (!u || seen.has(u)) return;
+    seen.add(u);
+    urls.push(u);
+  };
+
+  for (const gateway of IPFS_GATEWAYS) {
+    push(toIpfsGatewayUrl(path, gateway));
+  }
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    push(url);
+  }
+  return urls;
+};
 
 // Enhanced Arweave fallback with immediate default
 export const getAlternativeArweaveUrl = (originalUrl: string, failedGateways: Set<string> = new Set()): string => {
@@ -31,65 +82,61 @@ export const getAlternativeArweaveUrl = (originalUrl: string, failedGateways: Se
 };
 
 // Enhanced IPFS fallback with better error handling
-// Remove lines 511-526 (the duplicate getAlternativeArweaveUrl function)
-// Keep only the enhanced version at lines 26-30
 export const getAlternativeIPFSUrl = (url: string, failedGateways: Set<string> = new Set()): string | null => {
-  const ipfsHash = extractIPFSHash(url);
-  if (!ipfsHash) return null;
+  const ipfsPath = extractIPFSPath(url);
+  if (!ipfsPath) return null;
 
-  // Find next available gateway that hasn't failed
   for (const gateway of IPFS_GATEWAYS) {
-    if (!failedGateways.has(gateway) && !url.includes(gateway)) {
-      return `${gateway}${ipfsHash}`;
+    if (!failedGateways.has(gateway) && !url.includes(gateway.replace(/\/ipfs\/$/, ''))) {
+      return toIpfsGatewayUrl(ipfsPath, gateway);
     }
   }
-  
-  return null; // No more gateways available
+
+  return null;
 };
 
-// Helper function to extract CID from various IPFS URL formats
-export const extractIPFSHash = (url: string): string | null => {
-  if (!url) return null;
-  if (typeof url !== 'string') return null;
+/**
+ * Extract CID (+ optional subpath) from ipfs:// or gateway URLs.
+ * Preserves paths like Qm.../file.mp4 needed for directory CIDs.
+ */
+export const extractIPFSPath = (url: string): string | null => {
+  if (!url || typeof url !== 'string') return null;
 
-  // Remove any duplicate 'ipfs' in the path
   url = url.replace(/\/ipfs\/ipfs\//g, '/ipfs/');
 
-  // Handle ipfs:// protocol
   if (url.startsWith('ipfs://')) {
-    return url.replace('ipfs://', '');
+    return url.replace(/^ipfs:\/\//, '').replace(/^\/+/, '') || null;
   }
 
-  // Match IPFS hash patterns - support both v0 and v1 CIDs
-  const ipfsMatch = url.match(/(?:ipfs\/|\/ipfs\/|ipfs:)([a-zA-Z0-9]{46,}|Qm[1-9A-HJ-NP-Za-km-z]{44}|bafy[a-zA-Z0-9]{55})/i);
-  if (ipfsMatch) {
-    return ipfsMatch[1];
-  }
-
-  // Handle nftstorage.link and other IPFS gateway URLs - EXTRACT HASH ONLY
   try {
     const parsedUrl = new URL(url);
     if (parsedUrl.pathname.includes('/ipfs/')) {
-      // Extract just the hash from the path, not the full URL
       const pathParts = parsedUrl.pathname.split('/ipfs/');
       if (pathParts.length > 1) {
-        // Get the hash part (everything after /ipfs/)
-        const hashWithPath = pathParts[1];
-        // Extract just the hash (first segment) - THIS IS THE KEY FIX
-        const hash = hashWithPath.split('/')[0];
-        return hash; // Return ONLY the hash, not the full path
+        return decodeURIComponent(pathParts.slice(1).join('/ipfs/')).replace(/^\/+/, '') || null;
       }
     }
-  } catch (e) {
-    // If URL parsing fails, continue with other checks
+  } catch {
+    // continue
   }
 
-  // Handle direct CID - support both v0 and v1 CIDs
-  if (/^(Qm[1-9A-HJ-NP-Za-km-z]{44}|bafy[a-zA-Z0-9]{55}|[a-zA-Z0-9]{46})$/.test(url)) {
+  const ipfsMatch = url.match(/(?:ipfs\/|\/ipfs\/|ipfs:)(.+)$/i);
+  if (ipfsMatch?.[1]) {
+    return ipfsMatch[1].replace(/^\/+/, '');
+  }
+
+  if (/^(Qm[1-9A-HJ-NP-Za-km-z]{44}|bafy[a-zA-Z0-9]+|[a-zA-Z0-9]{46})(\/.*)?$/i.test(url)) {
     return url;
   }
 
   return null;
+};
+
+/** @deprecated Prefer extractIPFSPath — kept for callers expecting CID-only in some cases */
+export const extractIPFSHash = (url: string): string | null => {
+  const path = extractIPFSPath(url);
+  if (!path) return null;
+  return path.split('/')[0];
 };
 
 // Check if an NFT is using the same URL for both image and audio
@@ -311,20 +358,27 @@ export const processMediaUrl = (url: string, fallbackUrl: string = '/default-nft
   if (!url) return fallbackUrl;
   if (typeof url !== 'string') return fallbackUrl;
   
-  // CRITICAL FIX: Check if URL is already a properly formatted IPFS gateway URL
-  // Don't reprocess URLs that are already using IPFS gateways
-  if (url.includes('/ipfs/') && (url.startsWith('http://') || url.startsWith('https://'))) {
-    // Check if it's already a valid IPFS gateway URL without double paths
-    const hasDoubleIpfs = url.includes('/ipfs/ipfs/');
-    if (!hasDoubleIpfs) {
-      // URL is already properly formatted, return as-is
-      return url;
+  // Rewrite dead IPFS gateway hosts (cloudflare-ipfs.com DNS no longer resolves)
+  if ((url.startsWith('http://') || url.startsWith('https://')) && url.includes('/ipfs/')) {
+    try {
+      const parsed = new URL(url);
+      if (DEAD_IPFS_HOSTS.has(parsed.hostname)) {
+        const path = extractIPFSPath(url);
+        if (path) {
+          url = toIpfsGatewayUrl(path);
+        }
+      } else {
+        const hasDoubleIpfs = url.includes('/ipfs/ipfs/');
+        if (!hasDoubleIpfs) {
+          return url;
+        }
+        return url.replace(/\/ipfs\/ipfs\//g, '/ipfs/');
+      }
+    } catch {
+      // fall through
     }
-    // If it has double ipfs paths, fix it
-    url = url.replace(/\/ipfs\/ipfs\//g, '/ipfs/');
-    return url;
   }
-  
+
   // For audio files from Arweave, we need to be extra careful to preserve the exact file path
   if (mediaType === 'audio' && url.startsWith('ar://')) {
     return processArweaveUrl(url, 'audio');
@@ -343,10 +397,11 @@ export const processMediaUrl = (url: string, fallbackUrl: string = '/default-nft
         const parsedUrl = new URL(url);
         const hostname = parsedUrl.hostname;
         
-        // Check if URL is not already using a CDN based on hostname
-        if (hostname !== 'cloudflare-ipfs.com' && 
-            !hostname.startsWith('cdn.') && 
-            !hostname.includes('.cdn.')) {
+        if (
+          !DEAD_IPFS_HOSTS.has(hostname) &&
+          !hostname.startsWith('cdn.') &&
+          !hostname.includes('.cdn.')
+        ) {
           return getCdnUrl(url, mediaType);
         }
       } catch (error) {
@@ -355,55 +410,25 @@ export const processMediaUrl = (url: string, fallbackUrl: string = '/default-nft
     }
   }
 
-  // Handle IPFS URLs with better gateway selection
+  // Handle IPFS URLs with working primary gateway (preserves CID/file subpaths)
   if (url.startsWith('ipfs://')) {
-    const hash = url.replace('ipfs://', '').replace(/\/*$/, '');
-    
-    // Process through our CDN if available
-    if (CDN_CONFIG.baseUrl) {
-      // Use a more reliable gateway for CDN processing
-      const ipfsUrl = `https://cloudflare-ipfs.com/ipfs/${hash}`;
-      return getCdnUrl(ipfsUrl, mediaType);
+    const path = extractIPFSPath(url);
+    if (path) {
+      const ipfsUrl = toIpfsGatewayUrl(path);
+      if (CDN_CONFIG.baseUrl) {
+        return getCdnUrl(ipfsUrl, mediaType);
+      }
+      return ipfsUrl;
     }
-    
-    // For mobile devices, prioritize more reliable gateways
-    const isMobile = typeof window !== 'undefined' && 
-                    (navigator.userAgent.match(/Android/i) ||
-                     navigator.userAgent.match(/iPhone/i) ||
-                     navigator.userAgent.match(/iPad/i));
-    
-    if (isMobile) {
-      return `https://cloudflare-ipfs.com/ipfs/${hash}`;
-    }
-    
-    // Use Cloudflare IPFS gateway as primary instead of ipfs.io for better reliability
-    return `https://cloudflare-ipfs.com/ipfs/${hash}`;
   }
 
-  // Try to extract IPFS hash from other formats
-  const ipfsHash = extractIPFSHash(url);
-  if (ipfsHash) {
-    const cleanHash = ipfsHash.replace(/\/*$/, '').replace(/^ipfs\//g, '');
-    
-    // Process through our CDN if available
+  const ipfsPath = extractIPFSPath(url);
+  if (ipfsPath) {
+    const ipfsUrl = toIpfsGatewayUrl(ipfsPath);
     if (CDN_CONFIG.baseUrl) {
-      // Use a more reliable gateway for CDN processing
-      const ipfsUrl = `https://cloudflare-ipfs.com/ipfs/${cleanHash}`;
       return getCdnUrl(ipfsUrl, mediaType);
     }
-    
-    // For mobile devices, prioritize more reliable gateways
-    const isMobile = typeof window !== 'undefined' && 
-                    (navigator.userAgent.match(/Android/i) ||
-                     navigator.userAgent.match(/iPhone/i) ||
-                     navigator.userAgent.match(/iPad/i));
-    
-    if (isMobile) {
-      return `https://cloudflare-ipfs.com/ipfs/${cleanHash}`;
-    }
-    
-    // Use Cloudflare IPFS gateway as primary instead of ipfs.io for better reliability
-    return `https://cloudflare-ipfs.com/ipfs/${cleanHash}`;
+    return ipfsUrl;
   }
 
   // Handle Arweave URLs directly within processMediaUrl for consistency
@@ -543,25 +568,16 @@ export const validateMediaKey = (mediaKey: string): boolean => {
 
 export function getDirectMediaUrl(url: string): string {
   if (!url) return '';
-  
-  // Handle IPFS URLs - try multiple gateways for better performance
-  if (url.includes('ipfs://')) {
-    const ipfsHash = url.replace('ipfs://', '');
-    
-    // For video content, use a CDN-backed gateway
-    return `https://cloudflare-ipfs.com/ipfs/${ipfsHash}`;
-    
-    // Fallbacks if needed:
-    // return `https://ipfs.io/ipfs/${ipfsHash}`;
-    // return `https://gateway.pinata.cloud/ipfs/${ipfsHash}`;
+
+  const ipfsPath = extractIPFSPath(url);
+  if (ipfsPath) {
+    return toIpfsGatewayUrl(ipfsPath);
   }
-  
-  // Handle Arweave URLs using our dedicated function
+
   if (url.includes('ar://')) {
     return processArweaveUrl(url);
   }
-  
-  // Return the URL directly without any processing
+
   return url;
 }
 
