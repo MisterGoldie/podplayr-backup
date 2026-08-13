@@ -2,11 +2,9 @@ import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { usePlayerState } from './hooks/usePlayerState';
 import { NFTImage } from '../media/NFTImage';
 // PlaybackButton is already imported below - removing duplicate import
-import { processMediaUrl, getMediaKey, formatTime, safeProgressPercent, getDisplayTimes } from '../../utils/media';
+import { processMediaUrl, getMediaKey, formatTime, safeProgressPercent, getDisplayTimes, preloadNftMedia } from '../../utils/media';
 import { applyPlaybackPlanToNft, getNftPlaybackPlan, mediaUrlNeedsMimeProbe, resolveNftPlaybackPlan } from '../../utils/isMediaNFT';
 import type { NFT } from '../../types/user';
-// Dynamic import for Farcaster SDK - will use miniapp-sdk in mini-app environment
-import { getNftCdnUrl, preloadNftMedia } from '../../utils/cdn';
 import { logger } from '../../utils/logger';
 import { triggerHaptic } from '../../utils/haptics';
 import { ipfsGatewayManager } from '../../utils/ipfsGatewayManager';
@@ -359,14 +357,8 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
   // Create a dedicated logger for player
   const playerLogger = logger.getModuleLogger('player');
   
-  // Preload the NFT media when component mounts (safe with CDN disabled)
   useEffect(() => {
     if (nft) {
-      playerLogger.info('Preloading NFT media for player:', {
-        nft: nft.name || 'Unknown NFT',
-        mediaKey: getMediaKey(nft)
-      });
-      // This is safe even with CDN disabled
       preloadNftMedia(nft);
     }
   }, [nft]);

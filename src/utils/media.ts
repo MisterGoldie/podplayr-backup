@@ -2,8 +2,8 @@
 
 import { useState } from 'react';
 import { NFT as UserNFT } from '../types/user';
-import { getCdnUrl, CDN_CONFIG } from './cdn';
 import { v4 as uuidv4 } from 'uuid';
+import { getRememberedMediaUrl } from './gatewayMemory';
 
 // List of reliable IPFS gateways in order of preference
 // Helper function to clean IPFS URLs
@@ -379,90 +379,32 @@ export const processMediaUrl = (url: string, fallbackUrl: string = '/default-nft
     return processArweaveUrl(url, 'audio');
   }
 
-  // First, try to use our CDN if enabled
-  if (CDN_CONFIG.baseUrl) {
-    // Don't double-process URLs that are already using our CDN
-    if (url.includes(CDN_CONFIG.baseUrl)) {
-      return url;
-    }
-    
-    // Use CDN for HTTP(S) URLs that aren't already using a CDN
-    if ((url.startsWith('http://') || url.startsWith('https://'))) {
-      try {
-        const parsedUrl = new URL(url);
-        const hostname = parsedUrl.hostname;
-        
-        if (
-          !DEAD_IPFS_HOSTS.has(hostname) &&
-          !hostname.startsWith('cdn.') &&
-          !hostname.includes('.cdn.')
-        ) {
-          return getCdnUrl(url, mediaType);
-        }
-      } catch (error) {
-        console.error('Failed to parse URL:', url, error);
-      }
-    }
-  }
-
   // Handle IPFS URLs with working primary gateway (preserves CID/file subpaths)
   if (url.startsWith('ipfs://')) {
     const path = extractIPFSPath(url);
     if (path) {
-      const ipfsUrl = toIpfsGatewayUrl(path);
-      if (CDN_CONFIG.baseUrl) {
-        return getCdnUrl(ipfsUrl, mediaType);
-      }
-      return ipfsUrl;
+      return toIpfsGatewayUrl(path);
     }
   }
 
   const ipfsPath = extractIPFSPath(url);
   if (ipfsPath) {
-    const ipfsUrl = toIpfsGatewayUrl(ipfsPath);
-    if (CDN_CONFIG.baseUrl) {
-      return getCdnUrl(ipfsUrl, mediaType);
-    }
-    return ipfsUrl;
+    return toIpfsGatewayUrl(ipfsPath);
   }
 
-  // Handle Arweave URLs directly within processMediaUrl for consistency
   if (url.startsWith('ar://')) {
-    console.log(`[processMediaUrl] Processing Arweave URL: ${url}, mediaType: ${mediaType}`);
-
     const { fileTxId, manifestId, filePath } = parseArweaveMediaPath(url);
 
     // Prefer /raw/{fileTxId} — turbo/permagate serve PODs media that arweave.net 404s
     if (fileTxId) {
-      const arweaveUrl = toArweaveRawUrl(fileTxId);
-      console.log(`[processMediaUrl] Using raw file tx URL: ${arweaveUrl}`);
-      if (CDN_CONFIG.baseUrl) {
-        return getCdnUrl(arweaveUrl, mediaType);
-      }
-      return arweaveUrl;
+      return toArweaveRawUrl(fileTxId);
     }
 
     if (manifestId && filePath) {
-      const arweaveUrl = `${PRIMARY_ARWEAVE_GATEWAY}${manifestId}/${filePath}`;
-      console.log(`[processMediaUrl] Using path URL: ${arweaveUrl}`);
-      if (CDN_CONFIG.baseUrl) {
-        return getCdnUrl(arweaveUrl, mediaType);
-      }
-      return arweaveUrl;
+      return `${PRIMARY_ARWEAVE_GATEWAY}${manifestId}/${filePath}`;
     }
 
-    const txId = url.replace('ar://', '').split('/')[0];
-    const arweaveUrl = toArweaveRawUrl(txId);
-    console.log(`[processMediaUrl] Converted simple Arweave URL: ${arweaveUrl}`);
-    if (CDN_CONFIG.baseUrl) {
-      return getCdnUrl(arweaveUrl, mediaType);
-    }
-    return arweaveUrl;
-  }
-
-  // For any other URLs, try to use CDN if available
-  if (CDN_CONFIG.baseUrl && (url.startsWith('http://') || url.startsWith('https://'))) {
-    return getCdnUrl(url, mediaType);
+    return toArweaveRawUrl(url.replace('ar://', '').split('/')[0]);
   }
 
   return url || fallbackUrl;
@@ -585,6 +527,58 @@ export const getMediaKey = (nft: UserNFT): string => {
 
 export const generateNewMediaKey = (): string => {
   return uuidv4();
+};
+
+const IMAGE_FALLBACK = '/default-nft.png';
+const AUDIO_FALLBACK = '/default-audio.mp3';
+const nftMediaUrlCache: Record<string, Record<string, string>> = {};
+
+/** Resolve an NFT image/audio URL, preferring a gateway that already worked. */
+export const getNftMediaUrl = (nft: UserNFT, mediaType: 'image' | 'audio'): string => {
+  if (!nft) {
+    return mediaType === 'image' ? IMAGE_FALLBACK : AUDIO_FALLBACK;
+  }
+
+  const cacheKey = `${nft.contract}-${nft.tokenId}`;
+  const cached = nftMediaUrlCache[cacheKey]?.[mediaType];
+  if (cached) return cached;
+
+  const mediaKey = getMediaKey(nft);
+  const remembered = getRememberedMediaUrl(mediaKey, mediaType);
+  if (remembered) {
+    if (!nftMediaUrlCache[cacheKey]) nftMediaUrlCache[cacheKey] = {};
+    nftMediaUrlCache[cacheKey][mediaType] = remembered;
+    return remembered;
+  }
+
+  const sourceUrl = mediaType === 'image'
+    ? nft.image || nft.metadata?.image || ''
+    : nft.audio || nft.metadata?.animation_url || '';
+
+  if (!sourceUrl) {
+    return mediaType === 'image' ? IMAGE_FALLBACK : AUDIO_FALLBACK;
+  }
+
+  const url = processMediaUrl(sourceUrl, mediaType === 'image' ? IMAGE_FALLBACK : AUDIO_FALLBACK, mediaType);
+  if (!nftMediaUrlCache[cacheKey]) nftMediaUrlCache[cacheKey] = {};
+  nftMediaUrlCache[cacheKey][mediaType] = url;
+  return url;
+};
+
+/** Warm the browser cache for an NFT's image (and audio via HEAD). */
+export const preloadNftMedia = (nft: UserNFT): void => {
+  if (!nft || typeof window === 'undefined') return;
+
+  const imageUrl = getNftMediaUrl(nft, 'image');
+  if (imageUrl && imageUrl !== IMAGE_FALLBACK) {
+    const imgPreload = new Image();
+    imgPreload.src = imageUrl;
+  }
+
+  const audioUrl = getNftMediaUrl(nft, 'audio');
+  if (audioUrl && audioUrl !== AUDIO_FALLBACK) {
+    fetch(audioUrl, { method: 'HEAD' }).catch(() => {});
+  }
 };
 
 export const validateMediaKey = (mediaKey: string): boolean => {
