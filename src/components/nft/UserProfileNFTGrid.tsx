@@ -2,6 +2,7 @@ import React from 'react';
 import { NFT } from '../../types/user';
 import { NFTCard } from './NFTCard';
 import { getMediaKey } from '../../utils/media';
+import { PAGE_SIZE, usePagedItems } from '../../hooks/usePagedItems';
 
 interface UserProfileNFTGridProps {
   nfts: NFT[];
@@ -12,6 +13,8 @@ interface UserProfileNFTGridProps {
   onLikeToggle?: (nft: NFT) => Promise<void>;
   isNFTLiked?: (nft: NFT) => boolean;
   userFid?: number;
+  scrollRoot?: HTMLElement | null;
+  resetKey?: string | number;
 }
 
 /**
@@ -26,31 +29,42 @@ export const UserProfileNFTGrid: React.FC<UserProfileNFTGridProps> = ({
   onLikeToggle,
   isNFTLiked,
   userFid,
+  scrollRoot,
+  resetKey,
 }) => {
-  return (
-    <div className="flex flex-wrap justify-center gap-4 pb-32">
-      {nfts.map((nft, index) => {
-        const mediaKey = getMediaKey(nft);
-        const uniqueKey = `user-profile-${mediaKey || `${nft.contract}-${nft.tokenId}`}-${index}`;
-        const staggerDelay = 0.05 * (index % 8);
+  const { visibleItems, hasMore, sentinelRef } = usePagedItems(nfts, {
+    pageSize: PAGE_SIZE,
+    resetKey: resetKey ?? userFid ?? '',
+    scrollRoot,
+  });
 
-        return (
-          <div key={uniqueKey} className="w-40 flex-shrink-0">
-            <NFTCard
-              nft={nft}
-              onPlay={async (nft) => onPlayNFT(nft)}
-              isPlaying={isPlaying}
-              currentlyPlaying={currentlyPlaying}
-              handlePlayPause={handlePlayPause}
-              onLikeToggle={onLikeToggle}
-              userFid={userFid?.toString()}
-              isNFTLiked={() => (isNFTLiked ? isNFTLiked(nft) : false)}
-              animationDelay={staggerDelay}
-              smallCard
-            />
-          </div>
-        );
-      })}
-    </div>
+  return (
+    <>
+      <div className="flex flex-wrap justify-center gap-4 pb-32">
+        {visibleItems.map((nft, index) => {
+          const mediaKey = getMediaKey(nft);
+          const uniqueKey = `user-profile-${mediaKey || `${nft.contract}-${nft.tokenId}`}-${index}`;
+          const staggerDelay = 0.05 * (index % 8);
+
+          return (
+            <div key={uniqueKey} className="w-40 flex-shrink-0">
+              <NFTCard
+                nft={nft}
+                onPlay={async (nft) => onPlayNFT(nft)}
+                isPlaying={isPlaying}
+                currentlyPlaying={currentlyPlaying}
+                handlePlayPause={handlePlayPause}
+                onLikeToggle={onLikeToggle}
+                userFid={userFid?.toString()}
+                isNFTLiked={() => (isNFTLiked ? isNFTLiked(nft) : false)}
+                animationDelay={staggerDelay}
+                smallCard
+              />
+            </div>
+          );
+        })}
+      </div>
+      {hasMore && <div ref={sentinelRef} className="h-8" aria-hidden="true" />}
+    </>
   );
 };

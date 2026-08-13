@@ -11,6 +11,7 @@ import { UserFidContext } from '../../app/providers';
 import NotificationHeader from '../NotificationHeader';
 import { useNFTNotification } from '../../context/NFTNotificationContext';
 import NFTNotification from '../NFTNotification';
+import { PAGE_SIZE, usePagedItems } from '../../hooks/usePagedItems';
 
 // Hardcoded list of FIDs for users who should have "thepod" badge
 const POD_MEMBER_FIDS = [15019, 7472, 14871, 414859, 235025, 892616, 323867, 892130];
@@ -48,6 +49,17 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
 
   // Track followed users for the search-results / recent-searches follow buttons
   const [followedUsers, setFollowedUsers] = useState<Record<number, boolean>>({});
+  const [scrollRoot, setScrollRoot] = useState<HTMLDivElement | null>(null);
+  const { visibleItems: visibleSearchResults, hasMore: hasMoreSearch, sentinelRef: searchSentinelRef } = usePagedItems(searchResults, {
+    pageSize: PAGE_SIZE,
+    resetKey: searchResults.map((user) => user.fid).join(','),
+    scrollRoot,
+  });
+  const { visibleItems: visibleRecentSearches, hasMore: hasMoreRecent, sentinelRef: recentSentinelRef } = usePagedItems(recentSearches, {
+    pageSize: PAGE_SIZE,
+    resetKey: recentSearches.map((user) => user.fid).join(','),
+    scrollRoot,
+  });
 
   if (isSearching) {
     return (
@@ -227,6 +239,7 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
       
       {/* Main content with adjusted padding */}
       <div 
+        ref={setScrollRoot}
         className={`space-y-8 pt-20 pb-48 overflow-y-auto overscroll-y-contain min-h-screen bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082] ${
           isPlaying ? 'h-[calc(100vh-130px)] md:h-[calc(100vh-150px)]' : 'h-screen'
         }`}
@@ -245,7 +258,7 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
               <div className="mt-8">
                 <h2 className="text-2xl font-semibold mb-4 font-mono text-green-400">Search Results</h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {searchResults.map((user) => (
+                  {visibleSearchResults.map((user) => (
                     <div
                       key={user.fid}
                       onClick={() => {
@@ -373,6 +386,7 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
                     </div>
                   ))}
                 </div>
+                {hasMoreSearch && <div ref={searchSentinelRef} className="h-8" aria-hidden="true" />}
               </div>
             ) : null}
 
@@ -383,7 +397,7 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
                   {effectiveUserFid ? "Recently Searched Users" : "Popular Users"}
                 </h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                  {recentSearches.map((user) => (
+                  {visibleRecentSearches.map((user) => (
                     <button
                       key={`recent-search-${user.fid}-${user.username}`}
                       onClick={async () => {
@@ -548,6 +562,7 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
                     </button>
                   ))}
                 </div>
+                {hasMoreRecent && <div ref={recentSentinelRef} className="h-8" aria-hidden="true" />}
               </div>
             )}
       </div>

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React from 'react';
 import type { NFT, UserContext } from '../../types/user';
 import { NFTImage } from '../media/NFTImage';
 import { NFTCard } from '../nft/NFTCard';
@@ -9,6 +9,7 @@ import Image from 'next/image';
 import NotificationHeader from '../NotificationHeader';
 import { useNFTNotification } from '../../context/NFTNotificationContext';
 import NFTNotification from '../NFTNotification';
+import { PAGE_SIZE, usePagedItems } from '../../hooks/usePagedItems';
 
 // This component is a wrapper that uses the hook and passes it to the class component
 const NotificationHandler = ({ nft, onTrigger }: { nft: NFT | null, onTrigger: () => void }) => {
@@ -126,8 +127,6 @@ class SimpleNFTCard extends React.Component<SimpleNFTCardProps> {
   }
 }
 
-const LIBRARY_PAGE_SIZE = 12;
-
 interface LibraryNFTFeedProps {
   nfts: NFT[];
   viewMode: 'grid' | 'list';
@@ -154,33 +153,11 @@ const LibraryNFTFeed: React.FC<LibraryNFTFeedProps> = ({
   onLikeToggle,
   parent,
 }) => {
-  const [visibleCount, setVisibleCount] = useState(() => Math.min(LIBRARY_PAGE_SIZE, nfts.length));
-  const sentinelRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    setVisibleCount(Math.min(LIBRARY_PAGE_SIZE, nfts.length));
-  }, [resetKey, nfts.length]);
-
-  const count = Math.min(visibleCount, nfts.length);
-  const visibleNFTs = nfts.slice(0, count);
-  const hasMore = count < nfts.length;
-
-  useEffect(() => {
-    const sentinel = sentinelRef.current;
-    const root = scrollRootRef.current;
-    if (!sentinel || !root || !hasMore) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting) {
-          setVisibleCount((prev) => Math.min(prev + LIBRARY_PAGE_SIZE, nfts.length));
-        }
-      },
-      { root, rootMargin: '600px 0px', threshold: 0 }
-    );
-    observer.observe(sentinel);
-    return () => observer.disconnect();
-  }, [hasMore, nfts.length, scrollRootRef]);
+  const { visibleItems: visibleNFTs, hasMore, sentinelRef } = usePagedItems(nfts, {
+    pageSize: PAGE_SIZE,
+    resetKey,
+    scrollRootRef,
+  });
 
   return (
     <>

@@ -5,6 +5,7 @@ import { subscribeToRecentPlays } from '../lib/firebase';
 import { logger } from '../utils/logger';
 import { NFTCard } from './nft/NFTCard';
 import { getMediaKey } from '../utils/media';
+import { usePagedItems } from '../hooks/usePagedItems';
 
 // Create a dedicated logger for this component
 const recentlyPlayedLogger = logger.getModuleLogger('RecentlyPlayed');
@@ -287,6 +288,34 @@ const RecentlyPlayed: React.FC<RecentlyPlayedProps> = ({
     });
   }, [localRecentlyPlayed, firebaseRecentlyPlayed]);
 
+  const uniqueRecentlyPlayedNFTs = useMemo(() => {
+    return validRecentlyPlayedNFTs.filter((nft, index, self) => {
+      const mediaKey = nft.mediaKey || getMediaKey(nft);
+      if (!mediaKey) {
+        recentlyPlayedLogger.warn('NFT missing mediaKey, using fallback deduplication:', nft.name);
+        const key = nft.contract && nft.tokenId ?
+          `${nft.contract}-${nft.tokenId}`.toLowerCase() : null;
+        return key ? index === self.findIndex(n =>
+          n.contract && n.tokenId &&
+          `${n.contract}-${n.tokenId}`.toLowerCase() === key
+        ) : true;
+      }
+
+      return index === self.findIndex(n => {
+        const nMediaKey = n.mediaKey || getMediaKey(n);
+        return nMediaKey === mediaKey;
+      });
+    });
+  }, [validRecentlyPlayedNFTs]);
+
+  const [scrollRoot, setScrollRoot] = useState<HTMLDivElement | null>(null);
+  const { visibleItems, hasMore, sentinelRef } = usePagedItems(uniqueRecentlyPlayedNFTs, {
+    pageSize: 6,
+    resetKey: `${userFid}:${uniqueRecentlyPlayedNFTs[0] ? (uniqueRecentlyPlayedNFTs[0].mediaKey || getMediaKey(uniqueRecentlyPlayedNFTs[0])) : ''}:${uniqueRecentlyPlayedNFTs.length}`,
+    scrollRoot,
+    rootMargin: '0px 400px',
+  });
+
   // Handle empty state
   // Handle empty state
   if (isLoading) {
@@ -321,38 +350,13 @@ if (validRecentlyPlayedNFTs.length === 0) {
         <div className="mb-6">
           <h2 className="text-xl font-mono text-green-400 mb-4">Recently Played</h2>
           <div className="relative">
-            <div className="overflow-x-auto pb-4 hide-scrollbar">
+            <div className="overflow-x-auto pb-4 hide-scrollbar" ref={setScrollRoot}>
               <div className="flex gap-6">
-                {/* Deduplicate NFTs based on mediaKey - this is CRITICAL for the app's functionality */}
-                {validRecentlyPlayedNFTs
-                  .filter((nft, index, self) => {
-                    // Always generate or use existing mediaKey for comparison
-                    const mediaKey = nft.mediaKey || getMediaKey(nft);
-                    if (!mediaKey) {
-                      recentlyPlayedLogger.warn('NFT missing mediaKey, using fallback deduplication:', nft.name);
-                      // Fallback to contract-tokenId if no mediaKey available
-                      const key = nft.contract && nft.tokenId ? 
-                        `${nft.contract}-${nft.tokenId}`.toLowerCase() : null;
-                      return key ? index === self.findIndex(n => 
-                        n.contract && n.tokenId && 
-                        `${n.contract}-${n.tokenId}`.toLowerCase() === key
-                      ) : true; // Keep items without any identifiers
-                    }
-                    
-                    // Primary deduplication using mediaKey (content-based)
-                    return index === self.findIndex(n => {
-                      const nMediaKey = n.mediaKey || getMediaKey(n);
-                      return nMediaKey === mediaKey;
-                    });
-                  })
-                  .map((nft, index) => {
-                  // CRITICAL: Generate unique React key while maintaining mediaKey as primary identifier
-                  // We use a combination of mediaKey (for content identity) and index (for React list stability)
+                {visibleItems.map((nft, index) => {
                   const mediaKey = nft.mediaKey || getMediaKey(nft);
-                  // Use a combination of mediaKey (truncated) and index to ensure uniqueness
                   const uniqueKey = mediaKey
                     ? `recent-${mediaKey.substring(0, 8)}-${index}`
-                    : `recent-fallback-${index}-${Math.random().toString(36).substring(2, 9)}`;
+                    : `recent-fallback-${index}`;
                   
                   return (
                     <div key={uniqueKey} className="flex-shrink-0 w-[150px]"> {/* Changed from w-[200px] to w-[150px] */}
@@ -361,9 +365,8 @@ if (validRecentlyPlayedNFTs.length === 0) {
                         onPlay={async () => {
                           recentlyPlayedLogger.debug(`Play button clicked for NFT in Recently Played: ${nft.name}`);
                           try {
-                            // Directly call onPlayNFT with the NFT and context
                             await onPlayNFT(nft, {
-                              queue: validRecentlyPlayedNFTs,
+                              queue: uniqueRecentlyPlayedNFTs,
                               queueType: 'recentlyPlayed'
                             });
                           } catch (error) {
@@ -379,11 +382,10 @@ if (validRecentlyPlayedNFTs.length === 0) {
                         animationDelay={0.2 + (index * 0.05)}
                         smallCard={true} // Position heart icon properly for smaller cards
                       />
-                      {/* Remove this line that was causing the double title: */}
-                      {/* <h3 className="font-mono text-white text-xs truncate mt-2">{nft.name}</h3> */}
                     </div>
                   );
-                  })}
+                })}
+                {hasMore && <div ref={sentinelRef} className="flex-shrink-0 w-8 h-8" aria-hidden="true" />}
               </div>
             </div>
           </div>

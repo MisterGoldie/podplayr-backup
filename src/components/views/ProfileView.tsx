@@ -102,6 +102,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({
   const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [scrollRoot, setScrollRoot] = useState<HTMLDivElement | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const { backgroundImage, profileImage, setBackgroundImage } = useUserImages();
   const [showSuccessBanner, setShowSuccessBanner] = useState(false);
@@ -438,6 +439,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({
         />
       )}
       <div 
+        ref={setScrollRoot}
         className="space-y-8 pt-20 pb-48 overflow-y-auto h-screen overscroll-y-contain min-h-screen bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082]"
       >
         {/* Profile Header */}
@@ -672,6 +674,8 @@ const ProfileView: React.FC<ProfileViewProps> = ({
               onLikeToggle={onLikeToggle}
               isNFTLiked={(nft: NFT) => likedNFTs.some(likedNFT => likedNFT.id === nft.id)}
               userFid={farcasterContext?.user?.fid}
+              scrollRoot={scrollRoot}
+              resetKey={farcasterContext?.user?.fid}
             />
           ) : (
             <div className="text-center py-12">

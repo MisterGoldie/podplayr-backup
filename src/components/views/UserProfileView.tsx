@@ -89,6 +89,7 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
 
   // Track previous user FID to detect changes
   const prevUserFidRef = useRef<number | null>(null);
+  const [scrollRoot, setScrollRoot] = useState<HTMLDivElement | null>(null);
   
   // Add loading state for user data
   const [isUserStatsLoading, setIsUserStatsLoading] = useState<boolean>(false);
@@ -358,7 +359,7 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
           </div>
         </div>
       )}
-      <div className="space-y-8 pt-16 pb-48 overflow-y-auto h-screen overscroll-y-contain">
+      <div ref={setScrollRoot} className="space-y-8 pt-16 pb-48 overflow-y-auto h-screen overscroll-y-contain">
         {/* Profile Header with Back Button */}
         <div 
           className="border-b border-purple-500/20 shadow-md relative" 
@@ -564,13 +565,6 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
             </div>
           ) : nfts.length > 0 && filteredNFTs.length > 0 ? (
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {/* Custom styling to hide the "All X NFTs loaded" message */}
-              <style jsx global>{`
-                .grid > .col-span-full:last-child {
-                  display: none;
-                }
-              `}</style>
-              
               <VirtualizedNFTGrid 
                 nfts={filteredNFTs}
                 onPlayNFT={(nft: NFT) => {
@@ -589,6 +583,8 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
                 onLikeToggle={onLikeToggle}
                 userFid={currentUserFid}
                 publicCollections={[]}
+                scrollRoot={scrollRoot}
+                resetKey={user?.fid}
               />
             </div>
           ) : nfts.length > 0 && filteredNFTs.length === 0 ? (
