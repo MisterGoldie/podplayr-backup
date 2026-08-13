@@ -430,7 +430,21 @@ export const searchUsers = async (query: string): Promise<FarcasterUser[]> => {
         );
         
         const data = await response.json();
-        return data.users || [];
+        return (data.users || []).map((user: any) => ({
+          fid: user.fid,
+          username: user.username,
+          display_name: user.display_name || user.username || '',
+          pfp_url: user.pfp_url || '',
+          follower_count: user.follower_count || 0,
+          following_count: user.following_count || 0,
+          custody_address: user.custody_address || undefined,
+          verified_addresses: user.verified_addresses,
+          profile: {
+            bio: typeof user.profile?.bio === 'string'
+              ? user.profile.bio
+              : user.profile?.bio?.text || '',
+          },
+        }));
       }
       
       return [];
@@ -537,6 +551,36 @@ export const searchUsers = async (query: string): Promise<FarcasterUser[]> => {
     }));
   } catch (error) {
     firebaseLogger.error('Error searching users:', error);
+    return [];
+  }
+};
+
+export const getPopularSearchedUsers = async (limitCount = 12): Promise<SearchedUser[]> => {
+  try {
+    const searchRef = collection(db, 'searchedusers');
+    const popularQuery = firestoreQuery(
+      searchRef,
+      orderBy('searchCount', 'desc'),
+      limit(limitCount)
+    );
+    const snapshot = await getDocs(popularQuery);
+    return snapshot.docs
+      .map((docSnap) => {
+        const data = docSnap.data() as Record<string, any>;
+        return {
+          fid: data.fid as number,
+          username: data.username as string,
+          display_name: (data.display_name as string) || (data.username as string),
+          pfp_url: data.pfp_url as string,
+          follower_count: (data.follower_count as number) || 0,
+          following_count: (data.following_count as number) || 0,
+          searchCount: (data.searchCount as number) || 0,
+          isENS: Boolean(data.isENS),
+        } as SearchedUser;
+      })
+      .filter((user) => Boolean(user.fid) && Boolean(user.username));
+  } catch (error) {
+    firebaseLogger.warn('Error getting popular searched users:', error);
     return [];
   }
 };

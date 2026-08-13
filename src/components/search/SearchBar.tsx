@@ -1,17 +1,12 @@
 import { useState, useEffect, useContext } from 'react';
 import Image from 'next/image';
 import { FarcasterUser } from '../../types/user';
-import { ENSUser, createENSUser } from '../../types/ens';
+import { createENSUser } from '../../types/ens';
 import { UserFidContext } from '../../app/providers';
-import { trackUserSearch, trackENSUserSearch } from '../../lib/firebase';
+import { trackENSUserSearch } from '../../lib/firebase';
 import { resolveEnsAddress, getEnsProfile } from '../../lib/ens';
 import { logger } from '../../utils/logger';
-
-// Hardcoded list of FIDs for users who should have "thepod" badge
-const POD_MEMBER_FIDS = [15019, 7472, 14871, 414859, 892616, 892130];
-
-// PODPLAYR official account FID
-const PODPLAYR_OFFICIAL_FID = 1014485;
+import { isAcylMember, isOfficialAccount, isPodMember } from '../../constants/community';
 
 interface SearchBarProps {
   onSearch: (username: string) => void;
@@ -40,8 +35,6 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onSearch, isSearching, han
 
       try {
         if (isEnsSearch) {
-          // Handle ENS search
-          console.log(`🌐 ENS SEARCH: "${username}"`);
           const address = await resolveEnsAddress(username);
           
           if (address) {
@@ -75,7 +68,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onSearch, isSearching, han
           setSuggestions([]);
         }
       } catch (err) {
-        console.error('Search error:', err);
+        logger.error('Search error:', err);
         setSuggestions([]);
       }
     };
@@ -96,21 +89,12 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onSearch, isSearching, han
       const isEnsName = query.toLowerCase().endsWith('.eth');
       
       if (isEnsName) {
-        console.log(`🌐 SUBMITTING ENS NAME SEARCH: "${query}"`);
-        logger.info(`SearchBar submitting ENS name search: ${query}`);
-        
         try {
-          // Try to resolve the ENS name to an Ethereum address
           const address = await resolveEnsAddress(query);
-          console.log(`🔗 ENS RESOLUTION RESULT (SUBMIT):`, { name: query, address });
           
           if (address) {
-            // Use dynamic import to load only when needed
             const { searchUsersByAddress } = await import('../../lib/firebase');
-            
-            // Get Farcaster users with this address
             const farcasterUsers = await searchUsersByAddress(address);
-            console.log(`👥 FARCASTER ADDRESS SEARCH RESULTS (SUBMIT):`, { count: farcasterUsers.length });
             
             if (farcasterUsers.length === 1) {
               // If there's exactly one user, select it directly
@@ -124,9 +108,6 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onSearch, isSearching, han
                 const ensProfile = await getEnsProfile(query);
                 if (ensProfile) {
                   const ensUser = createENSUser(ensProfile);
-                  console.log(`✅ Created ENS user for direct selection:`, ensUser);
-                  
-                  // Track the ENS user search in Firebase
                   try {
                     await trackENSUserSearch(
                       query,
@@ -146,15 +127,13 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onSearch, isSearching, han
                   }
                 }
               } catch (ensError) {
-                console.log(`⚠️ Error creating ENS user on submit:`, ensError);
-                // Fall through to regular search
+                logger.error('Error creating ENS user on submit:', ensError);
               }
             }
             // If we have multiple users or couldn't create ENS user, continue with search
           }
         } catch (error) {
-          console.error('Error processing ENS search:', error);
-          // Fall through to regular search
+          logger.error('Error processing ENS search:', error);
         }
       }
       
@@ -167,11 +146,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onSearch, isSearching, han
     setUsername(''); // Clear the input field
     setSuggestions([]); // Clear suggestions
     
-    console.log('=== HANDLING SUGGESTION CLICK ===', suggestion);
-    
-    // Check if this is an ENS user that needs to be tracked
     if (suggestion.isENS && 'ensName' in suggestion) {
-      console.log(`🌐 TRACKING ENS USER SELECTION: ${suggestion.ensName}`);
       
       try {
         // Get the ENS address
@@ -203,35 +178,42 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onSearch, isSearching, han
   };
 
   return (
-    <div className="w-full max-w-[90vw] mx-auto text-center">
-      <div className="relative mt-4">
+    <form onSubmit={handleSubmit} className="w-full max-w-[90vw] mx-auto text-center relative">
+      <div className="relative mt-1">
+        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-purple-300/70 pointer-events-none">
+          <svg xmlns="http://www.w3.org/2000/svg" height="20" viewBox="0 -960 960 960" width="20" fill="currentColor" aria-hidden="true">
+            <path d="M784-120 532-372q-30 24-69 38t-83 14q-109 0-184.5-75.5T120-580q0-109 75.5-184.5T380-840q109 0 184.5 75.5T640-580q0 44-14 83t-38 69l252 252-56 56ZM380-400q75 0 127.5-52.5T560-580q0-75-52.5-127.5T380-760q-75 0-127.5 52.5T200-580q0 75 52.5 127.5T380-400Z"/>
+          </svg>
+        </span>
         <input
           type="text"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
-          placeholder="Search Farcaster users or ENS names"
-          className="w-full px-4 py-3 bg-transparent border-2 border-green-400/30 
-                   rounded-full text-green-400 placeholder-green-400/50 
-                   focus:outline-none focus:border-green-400 
-                   transition-all duration-300 font-mono text-base"
+          placeholder="Search @username or name.eth"
+          className="w-full pl-11 pr-4 py-3 bg-black/40 border border-purple-400/30 
+                   rounded-full text-white placeholder-white/40 
+                   focus:outline-none focus:border-purple-400 
+                   transition-all duration-300 text-base"
           disabled={isSearching}
+          autoComplete="off"
+          enterKeyHint="search"
         />
       </div>
 
-      {/* Suggestions dropdown */}
       {suggestions.length > 0 && (
-        <div className="absolute left-0 right-0 mt-1 mx-4 bg-gray-900/90 backdrop-blur-sm rounded-lg border border-green-400/30 max-h-60 overflow-y-auto z-10">
+        <div className="absolute left-0 right-0 mt-2 bg-gray-950/95 backdrop-blur-md rounded-2xl border border-purple-400/25 max-h-60 overflow-y-auto z-20 shadow-xl shadow-purple-900/30">
           {suggestions.map((suggestion) => (
             <button
               key={suggestion.fid}
+              type="button"
               onClick={(e) => {
-                e.preventDefault(); // Prevent any default behavior
-                e.stopPropagation(); // Stop event bubbling
+                e.preventDefault();
+                e.stopPropagation();
                 handleSuggestionClick(suggestion);
               }}
-              className="w-full px-4 py-2 flex items-center gap-3 hover:bg-green-400/10 text-left transition-colors"
+              className="w-full px-4 py-2.5 flex items-center gap-3 active:bg-purple-500/10 text-left"
             >
-              <div className="w-10 h-10 rounded-full overflow-hidden flex-shrink-0 relative">
+              <div className="w-10 h-10 rounded-full overflow-hidden flex-shrink-0 relative bg-purple-900/40">
                 <Image
                   src={suggestion.pfp_url || `https://avatar.vercel.sh/${suggestion.username}`}
                   alt={suggestion.display_name || suggestion.username || 'User avatar'}
@@ -244,28 +226,28 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onSearch, isSearching, han
                   }}
                 />
               </div>
-              <div className="flex-1">
-                <div className="font-medium text-green-400">{suggestion.display_name || suggestion.username}</div>
-                <div className="text-sm text-gray-400">@{suggestion.username}</div>
-                {/* Badges row */}
+              <div className="flex-1 min-w-0">
+                <div className="font-medium text-white truncate">{suggestion.display_name || suggestion.username}</div>
+                <div className="text-sm text-white/50 truncate">
+                  {suggestion.isENS ? suggestion.username : `@${suggestion.username}`}
+                </div>
                 <div className="flex items-center gap-2 mt-1">
-                  {POD_MEMBER_FIDS.includes(suggestion.fid) && (
-                    <span className="text-xs font-mono px-2 py-0.5 bg-purple-500/20 text-purple-400 rounded-full flex items-center">
+                  {isPodMember(suggestion.fid) && (
+                    <span className="text-[10px] px-2 py-0.5 bg-purple-500/20 text-purple-300 rounded-full">
                       thepod
                     </span>
                   )}
-                  {suggestion.fid === PODPLAYR_OFFICIAL_FID && (
-                    <span className="text-xs font-mono px-2 py-0.5 bg-purple-800/40 text-purple-300 rounded-full flex items-center font-semibold">
+                  {isOfficialAccount(suggestion.fid) && (
+                    <span className="text-[10px] px-2 py-0.5 bg-purple-800/40 text-purple-200 rounded-full">
                       Official
                     </span>
                   )}
-                  {[7472, 14871, 414859, 356115, 296462, 195864, 1020224, 1020659].includes(suggestion.fid) && (
-                    <span className="text-xs font-mono px-2 py-0.5 rounded-full flex items-center font-semibold" 
-                          style={{ 
-                            background: 'linear-gradient(90deg, rgba(255,0,0,0.2) 0%, rgba(255,154,0,0.2) 25%, rgba(208,222,33,0.2) 50%, rgba(79,220,74,0.2) 75%, rgba(63,218,216,0.2) 100%)', 
-                            color: '#f0f0f0',
-                            textShadow: '0 0 2px rgba(0,0,0,0.5)'
-                          }}>
+                  {isAcylMember(suggestion.fid) && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full text-white/90"
+                      style={{
+                        background: 'linear-gradient(90deg, rgba(255,0,0,0.25) 0%, rgba(255,154,0,0.25) 40%, rgba(79,220,74,0.25) 100%)',
+                      }}
+                    >
                       ACYL
                     </span>
                   )}
@@ -275,6 +257,6 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onSearch, isSearching, han
           ))}
         </div>
       )}
-    </div>
+    </form>
   );
 };
