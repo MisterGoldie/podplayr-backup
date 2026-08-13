@@ -1,7 +1,5 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
-import { usePlayerState } from './hooks/usePlayerState';
 import { NFTImage } from '../media/NFTImage';
-// PlaybackButton is already imported below - removing duplicate import
 import { processMediaUrl, getMediaKey, formatTime, safeProgressPercent, getDisplayTimes, preloadNftMedia } from '../../utils/media';
 import { applyPlaybackPlanToNft, getNftPlaybackPlan, mediaUrlNeedsMimeProbe, resolveNftPlaybackPlan } from '../../utils/isMediaNFT';
 import type { NFT } from '../../types/user';

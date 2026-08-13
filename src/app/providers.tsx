@@ -7,6 +7,7 @@ import { VideoPlayProvider } from '../contexts/VideoPlayContext';
 import { NFTNotificationProvider } from '../context/NFTNotificationContext';
 import { PlayerProvider } from '../contexts/PlayerContext';
 import { useMiniKit } from '@coinbase/onchainkit/minikit';
+import { Toaster } from 'react-hot-toast';
 
 // Create a context for the user's Farcaster ID
 export const UserFidContext = createContext<{
@@ -256,8 +257,18 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
         <VideoPlayProvider>
           <PlayerProvider fid={fid}>
             <NFTNotificationProvider>
-              {/* Remove ConnectionProvider wrapper */}
               {children}
+              <Toaster
+                position="top-center"
+                toastOptions={{
+                  style: {
+                    background: '#1a1a1a',
+                    color: '#fff',
+                    borderRadius: '8px',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                  },
+                }}
+              />
             </NFTNotificationProvider>
           </PlayerProvider>
         </VideoPlayProvider>

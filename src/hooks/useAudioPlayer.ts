@@ -70,8 +70,6 @@ declare global {
 
 export interface UseAudioPlayerProps {
   fid?: number;
-  setRecentlyPlayedNFTs?: React.Dispatch<React.SetStateAction<NFT[]>>;
-  recentlyAddedNFT?: React.MutableRefObject<string | null>;
 }
 
 type UseAudioPlayerReturn = {
@@ -96,7 +94,7 @@ type AudioPlayerHandles = {
   timeupdate: () => void;
 }
 
-export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNFT }: UseAudioPlayerProps = {}): UseAudioPlayerReturn => {
+export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioPlayerReturn => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentPlayingNFT, setCurrentPlayingNFT] = useState<NFT | null>(null);
   const [currentlyPlaying, setCurrentlyPlaying] = useState<string | null>(null);
@@ -446,12 +444,8 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
 
     setCurrentPlayingNFT(nft);
     setCurrentlyPlaying(`${nft.contract}-${nft.tokenId}`);
-    
-    // Make sure the NFT has mediaKey for proper deduplication
+
     const mediaKey = mediaKeyForMemory;
-    if (recentlyAddedNFT) {
-      recentlyAddedNFT.current = mediaKey;
-    }
     recordRecentPlay(nft, fid).catch((error) => {
       audioLogger.error('Error recording recent play:', error);
     });
@@ -754,7 +748,7 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
         // ignore
       }
     }
-  }, [currentlyPlaying, handlePlayPause, fid, setRecentlyPlayedNFTs, recentlyAddedNFT]);
+  }, [currentlyPlaying, handlePlayPause, fid]);
   
   // Now define handlePlayNext and handlePlayPrevious which use handlePlayAudio
   const skipInQueue = useCallback(async (direction: 1 | -1) => {

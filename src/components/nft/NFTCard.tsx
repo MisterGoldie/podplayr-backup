@@ -50,16 +50,9 @@ const NFTCardInner: React.FC<NFTCardProps> = ({
   // Use the NFT like hook
   const { handleLike, handleUnlike } = useNFTLike({
     onLikeToggle: onLikeToggle || (async () => {
-      // If no onLikeToggle is provided, use the default behavior
       if (!fid) return;
       await toggleLike();
     }),
-    setIsLiked: (liked) => {
-      // Update the local state if needed
-      if (isNFTLiked) {
-        isNFTLiked();
-      }
-    }
   });
 
   const rawImageUrl = nft.image || nft.metadata?.image || '';

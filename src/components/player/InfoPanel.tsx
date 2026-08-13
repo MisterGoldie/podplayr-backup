@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNFTPlayCount } from '../../hooks/useNFTPlayCount';
-import { useNFTLikes } from '../../hooks/useNFTLikes';
+import { useNFTLikeState } from '../../hooks/useNFTLikeState';
 import { useNFTTopPlayed } from '../../hooks/useNFTTopPlayed';
 import type { NFT } from '../../types/user';
 import { getMediaKey } from '../../utils/media';
@@ -48,7 +48,10 @@ function isSimpleValue(value: unknown): value is string | number | boolean {
 
 const InfoPanel: React.FC<InfoPanelProps> = ({ nft, onClose, isLiked = false }) => {
   const { playCount, loading, realCountIncrease } = useNFTPlayCount(nft);
-  const { likesCount, isLoading: likesLoading } = useNFTLikes(nft);
+  const { likesCount, isLoading: likesLoading } = useNFTLikeState(nft, null, {
+    watchIsLiked: false,
+    liveCount: true,
+  });
   const { hasBeenInTopPlayed, loading: topPlayedLoading } = useNFTTopPlayed(nft);
   const [isClosing, setIsClosing] = useState(false);
   const [isPlayCountAnimating, setIsPlayCountAnimating] = useState(false);

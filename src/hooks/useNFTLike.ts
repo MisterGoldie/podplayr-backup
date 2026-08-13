@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useCallback } from 'react';
 import type { NFT } from '../types/user';
 import { useNFTNotification } from '../context/NFTNotificationContext';
 
@@ -8,20 +8,13 @@ interface UseNFTLikeProps {
 }
 
 export const useNFTLike = ({ onLikeToggle, setIsLiked }: UseNFTLikeProps) => {
-  const [nftToNotify, setNftToNotify] = useState<NFT | null>(null);
   const nftNotification = useNFTNotification();
 
   const handleUnlike = useCallback(async (nft: NFT) => {
     try {
       await onLikeToggle(nft);
-      // Show notification
       nftNotification.showNotification('unlike', nft);
-      // Reset notification state
-      setNftToNotify(null);
-      // Update liked state if setter is provided
-      if (setIsLiked) {
-        setIsLiked(false);
-      }
+      setIsLiked?.(false);
     } catch (error) {
       console.error('Error unliking NFT:', error);
     }
@@ -30,12 +23,8 @@ export const useNFTLike = ({ onLikeToggle, setIsLiked }: UseNFTLikeProps) => {
   const handleLike = useCallback(async (nft: NFT) => {
     try {
       await onLikeToggle(nft);
-      // Show notification
       nftNotification.showNotification('like', nft);
-      // Update liked state if setter is provided
-      if (setIsLiked) {
-        setIsLiked(true);
-      }
+      setIsLiked?.(true);
     } catch (error) {
       console.error('Error liking NFT:', error);
     }
@@ -44,7 +33,5 @@ export const useNFTLike = ({ onLikeToggle, setIsLiked }: UseNFTLikeProps) => {
   return {
     handleLike,
     handleUnlike,
-    nftToNotify,
-    setNftToNotify
   };
-}; 
+};

@@ -1,15 +1,6 @@
 import { useState, useEffect } from 'react';
 import { getFirestore, collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
 import type { NFT } from '../types/user';
-import { v4 as uuidv4 } from 'uuid';
-
-// Generate a unique, random media key for each NFT
-// Remove lines 7-9:
-// const getMediaKey = (nft: NFT): string => {
-//   return uuidv4();
-// };
-
-// Add import:
 import { getMediaKey } from '../utils/media';
 
 export const useTopPlayedNFTs = () => {

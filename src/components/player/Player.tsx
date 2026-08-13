@@ -1,6 +1,6 @@
 // Remove this line:
 // 'use client';
-import React, { useContext, useRef, useEffect, useState } from 'react';
+import React, { useContext, useEffect, useState } from 'react';
 import { MinimizedPlayer } from './MinimizedPlayer';
 import { MaximizedPlayer } from './MaximizedPlayer';
 import type { NFT } from '../../types/user';
@@ -39,18 +39,9 @@ export const Player: React.FC<PlayerProps> = ({
   onPictureInPicture,
   userFid: propUserFid
 }) => {
-  const contextUserFid = useContext(UserFidContext);
-  const userFid = propUserFid ?? contextUserFid ?? 0;
+  const { fid: contextFid } = useContext(UserFidContext);
+  const userFid = propUserFid ?? contextFid ?? 0;
 
-  // REMOVE this useNFTQueue hook - we should use the props instead
-  // const { handlePlayNext, handlePlayPrevious } = useNFTQueue({
-  //   onPlayNFT: async (nextNft: NFT) => {
-  //     // This will be handled by the parent component
-  //     console.log('Playing next NFT:', nextNft.name);
-  //   }
-  // });
-
-  // Simplified minimize toggle that doesn't interfere with audio
   const handleMinimizeToggle = () => {
     onMinimizeToggle();
   };

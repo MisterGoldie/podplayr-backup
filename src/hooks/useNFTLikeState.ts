@@ -46,7 +46,7 @@ export const useNFTLikeState = (
   const isSubscribedRef = useRef<boolean>(false);
 
   useEffect(() => {
-    if (!nft || !fid) {
+    if (!nft) {
       setIsLiked(false);
       setLikesCount(0);
       setIsLoading(false);
@@ -60,9 +60,8 @@ export const useNFTLikeState = (
     const db = getFirestore();
     let cancelled = false;
 
-    // Canonical user like: users/{fid}/likes/{mediaKey}
     let unsubscribeUserLike: Unsubscribe | null = null;
-    if (watchIsLiked) {
+    if (watchIsLiked && fid) {
       unsubscribeUserLike = onSnapshot(
         doc(db, 'users', String(fid), 'likes', mediaKey),
         (snap) => {

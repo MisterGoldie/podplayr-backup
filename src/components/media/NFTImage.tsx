@@ -3,7 +3,6 @@ import { processMediaUrl, IPFS_GATEWAYS, isAudioUrlUsedAsImage, getCleanIPFSUrl,
 import Image from 'next/image';
 import type { SyntheticEvent } from 'react';
 import type { NFT } from '../../types/user';
-import { useNFTPreloader } from '../../hooks/useNFTPreloader';
 import { logger } from '../../utils/logger';
 import { markNftMediaDead } from '../../utils/deadNftRegistry';
 import { rememberWorkingMediaUrl, forgetMediaUrl, getRememberedMediaUrl } from '../../utils/gatewayMemory';
