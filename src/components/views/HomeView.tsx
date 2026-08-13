@@ -13,7 +13,6 @@ import { getMediaKey } from '../../utils/media';
 import { useFarcasterContext } from '~/app/providers';
 import NotificationHeader from '../NotificationHeader';
 import NFTNotification from '../NFTNotification';
-import { useNFTNotification } from '../../context/NFTNotificationContext';
 import { logger } from '~/utils/logger';
 import { UserFidContext } from '~/app/providers'; // ✅ Use the correct context
 
@@ -51,9 +50,6 @@ const HomeView: React.FC<HomeViewProps> = ({
   currentPlayingNFT,
   recentlyAddedNFT,
 }) => {
-  // Get NFT notification context (use directly for instant notifications)
-  const { showNotification } = useNFTNotification();
-
   // Initialize featured NFTs once per session
   useEffect(() => {
     const initializeFeaturedNFTs = async () => {
@@ -113,29 +109,6 @@ const HomeView: React.FC<HomeViewProps> = ({
     }
     
     return false;
-  };
-
-  // Create a wrapper for the existing like function that shows notification IMMEDIATELY
-  const handleNFTLike = async (nft: NFT): Promise<void> => {
-    // Check if the NFT is already liked BEFORE toggling
-    const wasLiked = checkDirectlyLiked(nft);
-    
-    // Show notification with a small delay to sync with heart icon animation
-    // This ensures the notification appears after the heart turns red
-    const notificationType = !wasLiked ? 'like' : 'unlike';
-    
-    // Add a small delay (150ms) to match the heart animation timing
-    setTimeout(() => {
-      showNotification(notificationType, nft);
-    }, 150); // Timing synchronized with heart icon animation
-    
-    // Call the original like function to toggle the status in the background
-    // Don't await this - let it happen in the background while notification shows
-    if (onLikeToggle) {
-      onLikeToggle(nft).catch(error => {
-        console.error('Error toggling like status:', error);
-      });
-    }
   };
 
   if (isLoading) {
@@ -248,7 +221,7 @@ const HomeView: React.FC<HomeViewProps> = ({
                               isPlaying={currentlyPlaying === nft.contract + '-' + nft.tokenId}
                               currentlyPlaying={currentlyPlaying}
                               handlePlayPause={handlePlayPause}
-                              onLikeToggle={() => handleNFTLike(nft)}
+                              onLikeToggle={onLikeToggle}
                               userFid={(fid ?? 0).toString()}
                               isNFTLiked={() => checkDirectlyLiked(nft)}
                               animationDelay={index * 0.1}
@@ -271,7 +244,7 @@ const HomeView: React.FC<HomeViewProps> = ({
             handlePlayPause={handlePlayPause}
             currentlyPlaying={currentlyPlaying}
             isPlaying={isPlaying}
-            onLikeToggle={handleNFTLike}
+            onLikeToggle={onLikeToggle}
             isNFTLiked={checkDirectlyLiked}
             userFid={(fid ?? 0).toString()}
           />

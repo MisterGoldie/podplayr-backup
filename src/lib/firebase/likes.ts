@@ -592,9 +592,6 @@ const debugLike = (message: string, data: any = {}) => {
 
 // Modified to support both Farcaster IDs and wallet addresses for Privy users
 export const toggleLikeNFT = async (nft: NFT, fidOrWalletAddress: number | string, forceUnlike: boolean = false): Promise<boolean> => {
-  // Force debugger to pause at the start of toggleLikeNFT
-  debugger; // This will pause execution in Chrome DevTools
-  
   // EXTREME UNMISSABLE CONSOLE LOGS
   console.error('🔴🔴🔴 FIREBASE LIKES.TS: toggleLikeNFT FUNCTION STARTED 🔴🔴🔴');
   console.error('📌 NFT:', {
@@ -840,7 +837,7 @@ export const toggleLikeNFT = async (nft: NFT, fidOrWalletAddress: number | strin
       
       if (globalLikeDoc.exists()) {
         const globalData = globalLikeDoc.data();
-        const currentCount = globalData?.likeCount || 1;
+        const currentCount = typeof globalData?.likeCount === 'number' ? globalData.likeCount : 0;
         console.log('🌐 Global:', { count: currentCount });
         
         if (currentCount <= 1) {
@@ -849,7 +846,7 @@ export const toggleLikeNFT = async (nft: NFT, fidOrWalletAddress: number | strin
         } else {
           console.log('⬇️ Count--:', { key: mediaKey.slice(0, 8), new: currentCount - 1 });
           batch.update(globalLikeRef, {
-            likeCount: currentCount - 1,
+            likeCount: increment(-1),
             lastUnliked: serverTimestamp()
           });
         }

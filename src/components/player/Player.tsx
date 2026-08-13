@@ -5,9 +5,6 @@ import { MinimizedPlayer } from './MinimizedPlayer';
 import { MaximizedPlayer } from './MaximizedPlayer';
 import type { NFT } from '../../types/user';
 import { UserFidContext } from '../../app/providers';
-import { useNFTLikeState } from '../../hooks/useNFTLikeState';
-import { isPlaybackActive } from '../../utils/media';
-import { useNFTQueue } from './hooks/useNFTQueue';
 
 interface PlayerProps {
   nft: NFT;
@@ -44,9 +41,6 @@ export const Player: React.FC<PlayerProps> = ({
 }) => {
   const contextUserFid = useContext(UserFidContext);
   const userFid = propUserFid ?? contextUserFid ?? 0;
-  
-  // Fix: useNFTLikeState expects (nft, fid) parameters, not an object
-  const { isLiked: nftIsLiked, toggleLike } = useNFTLikeState(nft, typeof userFid === 'number' ? userFid : null);
 
   // REMOVE this useNFTQueue hook - we should use the props instead
   // const { handlePlayNext, handlePlayPrevious } = useNFTQueue({

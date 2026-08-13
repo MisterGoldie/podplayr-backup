@@ -34,6 +34,7 @@ interface ProfileViewProps {
   onReset: () => void;
   onNFTsLoaded: (nfts: NFT[]) => void;
   onLikeToggle: (nft: NFT) => Promise<void>;
+  isNFTLiked?: (nft: NFT) => boolean;
   onUserProfileClick?: (user: FarcasterUser) => void;
 }
 
@@ -93,6 +94,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({
   onReset,
   onNFTsLoaded,
   onLikeToggle,
+  isNFTLiked: isNFTLikedProp,
   onUserProfileClick
 }) => {
   const [likedNFTs, setLikedNFTs] = useState<NFT[]>([]);
@@ -672,7 +674,11 @@ const ProfileView: React.FC<ProfileViewProps> = ({
                 handlePlayAudio(nft);
               }}
               onLikeToggle={onLikeToggle}
-              isNFTLiked={(nft: NFT) => likedNFTs.some(likedNFT => likedNFT.id === nft.id)}
+              isNFTLiked={(nft: NFT) => {
+                if (isNFTLikedProp) return isNFTLikedProp(nft);
+                const mediaKey = getMediaKey(nft);
+                return likedNFTs.some(likedNFT => (likedNFT.mediaKey || getMediaKey(likedNFT)) === mediaKey);
+              }}
               userFid={farcasterContext?.user?.fid}
               scrollRoot={scrollRoot}
               resetKey={farcasterContext?.user?.fid}

@@ -295,6 +295,23 @@ const DemoBase: React.FC = () => {
   const [isLiked, setIsLiked] = useState(false);
   const [userData, setUserData] = useState<FarcasterUser | null>(null);
   const isLoadingLikedNFTsRef = useRef(false);
+  const skipEmptyLikeCacheWrite = useRef(true);
+
+  useEffect(() => {
+    if (skipEmptyLikeCacheWrite.current && likedNFTs.length === 0) {
+      skipEmptyLikeCacheWrite.current = false;
+      return;
+    }
+    skipEmptyLikeCacheWrite.current = false;
+    try {
+      const mediaKeys = likedNFTs
+        .map((nft) => nft.mediaKey || getMediaKey(nft))
+        .filter((key): key is string => Boolean(key));
+      localStorage.setItem('podplayr_liked_media_keys', JSON.stringify(mediaKeys));
+    } catch {
+      // Ignore quota / private-mode failures
+    }
+  }, [likedNFTs]);
   const videoRef = useRef<HTMLVideoElement>(document.createElement('video'));
 
   // Add this near your other state variables
@@ -783,29 +800,10 @@ const DemoBase: React.FC = () => {
 
   const isNFTLiked = (nft: NFT): boolean => {
     if (!nft) return false;
-    
-    // Get the mediaKey for the current NFT
+
     const nftMediaKey = getMediaKey(nft);
-    
-    if (!nftMediaKey) {
-      console.warn('Could not generate mediaKey for NFT:', nft);
-      return false;
-    }
-    
-    // First check localStorage for instant response
-    try {
-      const cachedLikes = localStorage.getItem('podplayr_liked_media_keys');
-      if (cachedLikes) {
-        const mediaKeys = JSON.parse(cachedLikes) as string[];
-        if (mediaKeys.includes(nftMediaKey)) {
-          return true;
-        }
-      }
-    } catch (error) {
-      console.error('Error checking cached likes:', error);
-    }
-    
-    // Fallback to likedNFTs state
+    if (!nftMediaKey) return false;
+
     return likedNFTs.some(likedNFT => {
       const likedMediaKey = likedNFT.mediaKey || getMediaKey(likedNFT);
       return likedMediaKey === nftMediaKey;
@@ -952,6 +950,7 @@ const DemoBase: React.FC = () => {
               onReset={onReset}
               onNFTsLoaded={() => {}}
               onLikeToggle={onLikeToggle}
+              isNFTLiked={isNFTLiked}
               onUserProfileClick={(user) => {
               demoLogger.info('Navigating to user profile from ProfileView modal:', user.username);
               setSelectedUser(user);

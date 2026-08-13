@@ -21,6 +21,7 @@ interface VirtualizedNFTGridProps {
   userFid?: number;
   scrollRoot?: HTMLElement | null;
   resetKey?: string | number;
+  showLibraryBadge?: boolean;
 }
 
 const animationKeyframes = `

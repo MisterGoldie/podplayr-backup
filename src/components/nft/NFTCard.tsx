@@ -19,6 +19,8 @@ interface NFTCardProps {
   playCountBadge?: string;
   animationDelay?: number;
   smallCard?: boolean;
+  /** Extra "In Library" marker for liked NFTs on another user's profile. */
+  showLibraryBadge?: boolean;
 }
 
 export const NFTCard: React.FC<NFTCardProps> = ({ 
@@ -32,7 +34,8 @@ export const NFTCard: React.FC<NFTCardProps> = ({
   isNFTLiked,
   playCountBadge,
   animationDelay = 0,
-  smallCard
+  smallCard,
+  showLibraryBadge = false
 }) => {
   const { fid } = useFarcasterContext();
   // Use userFid prop if available, otherwise fall back to context fid
@@ -144,6 +147,16 @@ export const NFTCard: React.FC<NFTCardProps> = ({
                 </svg>
               )}
             </button>
+          )}
+          {showLibraryBadge && displayIsLiked && (
+            <div className="absolute bottom-2 left-2 z-10 pointer-events-none">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-black/70 border border-green-400/40 text-green-400 font-mono text-[10px] leading-none shadow-lg shadow-black/40">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className={smallCard ? "w-3 h-3" : "w-3.5 h-3.5"}>
+                  <path d="M4 6.5A2.5 2.5 0 0 1 6.5 4H20v16H6.5A2.5 2.5 0 0 1 4 17.5v-11ZM6.5 6A.5.5 0 0 0 6 6.5v11a.5.5 0 0 0 .5.5H18V6H6.5Z" />
+                </svg>
+                In Library
+              </span>
+            </div>
           )}
         </div>
         

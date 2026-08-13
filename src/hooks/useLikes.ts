@@ -64,14 +64,10 @@ export const useLikes = (userFid: number) => {
         fetchedLikes[mediaKey] = true;
       });
       
-      setLikedMediaKeys(prevLikes => {
-        const mergedLikes: LikesRecord = { ...prevLikes, ...fetchedLikes };
-        
-        // Save to localStorage
-        const mediaKeys = Object.keys(mergedLikes).filter(key => mergedLikes[key] === true);
+      setLikedMediaKeys(() => {
+        const mediaKeys = Object.keys(fetchedLikes).filter(key => fetchedLikes[key] === true);
         localStorage.setItem('podplayr_liked_media_keys', JSON.stringify(mediaKeys));
-        
-        return mergedLikes;
+        return fetchedLikes;
       });
       
       setIsInitialLoadComplete(true);
