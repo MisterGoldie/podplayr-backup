@@ -254,7 +254,7 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
     <UserFidContext.Provider value={userFidContextValue}>
       <UnifiedContext.Provider value={unifiedContextValue}>
         <VideoPlayProvider>
-          <PlayerProvider>
+          <PlayerProvider fid={fid}>
             <NFTNotificationProvider>
               {/* Remove ConnectionProvider wrapper */}
               {children}

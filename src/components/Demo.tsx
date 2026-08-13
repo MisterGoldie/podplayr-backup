@@ -1,62 +1,32 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback, useContext } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useContext, useMemo } from 'react';
 import { FarcasterContext, UserFidContext } from '~/app/providers';
 import { PlayerWithAds } from './player/PlayerWithAds';
 import { getMediaKey } from '~/utils/media';
-import { FEATURED_NFTS } from './sections/FeaturedSection';
 import { BottomNav } from './navigation/BottomNav';
 import HomeView from './views/HomeView';
 import ExploreView from './views/ExploreView';
 import LibraryView from './views/LibraryView';
 import ProfileView from './views/ProfileView';
 import UserProfileView from './views/UserProfileView';
-import RecentlyPlayed from './RecentlyPlayed';
-import TermsOfService from './TermsOfService';
-import { useTerms } from '../context/TermsContext';
-import Image from 'next/image';
-import { processMediaUrl } from '../utils/media';
 import {
   trackUserSearch,
-  trackNFTPlay,
-  fetchNFTDetails,
   getLikedNFTs,
   searchUsers,
   toggleLikeNFT,
   fetchUserNFTs,
-  getRecentSearches,
   subscribeToRecentSearches
 } from '../lib/firebase';
-import type { NFT, FarcasterUser, SearchedUser, UserContext, LibraryViewProps, ProfileViewProps, NFTFile, NFTPlayData, GroupedNFT } from '../types/user';
-import { usePlayer, PlayerProvider } from '../contexts/PlayerContext';
+import type { NFT, FarcasterUser, SearchedUser } from '../types/user';
+import { usePlayer } from '../contexts/PlayerContext';
 import { useTopPlayedNFTs } from '../hooks/useTopPlayedNFTs';
-import { useFirebase } from '../contexts/FirebaseContext';
 import { UserDataLoader } from './data/UserDataLoader';
-import { AnimatePresence, motion } from 'framer-motion';
-import NotificationHeader from './NotificationHeader';
-import NFTNotification from './NFTNotification';
 import { logger } from '../utils/logger';
-import { useNFTLike } from '../hooks/useNFTLike';
-import { NFTCard } from './NFTCard';
-import { filterPlayableMediaNFTs, hasPlayableAudio, hasPlayableVideo, isPlayableMediaNFT, getNftPlaybackPlan } from '../utils/isMediaNFT';
 import { isNftMediaDead, subscribeToDeadNftUpdates } from '../utils/deadNftRegistry';
-
 import { UserImageProvider } from '../contexts/UserImageContext';
 
-const NFT_CACHE_KEY = 'podplayr_nft_cache_';
-const TWO_HOURS = 2 * 60 * 60 * 1000;
-
-// Create module-specific loggers for different parts of the Demo component
 const demoLogger = logger.getModuleLogger('demo');
-const playerLogger = logger.getModuleLogger('player');
-const nftLogger = logger.getModuleLogger('nft');
-
-// Detect development environment
-const IS_DEV = process.env.NODE_ENV !== 'production';
-
-interface DemoProps {
-  fid?: number;
-}
 
 interface PageState {
   isHome: boolean;
@@ -71,233 +41,80 @@ interface NavigationSource {
   fromProfile: boolean;
 }
 
-// Enhanced page transition configurations
-const pageTransition = {
-  duration: 0.4,
-  ease: [0.43, 0.13, 0.23, 0.96]
+const HOME_PAGE: PageState = {
+  isHome: true,
+  isExplore: false,
+  isLibrary: false,
+  isProfile: false,
+  isUserProfile: false
 };
 
-const pageVariants = {
-  initial: { 
-    opacity: 0, 
-    x: 20,
-    scale: 0.98
-  },
-  animate: { 
-    opacity: 1, 
-    x: 0,
-    scale: 1,
-    transition: pageTransition
-  },
-  exit: { 
-    opacity: 0, 
-    x: -20,
-    scale: 0.98,
-    transition: { ...pageTransition, duration: 0.3 }
-  }
-};
-
-// Slide transitions for different directions
-const slideVariants = {
-  slideLeft: {
-    initial: { opacity: 0, x: 100 },
-    animate: { opacity: 1, x: 0 },
-    exit: { opacity: 0, x: -100 }
-  },
-  slideRight: {
-    initial: { opacity: 0, x: -100 },
-    animate: { opacity: 1, x: 0 },
-    exit: { opacity: 0, x: 100 }
-  },
-  slideUp: {
-    initial: { opacity: 0, y: 50 },
-    animate: { opacity: 1, y: 0 },
-    exit: { opacity: 0, y: -50 }
-  },
-  fade: {
-    initial: { opacity: 0 },
-    animate: { opacity: 1 },
-    exit: { opacity: 0 }
-  }
-};
-
-interface RecentSearch {
-  id: string;
-  username: string;
-  timestamp: number;
-}
-
-// Add this helper function after the imports and before the DemoBase component
 const deduplicateNFTsByMediaKey = (nfts: NFT[]): NFT[] => {
   const uniqueNFTs = new Map<string, NFT>();
-  
-  nfts.forEach(nft => {
+
+  nfts.forEach((nft) => {
     const mediaKey = getMediaKey(nft);
     if (!uniqueNFTs.has(mediaKey)) {
       uniqueNFTs.set(mediaKey, nft);
-    } else {
-      // If we already have this mediaKey, keep the one with more complete metadata
-      const existing = uniqueNFTs.get(mediaKey)!;
-      if (nft.metadata && (!existing.metadata || Object.keys(nft.metadata).length > Object.keys(existing.metadata).length)) {
-        uniqueNFTs.set(mediaKey, nft);
-      }
+      return;
+    }
+
+    const existing = uniqueNFTs.get(mediaKey)!;
+    if (nft.metadata && (!existing.metadata || Object.keys(nft.metadata).length > Object.keys(existing.metadata).length)) {
+      uniqueNFTs.set(mediaKey, nft);
     }
   });
-  
+
   return Array.from(uniqueNFTs.values());
 };
 
 const DemoBase: React.FC = () => {
-  // CRITICAL: Force ENABLE all logs for debugging
-  logger.setDebugMode(true);
-  logger.enableLevel('debug', true);
-  logger.enableLevel('info', true);
-  logger.enableLevel('warn', true);
-  logger.enableLevel('error', true);
-  logger.enableModule('firebase', true);
-  
-  // 1. Context Hooks - USE THE ENHANCED CONTEXT!
   const { isFarcaster, user: farcasterUser, client: farcasterClient, location: farcasterLocation } = useContext(FarcasterContext);
-  const { fid } = useContext(UserFidContext);
-  const { hasAcceptedTerms, acceptTerms } = useTerms();
-  const { recentSearches: firebaseRecentSearches, featuredNFTs } = useFirebase();
-  
-  // Use a ref to track if this is the first render
-  const isFirstRender = useRef(true);
-  
-  // Only log initialization on the first render
-  useEffect(() => {
-    if (isFirstRender.current) {
-      demoLogger.info('Demo component initialized with userFid:', fid, typeof fid);
-      isFirstRender.current = false;
-    }
-  }, [fid]);
-  
-  // Move currentPage state declaration here, before its first usage
-  const [currentPage, setCurrentPage] = useState<PageState>({
-    isHome: true,
-    isExplore: false,
-    isLibrary: false,
-    isProfile: false,
-    isUserProfile: false
-  });
-  
-  // Add this debugging function near the top of the component
-  const debugWindowNftList = () => {
-    console.log('🔍 Window.nftList status:', {
-      exists: !!window.nftList,
-      length: window.nftList?.length || 0,
-      currentPage,
-      firstFew: window.nftList?.slice(0, 3).map(nft => nft.name) || []
-    });
-  };
+  const { fid, isFidReady } = useContext(UserFidContext);
 
-  // Call this function whenever the page changes
-  useEffect(() => {
-    debugWindowNftList();
-  }, [currentPage]);
-  
-  // Load liked NFTs from localStorage immediately for instant UI updates
-  useEffect(() => {
-    const loadCachedLikes = () => {
-      try {
-        const cachedLikes = localStorage.getItem('podplayr_liked_media_keys');
-        if (cachedLikes) {
-          const mediaKeys = JSON.parse(cachedLikes) as string[];
-          // Create temporary NFT objects for immediate UI feedback
-          const tempLikedNFTs = mediaKeys.map(mediaKey => ({ mediaKey } as NFT));
-          setLikedNFTs(tempLikedNFTs);
-          console.log(`Loaded ${mediaKeys.length} liked NFTs from cache for instant UI`);
-        }
-      } catch (error) {
-        console.error('Error loading cached likes:', error);
-      }
-    };
-    
-    loadCachedLikes();
-  }, []);
-  
-  // 2. State Hooks
-  
-  // Track where the user navigated from when going to a user profile
+  const [currentPage, setCurrentPage] = useState<PageState>(HOME_PAGE);
   const [navigationSource, setNavigationSource] = useState<NavigationSource>({
     fromExplore: false,
     fromProfile: false
   });
-  
-  // Add state to track the current NFT queue for proper next/previous navigation
-  const [currentNFTQueue, setCurrentNFTQueue] = useState<NFT[]>([]);
-  const [currentQueueType, setCurrentQueueType] = useState<string>('');
-
   const [isPlayerMinimized, setIsPlayerMinimized] = useState(true);
-  const [isInitialPlay, setIsInitialPlay] = useState(false);
-
-  const [recentlyPlayedNFTs, setRecentlyPlayedNFTs] = useState<NFT[]>([]);
-  // Track the most recently played NFT to prevent duplicates from Firebase subscription
-  const recentlyAddedNFT = useRef<string | null>(null);
-  
-  // Automatically deduplicate the recently played NFTs whenever they change
-  // Use a ref to track the previous NFTs array to avoid unnecessary processing
-  const prevRecentlyPlayedRef = useRef<string>('');
-  
-  useEffect(() => {
-    // Create a fingerprint of the current array to compare with previous
-    const currentFingerprint = recentlyPlayedNFTs
-      .map(nft => `${nft.contract}-${nft.tokenId}`.toLowerCase())
-      .sort()
-      .join('|');
-      
-    // Skip processing if the array hasn't changed in a meaningful way
-    if (currentFingerprint === prevRecentlyPlayedRef.current) {
-      return;
-    }
-    
-    // Store the new fingerprint
-    prevRecentlyPlayedRef.current = currentFingerprint;
-    
-    // Add a short delay to allow both updates to come in
-    const timeoutId = setTimeout(() => {
-      // Deduplicate NFTs based on contract and tokenId
-      const uniqueNFTs = recentlyPlayedNFTs.reduce((acc: NFT[], nft) => {
-        const key = `${nft.contract}-${nft.tokenId}`.toLowerCase();
-        const exists = acc.some(item => 
-          `${item.contract}-${item.tokenId}`.toLowerCase() === key
-        );
-        if (!exists) {
-          acc.push(nft);
-        }
-        return acc;
-      }, []);
-      
-      // Only update if we found duplicates
-      if (uniqueNFTs.length !== recentlyPlayedNFTs.length) {
-        demoLogger.debug('Deduplicating NFTs', {
-          before: recentlyPlayedNFTs.length,
-          after: uniqueNFTs.length
-        });
-        setRecentlyPlayedNFTs(uniqueNFTs);
-      }
-    }, 100);
-    
-    return () => clearTimeout(timeoutId);
-  }, [recentlyPlayedNFTs]);
-  
-  const { topPlayed: topPlayedNFTs, loading: topPlayedLoading } = useTopPlayedNFTs();
   const [searchResults, setSearchResults] = useState<FarcasterUser[]>([]);
   const [selectedUser, setSelectedUser] = useState<FarcasterUser | null>(null);
   const [userNFTs, setUserNFTs] = useState<NFT[]>([]);
   const [userNftsLoading, setUserNftsLoading] = useState(false);
-  const [filteredNFTs, setFilteredNFTs] = useState<NFT[]>([]);
   const [isSearching, setIsSearching] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [likedNFTs, setLikedNFTs] = useState<NFT[]>([]);
   const [likedNFTsLoaded, setLikedNFTsLoaded] = useState(false);
   const [recentSearches, setRecentSearches] = useState<SearchedUser[]>([]);
-  const [isLiked, setIsLiked] = useState(false);
-  const [userData, setUserData] = useState<FarcasterUser | null>(null);
+  const [isAdPlaying, setIsAdPlaying] = useState(false);
+
   const isLoadingLikedNFTsRef = useRef(false);
   const skipEmptyLikeCacheWrite = useRef(true);
+
+  const { topPlayed: topPlayedNFTs } = useTopPlayedNFTs();
+  const {
+    isPlaying,
+    currentPlayingNFT,
+    currentlyPlaying,
+    audioProgress,
+    audioDuration,
+    handlePlayAudio,
+    handlePlayPause,
+    handleSeek,
+    handlePlayNext,
+    handlePlayPrevious
+  } = usePlayer();
+
+  useEffect(() => {
+    try {
+      const cachedLikes = localStorage.getItem('podplayr_liked_media_keys');
+      if (!cachedLikes) return;
+      const mediaKeys = JSON.parse(cachedLikes) as string[];
+      setLikedNFTs(mediaKeys.map((mediaKey) => ({ mediaKey } as NFT)));
+    } catch (error) {
+      demoLogger.error('Error loading cached likes:', error);
+    }
+  }, []);
 
   useEffect(() => {
     if (skipEmptyLikeCacheWrite.current && likedNFTs.length === 0) {
@@ -314,401 +131,7 @@ const DemoBase: React.FC = () => {
       // Ignore quota / private-mode failures
     }
   }, [likedNFTs]);
-  const videoRef = useRef<HTMLVideoElement>(document.createElement('video'));
 
-  // Add this near your other state variables
-  const [permanentlyRemovedNFTs, setPermanentlyRemovedNFTs] = useState<Set<string>>(new Set());
-  const [likeSyncComplete, setLikeSyncComplete] = useState<boolean>(false);
-
-
-
-  const [localRecentSearches, setLocalRecentSearches] = useState<RecentSearch[]>([]);
-  const [isAdPlaying, setIsAdPlaying] = useState(false);
-
-  // Remove old Firebase subscription
-  useEffect(() => {
-    if (!fid) return;
-
-    const loadLikedNFTs = async () => {
-      try {
-        const likedNFTs = await getLikedNFTs(fid);
-        demoLogger.info('❤️ Liked NFTs loaded:', likedNFTs.length);
-      } catch (error) {
-        demoLogger.error('Error loading liked NFTs:', error);
-      }
-    };
-
-    loadLikedNFTs();
-  }, [fid]);
-
-  // Initialize player state
-  useEffect(() => {
-    setIsPlayerMinimized(true);
-  }, []);
-
-  // Update the context usage
-  // Around line 142 - Remove the duplicate fid declaration
-  // Keep only this line:
-  const { isFidReady } = useContext(UserFidContext); // Remove duplicate fid declaration since it's already declared above
-  
-  // Remove this duplicate line around line 274:
-  // const { fid, isFidReady } = useContext(UserFidContext); // DELETE THIS LINE
-  
-  // Also consolidate the duplicate loadInitialData useEffect
-  // Keep only this version around line 280:
-  useEffect(() => {
-    // Only load data when FID context is fully ready
-    if (!isFidReady) {
-      demoLogger.info('⏳ Waiting for FID context to be ready...');
-      return;
-    }
-    
-    const loadInitialData = async () => {
-      if (!fid) {
-        demoLogger.warn('⚠️ No userFid available for initial data load');
-        return;
-      }
-  
-      try {
-        demoLogger.info('🔄 Starting initial data load with userFid:', fid);
-  
-        // Load all user-specific data in parallel
-        const [recentSearches, likedNFTs, userNFTs] = await Promise.all([
-          getRecentSearches(fid),
-          getLikedNFTs(fid),
-          fetchUserNFTs(fid)
-        ]);
-  
-        demoLogger.info('📜 Recent searches loaded:', recentSearches.length);
-        demoLogger.info('❤️ Liked NFTs loaded:', likedNFTs.length);
-  
-        const mediaNFTs = userNFTs.filter(nft => nft.metadata?.image || nft.image);
-        nftLogger.info(`Found ${mediaNFTs.length} media NFTs out of ${userNFTs.length} total NFTs`);
-  
-        setUserNFTs(userNFTs);
-        setFilteredNFTs(mediaNFTs);
-      } catch (error) {
-        demoLogger.error('❌ Error loading initial data:', error);
-      }
-    };
-  
-    loadInitialData();
-  }, [fid, isFidReady]);
-  
-  // Remove the duplicate useEffect around line 330-357 that also calls loadInitialData
-
-  // Fix the usePlayer destructuring (around line 250)
-  const {
-    isPlaying,
-    currentPlayingNFT,
-    currentlyPlaying,
-    audioProgress,
-    audioDuration,
-    handlePlayAudio,
-    handlePlayPause: audioHandlePlayPause,
-    handleSeek,
-    handlePlayNext,
-    handlePlayPrevious
-  } = usePlayer();
-
-  useEffect(() => {
-    if (!fid) {
-      demoLogger.warn('⚠️ No userFid available for recent searches subscription');
-      return;
-    }
-
-    demoLogger.info('🔄 Setting up recent searches subscription for FID:', fid);
-    
-    // Set up real-time subscription to recent searches
-    const unsubscribe = subscribeToRecentSearches(fid, (searches) => {
-      demoLogger.info('📜 Recent searches updated:', searches.length);
-      setRecentSearches(searches);
-    });
-
-    // Cleanup subscription on unmount or FID change
-    return () => {
-      demoLogger.info('🧹 Cleaning up recent searches subscription');
-      unsubscribe();
-    };
-  }, [fid]);
-
-  // User data loading is now handled by UserDataLoader component
-
-  useEffect(() => {
-    const filtered = filterPlayableMediaNFTs(userNFTs);
-    setFilteredNFTs(filtered);
-    nftLogger.info(`Found ${filtered.length} media NFTs out of ${userNFTs.length} total NFTs`);
-  }, [userNFTs]);
-
-  useEffect(() => {
-    // Remove or modify the problematic useEffect
-    if (isInitialPlay) {
-      playerLogger.info('Minimizing player due to initial play');
-      setIsPlayerMinimized(true);
-    }
-  }, [isInitialPlay]);
-
-  const findAdjacentNFT = (direction: 'next' | 'previous'): NFT | null => {
-    if (!currentPlayingNFT) return null;
-    
-    // Determine which list to use based on the current context
-    let currentList: NFT[] = [];
-    
-    // Check if we're playing from top played section
-    if (topPlayedNFTs.some(item => 
-      getMediaKey(item.nft) === getMediaKey(currentPlayingNFT)
-    )) {
-      currentList = topPlayedNFTs.map(item => item.nft);
-      playerLogger.debug('Playing from Top Played section');
-    }
-    // Check if we're playing from featured section
-    else if (FEATURED_NFTS.some((nft: NFT) => 
-      getMediaKey(nft) === getMediaKey(currentPlayingNFT)
-    )) {
-      currentList = FEATURED_NFTS;
-      playerLogger.debug('Playing from Featured section');
-    }
-    // Otherwise use the window.nftList for other views
-    else if (window.nftList) {
-      currentList = window.nftList;
-      playerLogger.debug('Playing from main list');
-    }
-    
-    if (!currentList.length) {
-      playerLogger.debug('No NFTs in current list');
-      return null;
-    }
-
-    // Find the current NFT in the list using mediaKey for consistent matching
-    const currentMediaKey = getMediaKey(currentPlayingNFT);
-    const currentIndex = currentList.findIndex(nft => getMediaKey(nft) === currentMediaKey);
-
-    if (currentIndex === -1) {
-      playerLogger.debug('Current NFT not found in list');
-      return null;
-    }
-
-    const adjacentIndex = direction === 'next' ? 
-      currentIndex + 1 : 
-      currentIndex - 1;
-
-    // Handle wrapping around the playlist
-    if (adjacentIndex < 0) {
-      return currentList[currentList.length - 1];
-    } else if (adjacentIndex >= currentList.length) {
-      return currentList[0];
-    }
-
-    return currentList[adjacentIndex];
-  };
-
-  const togglePictureInPicture = async () => {
-    try {
-      if ('pictureInPictureElement' in document && document.pictureInPictureElement) {
-        if ('exitPictureInPicture' in document) {
-          await document.exitPictureInPicture();
-        }
-      } else if (videoRef.current && 'requestPictureInPicture' in videoRef.current) {
-        await videoRef.current.requestPictureInPicture();
-      }
-    } catch (error) {
-      logger.error('PiP error:', error);
-    }
-  };
-
-  // Create a debug function with the same CUSTOM FILTER TAG as in likes.ts
-  const superDebug = (message: string, data: any = {}) => {
-    // Use consistent PODPLAYR-DEBUG tag that can be filtered in Chrome DevTools
-    // Just type "PODPLAYR-DEBUG" in the console filter box to see only these messages
-    console.log('PODPLAYR-DEBUG', `DEMO: ${message}`, data);
-    
-    // Also log as error to make it appear in the error console tab
-    console.error('PODPLAYR-DEBUG', `DEMO: ${message}`, data);
-  };
-
-  // Add the onLikeToggle function
-  const onLikeToggle = async (nft: NFT) => {
-    if (!fid) {
-      console.warn('No FID available for like toggle');
-      return;
-    }
-
-    try {
-      // Get current like state before toggling
-      const mediaKey = getMediaKey(nft);
-      const wasLiked = likedNFTs.some(likedNFT => {
-        const likedMediaKey = likedNFT.mediaKey || getMediaKey(likedNFT);
-        return likedMediaKey === mediaKey;
-      });
-      
-      // Call toggleLikeNFT and get the new like state
-      const newLikeState = await toggleLikeNFT(nft, fid);
-      
-      // Update local state based on the new like state
-      if (newLikeState) {
-        // NFT is now liked — stamp like-time and put it first so Library
-        // "Recently Added" shows the latest like at the top immediately.
-        if (!wasLiked) {
-          const likedAt = Date.now();
-          const likedNft: NFT = {
-            ...nft,
-            likedTimestamp: likedAt,
-            likedAt: new Date(likedAt).toISOString(),
-          };
-          setLikedNFTs(prev => [likedNft, ...prev.filter(existing => {
-            const existingKey = existing.mediaKey || getMediaKey(existing);
-            return existingKey !== mediaKey;
-          })]);
-        }
-        setIsLiked(true);
-      } else {
-        // NFT is now unliked - remove from local state
-        setLikedNFTs(prev => prev.filter(likedNFT => {
-          const likedMediaKey = likedNFT.mediaKey || getMediaKey(likedNFT);
-          return likedMediaKey !== mediaKey;
-        }));
-        setIsLiked(false);
-      }
-    } catch (error) {
-      console.error('Error toggling like:', error);
-    }
-  };
-
-  // Use the NFT like hook
-  const { handleLike, handleUnlike } = useNFTLike({
-    onLikeToggle,
-    setIsLiked
-  });
-
-
-
-  // Add this helper function to release resources from videos
-  const releaseVideoResources = useCallback(() => {
-    // Just pause videos that aren't playing, don't try to unload resources
-    const allVideos = document.querySelectorAll('video');
-    const currentId = currentPlayingNFT ? `video-${currentPlayingNFT.contract}-${currentPlayingNFT.tokenId}` : null;
-    
-    allVideos.forEach(video => {
-      if (video.id !== currentId && !video.paused) {
-        try {
-          // Just pause the video - don't overcomplicate
-          video.pause();
-        } catch (e) {
-          // Ignore errors
-        }
-      }
-    });
-  }, [currentPlayingNFT]);
-
-  // Add these memoized callbacks for UserDataLoader
-  const handleNFTsLoaded = useCallback((nfts: NFT[]) => {
-    setUserNFTs(nfts);
-    setUserNftsLoading(false);
-  }, []);
-
-  const handleUserDataError = useCallback((error: string) => {
-    console.error('NFT loading error:', error);
-    setUserNftsLoading(false);
-  }, []);
-
-  // Add a function to handle direct video playback
-  const handleDirectVideoPlayback = useCallback((nft: NFT) => {
-    if (!nft.isVideo) return;
-    
-    // Find only the specific video element we need
-    const targetVideoId = `video-${nft.contract}-${nft.tokenId}`;
-    const targetVideo = document.getElementById(targetVideoId) as HTMLVideoElement;
-    
-    // Only manage the target video to avoid affecting other elements
-    if (targetVideo) {
-      // Ensure video has playsinline attribute for mobile
-      targetVideo.setAttribute('playsinline', 'true');
-      
-      // For the target video, try to play it directly
-      try {
-        // First try unmuted
-        targetVideo.muted = false;
-        targetVideo.play().catch(() => {
-          // If that fails (expected on mobile), fall back to muted
-          targetVideo.muted = true;
-          targetVideo.play().catch(() => {
-          });
-        });
-      } catch (e) {
-      }
-    }
-    
-    // Pause other videos more carefully to avoid affecting scrolling
-    try {
-      // Get only videos that aren't our target
-      const otherVideos = document.querySelectorAll(`video:not(#${targetVideoId})`);
-      otherVideos.forEach(video => {
-        if (!(video as HTMLVideoElement).paused) {
-          (video as HTMLVideoElement).pause();
-        }
-      });
-    } catch (e) {
-    }
-  }, []);
-
-  // IMPORTANT: Instead of replacing handlePlayAudio, modify the existing useAudioPlayer hook's function
-  // Find the useEffect that runs when currentPlayingNFT changes, and add this code:
-  useEffect(() => {
-    if (currentPlayingNFT) {
-      // When a new NFT starts playing, pause others
-      releaseVideoResources();
-      
-      // Add direct video playback handling
-      if (currentPlayingNFT.isVideo) {
-        handleDirectVideoPlayback(currentPlayingNFT);
-      }
-    }
-  }, [currentPlayingNFT, releaseVideoResources, handleDirectVideoPlayback]);
-
-  // Add this near your NFT processing code to reduce redundant checks
-  const processNFTs = useCallback((nfts: any[]) => {
-    const processedMediaKeys = new Set();
-    const mediaOnly = [];
-
-    for (const nft of nfts) {
-      const mediaKey = getMediaKey(nft);
-      if (processedMediaKeys.has(mediaKey)) continue;
-      processedMediaKeys.add(mediaKey);
-
-      if (!isPlayableMediaNFT(nft)) continue;
-
-      const plan = getNftPlaybackPlan(nft);
-      nft.playbackMode = plan.mode;
-      nft.isVideo = plan.mode !== 'audio-only';
-      nft.hasValidAudio = Boolean(plan.audioUrl) || hasPlayableAudio(nft);
-      if (plan.videoUrl) {
-        nft.videoUrl = nft.videoUrl || plan.videoUrl;
-      }
-      mediaOnly.push(nft);
-    }
-
-    return mediaOnly;
-  }, []);
-
-  // Update search handling to use context
-  const handleSearch = async (query: string) => {
-    if (!query.trim()) {
-      setSearchResults([]);
-      return;
-    }
-
-    setIsSearching(true);
-    try {
-      const results = await searchUsers(query);
-      setSearchResults(results);
-    } catch (error) {
-      demoLogger.error('Error searching users:', error);
-    } finally {
-      setIsSearching(false);
-    }
-  };
-
-  // Find where you initially load the liked NFTs
   useEffect(() => {
     const loadLikedNFTs = async () => {
       if (isLoadingLikedNFTsRef.current) return;
@@ -716,18 +139,12 @@ const DemoBase: React.FC = () => {
         setLikedNFTsLoaded(true);
         return;
       }
-      
+
       isLoadingLikedNFTsRef.current = true;
       setLikedNFTsLoaded(false);
       try {
         const liked = await getLikedNFTs(fid);
-        
-        const filteredLiked = liked.filter(item => {
-          const mediaKey = getMediaKey(item);
-          return !permanentlyRemovedNFTs.has(mediaKey) && !isNftMediaDead(item);
-        });
-        
-        setLikedNFTs(filteredLiked);
+        setLikedNFTs(liked.filter((item) => !isNftMediaDead(item)));
       } catch (error) {
         demoLogger.error('Error loading liked NFTs:', error);
       } finally {
@@ -735,320 +152,358 @@ const DemoBase: React.FC = () => {
         setLikedNFTsLoaded(true);
       }
     };
-    
-    loadLikedNFTs();
-  }, [fid, permanentlyRemovedNFTs]); // isLoadingLikedNFTs is a ref now, not a dep — it must never retrigger this effect
 
-  // Prune already-rendered lists the moment an NFT's media is confirmed dead
-  // (e.g. a play attempt just exhausted every fallback) — no refetch needed.
+    if (isFidReady) {
+      void loadLikedNFTs();
+    }
+  }, [fid, isFidReady]);
+
   useEffect(() => {
     return subscribeToDeadNftUpdates((deadMediaKey) => {
-      setLikedNFTs(prev => prev.filter(nft => getMediaKey(nft) !== deadMediaKey));
-      setUserNFTs(prev => prev.filter(nft => getMediaKey(nft) !== deadMediaKey));
+      setLikedNFTs((prev) => prev.filter((nft) => getMediaKey(nft) !== deadMediaKey));
+      setUserNFTs((prev) => prev.filter((nft) => getMediaKey(nft) !== deadMediaKey));
     });
   }, []);
 
-  // Add this effect to monitor for problematic NFTs
-  const checkProblematicNFTs = useCallback(() => {
-    // Original code...
-  }, [userNFTs]);
+  useEffect(() => {
+    if (!fid) return;
+
+    const unsubscribe = subscribeToRecentSearches(fid, (searches) => {
+      setRecentSearches(searches);
+    });
+
+    return unsubscribe;
+  }, [fid]);
+
+  const releaseVideoResources = useCallback(() => {
+    const currentId = currentPlayingNFT
+      ? `video-${currentPlayingNFT.contract}-${currentPlayingNFT.tokenId}`
+      : null;
+
+    document.querySelectorAll('video').forEach((video) => {
+      if (video.id !== currentId && !video.paused) {
+        try {
+          video.pause();
+        } catch {
+          // Ignore pause errors from detached nodes
+        }
+      }
+    });
+  }, [currentPlayingNFT]);
 
   useEffect(() => {
-    // Run check on startup and when NFT collections change
-    checkProblematicNFTs();
-    
-    // Log cleanup when component unmounts
-    return () => {
-      demoLogger.debug('Cleaning up subscriptions');
-    };
-  }, [checkProblematicNFTs]);
-
-  // Add these functions before renderCurrentView
-  const handlePlayNFT = useCallback(async (nft: NFT, context?: { queue?: NFT[], queueType?: string }) => {
-    // Check if this is a different NFT by comparing the currently playing identifier
-    if (!currentlyPlaying || currentlyPlaying !== `${nft.contract}-${nft.tokenId}`) {
-      // New NFT - start with minimized player and play audio
-      setIsPlayerMinimized(true);
-      
-      // Set the queue context if provided
-      if (context?.queue && context?.queueType) {
-        window.nftList = context.queue;
-      }
-
-      await handlePlayAudio(nft);
-    } else {
-      // Same NFT - just ensure player is minimized without restarting audio
-      setIsPlayerMinimized(true);
+    if (currentPlayingNFT) {
+      releaseVideoResources();
     }
-  }, [handlePlayAudio, currentlyPlaying]);
+  }, [currentPlayingNFT, releaseVideoResources]);
 
-  const handlePlayPause = () => {
-    audioHandlePlayPause();
-  };
+  const handleNFTsLoaded = useCallback((nfts: NFT[]) => {
+    setUserNFTs(deduplicateNFTsByMediaKey(nfts));
+    setUserNftsLoading(false);
+  }, []);
 
-  const onReset = () => {
-    setCurrentPage({
-      isHome: true,
-      isExplore: false,
-      isLibrary: false,
-      isProfile: false,
-      isUserProfile: false
-    });
-  };
+  const handleUserDataError = useCallback((loadError: string) => {
+    demoLogger.error('NFT loading error:', loadError);
+    setUserNftsLoading(false);
+  }, []);
 
-  const isNFTLiked = (nft: NFT): boolean => {
+  const handleSearch = useCallback(async (query: string) => {
+    if (!query.trim()) {
+      setSearchResults([]);
+      return;
+    }
+
+    setIsSearching(true);
+    try {
+      setSearchResults(await searchUsers(query));
+    } catch (searchError) {
+      demoLogger.error('Error searching users:', searchError);
+    } finally {
+      setIsSearching(false);
+    }
+  }, []);
+
+  const isNFTLiked = useCallback((nft: NFT): boolean => {
     if (!nft) return false;
-
     const nftMediaKey = getMediaKey(nft);
     if (!nftMediaKey) return false;
 
-    return likedNFTs.some(likedNFT => {
+    return likedNFTs.some((likedNFT) => {
       const likedMediaKey = likedNFT.mediaKey || getMediaKey(likedNFT);
       return likedMediaKey === nftMediaKey;
     });
-  };
+  }, [likedNFTs]);
 
-  // Add direct user selection handler
-  const handleDirectUserSelect = async (user: FarcasterUser) => {
-    console.log('🚀 handleDirectUserSelect called with:', user);
+  const onLikeToggle = useCallback(async (nft: NFT) => {
+    if (!fid) {
+      demoLogger.warn('No FID available for like toggle');
+      return;
+    }
+
+    try {
+      const mediaKey = getMediaKey(nft);
+      const wasLiked = likedNFTs.some((likedNFT) => {
+        const likedMediaKey = likedNFT.mediaKey || getMediaKey(likedNFT);
+        return likedMediaKey === mediaKey;
+      });
+
+      const newLikeState = await toggleLikeNFT(nft, fid);
+
+      if (newLikeState) {
+        if (!wasLiked) {
+          const likedAt = Date.now();
+          const likedNft: NFT = {
+            ...nft,
+            likedTimestamp: likedAt,
+            likedAt: new Date(likedAt).toISOString(),
+          };
+          setLikedNFTs((prev) => [
+            likedNft,
+            ...prev.filter((existing) => (existing.mediaKey || getMediaKey(existing)) !== mediaKey)
+          ]);
+        }
+      } else {
+        setLikedNFTs((prev) => prev.filter((likedNFT) => {
+          const likedMediaKey = likedNFT.mediaKey || getMediaKey(likedNFT);
+          return likedMediaKey !== mediaKey;
+        }));
+      }
+    } catch (likeError) {
+      demoLogger.error('Error toggling like:', likeError);
+    }
+  }, [fid, likedNFTs]);
+
+  const handlePlayNFT = useCallback(async (nft: NFT, context?: { queue?: NFT[]; queueType?: string }) => {
+    const sameTrack = currentPlayingNFT
+      ? getMediaKey(currentPlayingNFT) === getMediaKey(nft)
+      : currentlyPlaying === `${nft.contract}-${nft.tokenId}`;
+
+    setIsPlayerMinimized(true);
+    if (!sameTrack) {
+      await handlePlayAudio(nft, context);
+    }
+  }, [handlePlayAudio, currentlyPlaying, currentPlayingNFT]);
+
+  const onReset = useCallback(() => {
+    setCurrentPage(HOME_PAGE);
+  }, []);
+
+  const handleDirectUserSelect = useCallback(async (user: FarcasterUser) => {
     try {
       demoLogger.info(`Selected user: ${user.username}`);
       setSelectedUser(user);
       setUserNFTs([]);
       setUserNftsLoading(true);
-      
-      // Track the user search to update recently searched list
+
       if (fid && user.fid) {
         try {
           await trackUserSearch(user.username, fid);
-          console.log('User search tracked successfully');
-        } catch (error) {
-          console.error('Error tracking user search:', error);
+        } catch (trackError) {
+          demoLogger.error('Error tracking user search:', trackError);
         }
       }
-      
-      console.log('🔄 Setting currentPage to UserProfile');
-      // Set navigation source to track we came from explore
+
       setNavigationSource({ fromExplore: true, fromProfile: false });
-      
-      // Navigate to user profile view IMMEDIATELY
-      setCurrentPage(prev => ({ 
-        ...prev, 
+      setCurrentPage((prev) => ({
+        ...prev,
         isExplore: false,
-        isUserProfile: true 
+        isUserProfile: true
       }));
-      console.log('✅ Navigation should be complete');
-      
-      // Load user's NFTs in the background (don't await)
-      fetchUserNFTs(user.fid).then(nfts => {
-        demoLogger.info(`Loaded ${nfts.length} NFTs for user ${user.username}`);
-        
-        // Apply the same deduplication logic as ProfileView
+
+      fetchUserNFTs(user.fid).then((nfts) => {
         const deduplicatedNFTs = deduplicateNFTsByMediaKey(nfts);
         setUserNFTs(deduplicatedNFTs);
         if (deduplicatedNFTs.length > 0) {
           setUserNftsLoading(false);
         }
-      }).catch(error => {
-        console.error('❌ Error loading NFTs for user:', error);
-        demoLogger.error('Error loading NFTs for user:', error);
-        setError('Error loading NFTs');
+      }).catch((fetchError) => {
+        demoLogger.error('Error loading NFTs for user:', fetchError);
+        setUserNftsLoading(false);
       });
-    } catch (error) {
-      console.error('❌ Error in handleDirectUserSelect:', error);
-      demoLogger.error('Error selecting user:', error);
-      setError('Error selecting user');
+    } catch (selectError) {
+      demoLogger.error('Error selecting user:', selectError);
     }
-  };
+  }, [fid]);
 
-  // Update local recent searches when Firebase data changes
-  useEffect(() => {
-    if (firebaseRecentSearches.length > 0) {
-      setLocalRecentSearches(firebaseRecentSearches);
+  const togglePictureInPicture = useCallback(async () => {
+    try {
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture();
+        return;
+      }
+      if (!currentPlayingNFT) return;
+
+      const video = document.getElementById(
+        `video-${currentPlayingNFT.contract}-${currentPlayingNFT.tokenId}`
+      ) as HTMLVideoElement | null;
+
+      if (video && 'requestPictureInPicture' in video) {
+        await video.requestPictureInPicture();
+      }
+    } catch (pipError) {
+      demoLogger.error('PiP error:', pipError);
     }
-  }, [firebaseRecentSearches]);
+  }, [currentPlayingNFT]);
 
-  function renderCurrentView(): React.ReactNode {
-    let currentViewKey: 'home' | 'explore' | 'library' | 'profile' = 'home';
-    if (currentPage.isHome) currentViewKey = 'home';
-    else if (currentPage.isExplore) currentViewKey = 'explore';
-    else if (currentPage.isLibrary) currentViewKey = 'library';
-    else if (currentPage.isProfile || currentPage.isUserProfile) currentViewKey = 'profile';
-  
-    const handleViewChange = (view: 'home' | 'explore' | 'library' | 'profile') => {
-      // Reset selectedUser when switching views to clear explore state
-      setSelectedUser(null);
-      setUserNFTs([]);
-      setUserNftsLoading(false);
-      setCurrentPage({
-        isHome: view === 'home',
-        isExplore: view === 'explore',
-        isLibrary: view === 'library',
-        isProfile: view === 'profile',
-        isUserProfile: false
-      });
-    };
-  
-    return (
-      <>
-        {currentPage.isHome && (
-          <HomeView
-            recentlyPlayedNFTs={recentlyPlayedNFTs}
-            topPlayedNFTs={topPlayedNFTs}
-            onPlayNFT={handlePlayNFT}
-            currentlyPlaying={currentlyPlaying}
-            isPlaying={isPlaying}
-            handlePlayPause={handlePlayPause}
-            onReset={onReset}
-            onLikeToggle={onLikeToggle}
-            likedNFTs={likedNFTs}
-            currentPlayingNFT={currentPlayingNFT}
-          />
-        )}
-        {currentPage.isExplore && (
-          <ExploreView
-            onSearch={handleSearch}
-            isPlaying={isPlaying}
-            searchResults={searchResults}
-            isSearching={isSearching}
-            recentSearches={recentSearches}
-            handleDirectUserSelect={handleDirectUserSelect}
-            onReset={onReset}
-          />
-        )}
-        {currentPage.isLibrary && (
-          <LibraryView
-            likedNFTs={likedNFTs}
-            isPlaying={isPlaying}
-            currentlyPlaying={currentlyPlaying}
-            currentPlayingNFT={currentPlayingNFT}
-            handlePlayAudio={handlePlayNFT}
-            handlePlayPause={handlePlayPause}
-            onReset={onReset}
-            userContext={{
-              user: {
-                fid: fid || 0,
-                pfpUrl: farcasterUser?.pfp ?? ''
-              }
+  const handleViewChange = useCallback((view: 'home' | 'explore' | 'library' | 'profile') => {
+    setSelectedUser(null);
+    setUserNFTs([]);
+    setUserNftsLoading(false);
+    setCurrentPage({
+      isHome: view === 'home',
+      isExplore: view === 'explore',
+      isLibrary: view === 'library',
+      isProfile: view === 'profile',
+      isUserProfile: false
+    });
+  }, []);
+
+  const currentViewKey = useMemo((): 'home' | 'explore' | 'library' | 'profile' => {
+    if (currentPage.isExplore) return 'explore';
+    if (currentPage.isLibrary) return 'library';
+    if (currentPage.isProfile || currentPage.isUserProfile) return 'profile';
+    return 'home';
+  }, [currentPage]);
+
+  return (
+    <div className="relative min-h-screen bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082] text-white">
+      {currentPage.isHome && (
+        <HomeView
+          topPlayedNFTs={topPlayedNFTs}
+          onPlayNFT={handlePlayNFT}
+          currentlyPlaying={currentlyPlaying}
+          isPlaying={isPlaying}
+          handlePlayPause={handlePlayPause}
+          onReset={onReset}
+          onLikeToggle={onLikeToggle}
+          likedNFTs={likedNFTs}
+          currentPlayingNFT={currentPlayingNFT}
+        />
+      )}
+      {currentPage.isExplore && (
+        <ExploreView
+          onSearch={handleSearch}
+          isPlaying={isPlaying}
+          searchResults={searchResults}
+          isSearching={isSearching}
+          recentSearches={recentSearches}
+          handleDirectUserSelect={handleDirectUserSelect}
+          onReset={onReset}
+        />
+      )}
+      {currentPage.isLibrary && (
+        <LibraryView
+          likedNFTs={likedNFTs}
+          isPlaying={isPlaying}
+          currentlyPlaying={currentlyPlaying}
+          currentPlayingNFT={currentPlayingNFT}
+          handlePlayAudio={handlePlayNFT}
+          handlePlayPause={handlePlayPause}
+          onReset={onReset}
+          userContext={{
+            user: {
+              fid: fid || 0,
+              pfpUrl: farcasterUser?.pfp ?? ''
+            }
+          }}
+          setIsLiked={() => {}}
+          setIsPlayerVisible={() => {}}
+          setIsPlayerMinimized={setIsPlayerMinimized}
+          onLikeToggle={onLikeToggle}
+          isLoading={!likedNFTsLoaded}
+        />
+      )}
+      {currentPage.isProfile && (
+        <UserImageProvider fid={fid} initialProfileImage={farcasterUser?.pfp}>
+          <ProfileView
+            farcasterContext={{
+              isFarcaster,
+              user: farcasterUser,
+              client: farcasterClient,
+              location: farcasterLocation
             }}
-            setIsLiked={() => {}}
-            setIsPlayerVisible={() => {}}
-            setIsPlayerMinimized={setIsPlayerMinimized}
+            nfts={[]}
+            handlePlayAudio={handlePlayNFT}
+            isPlaying={isPlaying}
+            currentlyPlaying={currentlyPlaying}
+            handlePlayPause={handlePlayPause}
+            onReset={onReset}
+            onNFTsLoaded={() => {}}
             onLikeToggle={onLikeToggle}
-            isLoading={!likedNFTsLoaded}
-          />
-        )}
-        {currentPage.isProfile && (
-          <UserImageProvider fid={fid} initialProfileImage={farcasterUser?.pfp}>
-            <ProfileView
-              farcasterContext={{
-                isFarcaster,
-                user: farcasterUser,
-                client: farcasterClient,
-                location: farcasterLocation
-              }}
-              nfts={[]} // ✅ Pass empty array - let ProfileView handle NFT fetching
-              handlePlayAudio={handlePlayNFT}
-              isPlaying={isPlaying}
-              currentlyPlaying={currentlyPlaying}
-              handlePlayPause={handlePlayPause}
-              onReset={onReset}
-              onNFTsLoaded={() => {}}
-              onLikeToggle={onLikeToggle}
-              isNFTLiked={isNFTLiked}
-              onUserProfileClick={(user) => {
+            isNFTLiked={isNFTLiked}
+            onUserProfileClick={(user) => {
               demoLogger.info('Navigating to user profile from ProfileView modal:', user.username);
               setSelectedUser(user);
               setUserNFTs([]);
               setUserNftsLoading(true);
               setNavigationSource({ fromExplore: false, fromProfile: true });
-              setCurrentPage(prev => ({ ...prev, isProfile: false, isUserProfile: true }));
+              setCurrentPage((prev) => ({ ...prev, isProfile: false, isUserProfile: true }));
             }}
-            />
-          </UserImageProvider>
-        )}
-        {currentPage.isUserProfile && selectedUser && (
-          <UserProfileView
-            user={selectedUser}
-            nfts={userNFTs}
-            nftsLoading={userNftsLoading}
-            handlePlayAudio={handlePlayNFT}
-            isPlaying={isPlaying}
-            currentlyPlaying={currentlyPlaying}
-            handlePlayPause={handlePlayPause}
-            onReset={onReset}
-            onBack={() => {
-              demoLogger.info('Navigating back from user profile');
-              // Reset selectedUser and userNFTs when going back from user profile
-              setSelectedUser(null);
-              setUserNFTs([]);
-              setUserNftsLoading(false);
-              
-              // Smart back navigation based on source
-              if (navigationSource.fromProfile) {
-                setCurrentPage(prev => ({ ...prev, isUserProfile: false, isProfile: true }));
-              } else if (navigationSource.fromExplore) {
-                setCurrentPage(prev => ({ ...prev, isUserProfile: false, isExplore: true }));
-              } else {
-                // Default fallback to explore
-                setCurrentPage(prev => ({ ...prev, isUserProfile: false, isExplore: true }));
-              }
-              
-              // Reset navigation source
-              setNavigationSource({ fromExplore: false, fromProfile: false });
-            }}
-            currentUserFid={fid || 0}
-            onLikeToggle={onLikeToggle}
-            isNFTLiked={isNFTLiked}
           />
-        )}
-        <BottomNav 
-          currentView={currentViewKey} 
-          onViewChange={handleViewChange} 
-          isPlayerActive={!!currentPlayingNFT}
-          isPlayerMinimized={isPlayerMinimized}
-          isAdPlaying={isAdPlaying}
-        />
-      </>
-    );
-  }
+        </UserImageProvider>
+      )}
+      {currentPage.isUserProfile && selectedUser && (
+        <UserProfileView
+          user={selectedUser}
+          nfts={userNFTs}
+          nftsLoading={userNftsLoading}
+          handlePlayAudio={handlePlayNFT}
+          isPlaying={isPlaying}
+          currentlyPlaying={currentlyPlaying}
+          handlePlayPause={handlePlayPause}
+          onReset={onReset}
+          onBack={() => {
+            setSelectedUser(null);
+            setUserNFTs([]);
+            setUserNftsLoading(false);
 
-  return (
-    <PlayerProvider 
-      fid={fid}
-      setRecentlyPlayedNFTs={setRecentlyPlayedNFTs}
-      recentlyAddedNFT={recentlyAddedNFT}
-    >
-      <div className="relative min-h-screen bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082] text-white">
-        {renderCurrentView()}
-        {selectedUser && (
-          <UserDataLoader
-            userFid={selectedUser.fid}
-            onNFTsLoaded={handleNFTsLoaded}
-            onError={handleUserDataError}
-          />
-        )}
-        {currentPlayingNFT && (
-          <PlayerWithAds
-            nft={currentPlayingNFT}
-            isPlaying={isPlaying}
-            progress={audioProgress}
-            duration={audioDuration}
-            onSeek={handleSeek}
-            onPlayPause={handlePlayPause}
-            onNext={handlePlayNext}
-            onPrevious={handlePlayPrevious}
-            isMinimized={isPlayerMinimized}
-            onMinimizeToggle={() => setIsPlayerMinimized(!isPlayerMinimized)}
-            onPlayNFT={handlePlayNFT}
-            onLikeToggle={() => currentPlayingNFT && onLikeToggle(currentPlayingNFT)}
-            isLiked={currentPlayingNFT ? isNFTLiked(currentPlayingNFT) : false}
-            onPictureInPicture={togglePictureInPicture}
-            onAdStateChange={setIsAdPlaying}
-          />
-        )}
-      </div>
-    </PlayerProvider>
+            if (navigationSource.fromProfile) {
+              setCurrentPage((prev) => ({ ...prev, isUserProfile: false, isProfile: true }));
+            } else {
+              setCurrentPage((prev) => ({ ...prev, isUserProfile: false, isExplore: true }));
+            }
+
+            setNavigationSource({ fromExplore: false, fromProfile: false });
+          }}
+          currentUserFid={fid || 0}
+          onLikeToggle={onLikeToggle}
+          isNFTLiked={isNFTLiked}
+        />
+      )}
+      <BottomNav
+        currentView={currentViewKey}
+        onViewChange={handleViewChange}
+        isPlayerActive={!!currentPlayingNFT}
+        isPlayerMinimized={isPlayerMinimized}
+        isAdPlaying={isAdPlaying}
+      />
+      {selectedUser && (
+        <UserDataLoader
+          userFid={selectedUser.fid}
+          onNFTsLoaded={handleNFTsLoaded}
+          onError={handleUserDataError}
+        />
+      )}
+      {currentPlayingNFT && (
+        <PlayerWithAds
+          nft={currentPlayingNFT}
+          isPlaying={isPlaying}
+          progress={audioProgress}
+          duration={audioDuration}
+          onSeek={handleSeek}
+          onPlayPause={handlePlayPause}
+          onNext={handlePlayNext}
+          onPrevious={handlePlayPrevious}
+          isMinimized={isPlayerMinimized}
+          onMinimizeToggle={() => setIsPlayerMinimized(!isPlayerMinimized)}
+          onPlayNFT={handlePlayNFT}
+          onLikeToggle={() => currentPlayingNFT && onLikeToggle(currentPlayingNFT)}
+          isLiked={isNFTLiked(currentPlayingNFT)}
+          onPictureInPicture={togglePictureInPicture}
+          onAdStateChange={setIsAdPlaying}
+        />
+      )}
+    </div>
   );
 };
 

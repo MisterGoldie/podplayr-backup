@@ -16,7 +16,7 @@ const homeLogger = logger.getModuleLogger('homeView');
 let featuredNFTsInitialized = false;
 
 interface HomeViewProps {
-  recentlyPlayedNFTs: NFT[];
+  recentlyPlayedNFTs?: NFT[];
   topPlayedNFTs: { nft: NFT; count: number }[];
   onPlayNFT: (nft: NFT, context?: { queue?: NFT[], queueType?: string }) => Promise<void>;
   currentlyPlaying: string | null;
