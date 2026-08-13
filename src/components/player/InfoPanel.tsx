@@ -122,7 +122,7 @@ const InfoPanel: React.FC<InfoPanelProps> = ({ nft, onClose, isLiked = false }) 
   };
 
   return (
-    <div className="fixed inset-0 z-[101] flex items-center justify-center px-4 pointer-events-none">
+    <div className="fixed inset-0 z-[120] flex items-center justify-center px-4 py-4 pointer-events-none" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
       <div
         className={`absolute inset-0 bg-black/50 backdrop-blur-sm pointer-events-auto ${
           isClosing ? 'animate-fade-out' : 'animate-fade-in'
@@ -131,11 +131,11 @@ const InfoPanel: React.FC<InfoPanelProps> = ({ nft, onClose, isLiked = false }) 
       />
 
       <div
-        className={`relative bg-gray-900/95 backdrop-blur-lg rounded-3xl overflow-hidden shadow-2xl shadow-purple-900/40 border border-purple-400/30 w-full max-w-sm pointer-events-auto ${
+        className={`relative bg-gray-900/95 backdrop-blur-lg rounded-3xl overflow-hidden shadow-2xl shadow-purple-900/40 border border-purple-400/30 w-full max-w-sm max-h-full flex flex-col pointer-events-auto ${
           isClosing ? 'animate-slide-down' : 'animate-slide-up'
         }`}
       >
-        <div className="relative h-40 bg-gray-800">
+        <div className="relative h-40 bg-gray-800 flex-shrink-0">
           <NFTImage
             nft={nft}
             src={imageSrc}
@@ -160,7 +160,14 @@ const InfoPanel: React.FC<InfoPanelProps> = ({ nft, onClose, isLiked = false }) 
           </button>
         </div>
 
-        <div className="px-5 pt-3 pb-5">
+        <div
+          className="px-5 pt-3 pb-5 min-h-0 flex-1 overflow-y-auto overscroll-contain"
+          style={{
+            scrollbarWidth: 'thin',
+            scrollbarColor: 'rgba(168, 85, 247, 0.4) rgba(0, 0, 0, 0.2)',
+            WebkitOverflowScrolling: 'touch',
+          }}
+        >
           <h2 className="text-white text-lg font-semibold leading-snug tracking-tight line-clamp-2">
             {nft.name}
           </h2>
@@ -223,16 +230,7 @@ const InfoPanel: React.FC<InfoPanelProps> = ({ nft, onClose, isLiked = false }) 
             )}
           </div>
 
-          <div
-            className="mt-4 space-y-4 max-h-[42vh] overflow-y-auto overscroll-contain will-change-scroll"
-            style={{
-              scrollbarWidth: 'thin',
-              scrollbarColor: 'rgba(168, 85, 247, 0.4) rgba(0, 0, 0, 0.2)',
-              WebkitOverflowScrolling: 'touch',
-              transform: 'translateZ(0)',
-              backfaceVisibility: 'hidden',
-            }}
-          >
+          <div className="mt-4 space-y-4">
             {description && (
               <div>
                 <p
