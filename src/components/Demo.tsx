@@ -527,9 +527,19 @@ const DemoBase: React.FC = () => {
       
       // Update local state based on the new like state
       if (newLikeState) {
-        // NFT is now liked - add to local state if not already there
+        // NFT is now liked — stamp like-time and put it first so Library
+        // "Recently Added" shows the latest like at the top immediately.
         if (!wasLiked) {
-          setLikedNFTs(prev => [...prev, nft]);
+          const likedAt = Date.now();
+          const likedNft: NFT = {
+            ...nft,
+            likedTimestamp: likedAt,
+            likedAt: new Date(likedAt).toISOString(),
+          };
+          setLikedNFTs(prev => [likedNft, ...prev.filter(existing => {
+            const existingKey = existing.mediaKey || getMediaKey(existing);
+            return existingKey !== mediaKey;
+          })]);
         }
         setIsLiked(true);
       } else {

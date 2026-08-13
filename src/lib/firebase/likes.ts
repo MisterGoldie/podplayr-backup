@@ -330,10 +330,19 @@ export const getLikedNFTs = async (userIdOrWallet: number | string): Promise<NFT
         collection: data.collection ? { name: data.collection } : undefined,
         network: data.network || 'ethereum',
         metadata: data.metadata || {}, // Include all metadata
-        // Add timestamp fields for sorting
+        // Add timestamp fields for sorting (never fall back to Date.now() —
+        // that makes old likes without a stamp look like they were just liked)
         likedAt: data.likedAt || data.timestampISO,
         timestamp: data.timestamp,
-        likedTimestamp: data.timestamp?.toMillis ? data.timestamp.toMillis() : (data.timestamp || Date.now())
+        likedTimestamp: data.timestamp?.toMillis
+          ? data.timestamp.toMillis()
+          : (typeof data.timestamp === 'number'
+            ? data.timestamp
+            : (typeof data.timestamp?.seconds === 'number'
+              ? data.timestamp.seconds * 1000
+              : (data.likedAt || data.timestampISO
+                ? Date.parse(data.likedAt || data.timestampISO) || 0
+                : 0)))
       };
       
       // If we have a nested nft object, prioritize those values

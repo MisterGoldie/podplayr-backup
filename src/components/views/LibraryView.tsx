@@ -28,6 +28,33 @@ const NotificationHandler = ({ nft, onTrigger }: { nft: NFT | null, onTrigger: (
   return null;
 };
 
+/** Normalize like-time from Firestore Timestamp, millis, {seconds}, or ISO string. */
+function getNftLikedTime(nft: NFT): number {
+  if (typeof nft.likedTimestamp === 'number' && Number.isFinite(nft.likedTimestamp) && nft.likedTimestamp > 0) {
+    return nft.likedTimestamp;
+  }
+
+  const ts = nft.timestamp as { toMillis?: () => number; seconds?: number } | number | string | undefined;
+  if (ts && typeof ts === 'object' && typeof ts.toMillis === 'function') {
+    return ts.toMillis();
+  }
+  if (typeof ts === 'number' && Number.isFinite(ts)) {
+    return ts;
+  }
+  if (ts && typeof ts === 'object' && typeof ts.seconds === 'number') {
+    return ts.seconds * 1000;
+  }
+  if (typeof ts === 'string') {
+    const parsed = Date.parse(ts);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  if (typeof nft.likedAt === 'string') {
+    const parsed = Date.parse(nft.likedAt);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return 0;
+}
+
 interface LibraryViewProps {
   likedNFTs: NFT[];
   isPlaying: boolean;
@@ -310,10 +337,7 @@ class LibraryView extends React.Component<LibraryViewProps> {
           case 'name':
             return (a.name || '').localeCompare(b.name || '');
           case 'recent':
-            // Sort by most recent liked first (descending order)
-            const aTime = a.likedTimestamp || a.timestamp?.toMillis?.() || 0;
-            const bTime = b.likedTimestamp || b.timestamp?.toMillis?.() || 0;
-            return bTime - aTime; // Most recent first
+            return getNftLikedTime(b) - getNftLikedTime(a);
           default:
             return 0;
         }
