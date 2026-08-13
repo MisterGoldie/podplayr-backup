@@ -1,7 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNFTPlayCount } from '../../hooks/useNFTPlayCount';
 import { useNFTLikes } from '../../hooks/useNFTLikes';
-import { useLikes } from '../../hooks/useLikes';
 import { useNFTTopPlayed } from '../../hooks/useNFTTopPlayed';
 import type { NFT } from '../../types/user';
 import { getMediaKey } from '../../utils/media';
@@ -10,19 +9,16 @@ import sdk from '@farcaster/miniapp-sdk';
 interface InfoPanelProps {
   nft: NFT;
   onClose: () => void;
-  userFid?: number;
+  /** Current user's like state from the player (same source as the heart button). */
+  isLiked?: boolean;
 }
 
-const InfoPanel: React.FC<InfoPanelProps> = ({ nft, onClose, userFid = 0 }) => {
+const InfoPanel: React.FC<InfoPanelProps> = ({ nft, onClose, isLiked = false }) => {
   const { playCount, loading, realCountIncrease } = useNFTPlayCount(nft);
   const { likesCount, isLoading: likesLoading } = useNFTLikes(nft);
-  const { isNFTLiked } = useLikes(userFid); // Add this hook
   const { hasBeenInTopPlayed, loading: topPlayedLoading } = useNFTTopPlayed(nft);
   const [isClosing, setIsClosing] = useState(false);
-  
-  // Get the user's like status for this NFT
-  const isLiked = isNFTLiked(nft); // Replace the placeholder with actual logic
-  
+
   // State to track animation of play count
   const [isPlayCountAnimating, setIsPlayCountAnimating] = useState(false);
   
