@@ -40,6 +40,7 @@ import { applyPlaybackPlanToNft, getNftPlaybackPlan, resolveNftPlaybackPlan } fr
 import { logger } from '../utils/logger';
 import { useToast } from './useToast';
 import { markNftMediaDead } from '../utils/deadNftRegistry';
+import { prioritizeRememberedUrl, rememberWorkingMediaUrl, forgetMediaUrl, getRememberedMediaUrl } from '../utils/gatewayMemory';
 
 // Create a dedicated logger for this module
 const audioLogger = logger.getModuleLogger('audioPlayer');
@@ -365,12 +366,17 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
       audioLogger.error('Failed to generate any valid audio URLs', { raw: rawAudioUrl });
       return;
     }
-    
+
+    // If a gateway has already proven itself for this exact media, try it first —
+    // skips redoing the same trial-and-error cascade on every repeat play.
+    const mediaKeyForMemory = nft.mediaKey || getMediaKey(nft);
+    const prioritizedAudioUrls = prioritizeRememberedUrl(mediaKeyForMemory, 'audio', audioUrls);
+
     // Use the first URL as our primary
-    const audioUrl = audioUrls[0];
+    const audioUrl = prioritizedAudioUrls[0];
     
     // Store all URLs for fallback
-    const fallbackUrls = audioUrls.slice(1);
+    const fallbackUrls = prioritizedAudioUrls.slice(1);
     
     // Log detailed information about the URL processing
     audioLogger.info('Processed audio URLs:', { 
@@ -409,7 +415,7 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
     setCurrentlyPlaying(`${nft.contract}-${nft.tokenId}`);
     
     // Make sure the NFT has mediaKey for proper deduplication
-    const mediaKey = nft.mediaKey || getMediaKey(nft);
+    const mediaKey = mediaKeyForMemory;
 
     // IMPORTANT: Do NOT use unmuted <video> as the sound source.
     // Audio element always owns sound. If there's a video layer, it stays muted
@@ -457,6 +463,11 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
         };
         
         audioLogger.error('Audio element error:', errorInfo);
+
+        // The gateway we remembered as "working" just failed — stop recommending it.
+        if (audio.src === getRememberedMediaUrl(mediaKey, 'audio')) {
+          forgetMediaUrl(mediaKey, 'audio');
+        }
         
         // Try fallback URLs if available
         if (fallbackUrls.length > fallbackIndex) {
@@ -537,6 +548,10 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
           currentTime: audio.currentTime
         });
         setAudioDuration(audio.duration);
+        // Metadata loading means whatever URL is currently on the element actually
+        // worked (whether it was the primary or one reached via the onerror fallback
+        // cascade) — remember it so next time we skip straight past dead gateways.
+        rememberWorkingMediaUrl(mediaKey, 'audio', audio.currentSrc || audio.src);
       });
 
       // Create a closure variable to track if this particular NFT play has been counted

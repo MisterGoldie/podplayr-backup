@@ -7,6 +7,7 @@ import { useNFTPreloader } from '../../hooks/useNFTPreloader';
 import { logger } from '../../utils/logger';
 import { getNftCdnUrl, preloadNftMedia } from '../../utils/cdn';
 import { markNftMediaDead } from '../../utils/deadNftRegistry';
+import { rememberWorkingMediaUrl, forgetMediaUrl, getRememberedMediaUrl } from '../../utils/gatewayMemory';
 
 // Create a dedicated logger for NFT images
 const imageLogger = logger.getModuleLogger('nftImage');
@@ -374,6 +375,14 @@ export const NFTImage: React.FC<NFTImageProps> = ({
     
     // Mark this fallback as attempted
     attemptedFallbacks.current[fallbackKey] = true;
+
+    // The gateway we remembered as "working" just failed — stop recommending it.
+    if (nft) {
+      const mediaKeyForMemory = getMediaKey(nft);
+      if (failedSrc === getRememberedMediaUrl(mediaKeyForMemory, 'image')) {
+        forgetMediaUrl(mediaKeyForMemory, 'image');
+      }
+    }
     
     // If we have an NFT, try to preload its media into the CDN cache for future requests
     // but only do this once per NFT
@@ -457,6 +466,13 @@ export const NFTImage: React.FC<NFTImageProps> = ({
     }, 0);
   };
 
+  // A successful load means whatever URL is currently displayed actually works —
+  // remember it so future renders of this same media skip straight past dead gateways.
+  const handleLoad = (loadedSrc: string) => {
+    if (!nft || !loadedSrc || loadedSrc.includes('default-nft.png')) return;
+    rememberWorkingMediaUrl(getMediaKey(nft), 'image', loadedSrc);
+  };
+
   // SECURITY: Use proper URL validation for determining render method
   // Use regular img tag for IPFS/Arweave content to bypass Next.js image optimization
   const isSpecialProtocol = isIpfsUrl(imgSrc) || isArweaveUrl(imgSrc);
@@ -520,6 +536,7 @@ export const NFTImage: React.FC<NFTImageProps> = ({
         width={width || 300}
         height={height || 300}
         onError={handleError}
+        onLoad={() => handleLoad(arweaveUrl)}
         // Add a data attribute to help with debugging
         data-nft-image-status={error ? 'error' : 'loaded'}
         data-nft-id={nft ? `${nft.contract}-${nft.tokenId}` : 'unknown'}
@@ -544,6 +561,7 @@ export const NFTImage: React.FC<NFTImageProps> = ({
         loading={priority ? 'eager' : loading}
         placeholder={placeholder}
         onError={handleError}
+        onLoad={() => handleLoad(finalSrc)}
         // Add a data attribute to help with debugging
         data-nft-image-status={error ? 'error' : 'loaded'}
         data-nft-id={nft ? `${nft.contract}-${nft.tokenId}` : 'unknown'}
@@ -563,7 +581,7 @@ export const NFTImage: React.FC<NFTImageProps> = ({
         width={width || 300}
         height={height || 300}
         onError={handleError}
-        onLoad={() => setImgLoading(false)}
+        onLoad={() => { setImgLoading(false); handleLoad(finalSrc); }}
         // Add a data attribute to help with debugging
         data-nft-image-status={error ? 'error' : 'loaded'}
         data-nft-id={nft ? `${nft.contract}-${nft.tokenId}` : 'unknown'}

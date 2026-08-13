@@ -65,6 +65,18 @@ export default function RootLayout({
       <head>
         {/* Ensure mobile support with proper viewport */}
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+        {/* Warm up DNS/TLS to the media gateways NFTs are most commonly hosted on,
+            so the very first request to each doesn't pay the full handshake cost. */}
+        <link rel="preconnect" href="https://arweave.net" crossOrigin="anonymous" />
+        <link rel="preconnect" href="https://turbo-gateway.com" crossOrigin="anonymous" />
+        <link rel="preconnect" href="https://permagate.io" crossOrigin="anonymous" />
+        <link rel="preconnect" href="https://gateway.irys.xyz" crossOrigin="anonymous" />
+        <link rel="preconnect" href="https://nftstorage.link" crossOrigin="anonymous" />
+        <link rel="preconnect" href="https://w3s.link" crossOrigin="anonymous" />
+        <link rel="preconnect" href="https://gateway.ipfs.io" crossOrigin="anonymous" />
+        <link rel="preconnect" href="https://ipfs.io" crossOrigin="anonymous" />
+        <link rel="preconnect" href="https://gateway.pinata.cloud" crossOrigin="anonymous" />
+        <link rel="dns-prefetch" href="https://dweb.link" />
       </head>
       <body>
         <MiniKitContextProvider>

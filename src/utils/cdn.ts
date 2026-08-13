@@ -2,6 +2,7 @@ import { logger } from './logger';
 import { NFT } from '../types/user';
 import { getMediaKey, processMediaUrl } from './media';
 import { v4 as uuidv4 } from 'uuid';
+import { getRememberedMediaUrl } from './gatewayMemory';
 
 // Create a dedicated CDN logger
 export const cdnLogger = logger.getModuleLogger('cdn');
@@ -113,6 +114,16 @@ export const getNftCdnUrl = (nft: NFT, mediaType: 'image' | 'audio'): string => 
   
   // Get the mediaKey for consistent caching of identical content
   const mediaKey = getMediaKey(nft);
+
+  // If we already know a gateway that successfully served this exact media,
+  // use it directly instead of re-running gateway selection/fallback logic —
+  // this is what actually skips a slow/dead gateway on repeat views.
+  const remembered = getRememberedMediaUrl(mediaKey, mediaType);
+  if (remembered) {
+    if (!nftCdnUrlCache[cacheKey]) nftCdnUrlCache[cacheKey] = {};
+    nftCdnUrlCache[cacheKey][mediaType] = remembered;
+    return remembered;
+  }
   
   try {
     // If CDN is not enabled, use the original URL processing
