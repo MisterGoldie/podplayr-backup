@@ -7,25 +7,36 @@ interface AdPlayerProps {
   key?: string;
 }
 
+interface AdConfig {
+  video: string;
+  url?: string;
+  title?: string;
+  domain?: string;
+  isVertical: boolean;
+}
+
 // Ad configuration with URLs
-const AD_CONFIG = [
+const AD_CONFIG: AdConfig[] = [
   {
     video: '/ad-video-2.mp4',
     url: 'https://acyl.world',  
     title: 'ACYL Radio',
-    domain: 'acyl.world'
+    domain: 'acyl.world',
+    isVertical: false
   },
   {
     video: '/ad-video-3.mp4',
     url: 'https://acyl.world/TV',  
     title: 'Art House',
-    domain: 'acyl.world/TV'
+    domain: 'acyl.world/TV',
+    isVertical: false
   },
   {
     video: '/ad-video-4.mp4',
     url: 'https://www.coinbase.com/',
     title: 'More Bitcoin',
-    domain: 'coinbase.com/learn'
+    domain: 'coinbase.com/learn',
+    isVertical: false
   },
   {
     video: '/ad-video-5.mp4',
@@ -44,12 +55,42 @@ const AD_CONFIG = [
   {
     video: '/podballad1.mp4',
     url: 'https://farcaster.xyz/miniapps/MBTyTK95-Yif/podball',
-    title: 'PODball'
+    title: 'PODball',
+    isVertical: false
   },
   {
     video: '/podplayrad1.mp4',
+    isVertical: false
   },
 ];
+
+let adBag: AdConfig[] = [];
+let lastAdVideo: string | null = null;
+
+function shuffleAds(ads: AdConfig[]): AdConfig[] {
+  const copy = [...ads];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
+function pickAd(supportedAds: AdConfig[]): AdConfig {
+  if (supportedAds.length === 0) return AD_CONFIG[0];
+
+  if (adBag.length === 0) {
+    adBag = shuffleAds(supportedAds);
+    if (lastAdVideo && adBag.length > 1 && adBag[0].video === lastAdVideo) {
+      const [first, ...rest] = adBag;
+      adBag = [...rest, first];
+    }
+  }
+
+  const ad = adBag.shift() ?? supportedAds[0];
+  lastAdVideo = ad.video;
+  return ad;
+}
 
 export const AdPlayer: React.FC<AdPlayerProps> = ({ onAdComplete }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -58,7 +99,6 @@ export const AdPlayer: React.FC<AdPlayerProps> = ({ onAdComplete }) => {
   const [audioDuration, setAudioDuration] = useState<number>(0);
   const [elapsedTime, setElapsedTime] = useState<number>(0);
   const [canSkip, setCanSkip] = useState<boolean>(false);
-  const [error, setError] = useState<boolean>(false);
   const [videoOrientation, setVideoOrientation] = useState<'landscape' | 'portrait'>('landscape');
   
   // Function to check if a video format is supported
@@ -68,23 +108,16 @@ export const AdPlayer: React.FC<AdPlayerProps> = ({ onAdComplete }) => {
   };
 
   const [selectedAd] = useState(() => {
-    // Filter ads to only include supported formats for the current device
     const supportedAds = AD_CONFIG.filter(ad => isVideoFormatSupported(ad.video));
     if (supportedAds.length === 0) {
-      console.error('No supported ad formats found');
-      setError(true);
-      return AD_CONFIG[0]; // Fallback to first ad
+      return AD_CONFIG[0];
     }
-    // Randomly select from supported ads
-    const randomIndex = Math.floor(Math.random() * supportedAds.length);
-    return supportedAds[randomIndex];
+    return pickAd(supportedAds);
   });
 
   // Set initial orientation based on selected ad
   useEffect(() => {
-    if (selectedAd.isVertical) {
-      setVideoOrientation('portrait');
-    }
+    setVideoOrientation(selectedAd.isVertical ? 'portrait' : 'landscape');
   }, [selectedAd]);
 
   // Track elapsed time and enable skip after 5 seconds

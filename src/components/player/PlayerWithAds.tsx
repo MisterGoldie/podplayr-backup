@@ -3,7 +3,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Player } from './Player';
 import { AdPlayer } from './AdPlayer';
-import { useVideoPlay } from '../../contexts/VideoPlayContext';
 import type { NFT } from '../../types/user';
 
 interface PlayerWithAdsProps {
@@ -24,94 +23,71 @@ interface PlayerWithAdsProps {
   onAdStateChange?: (isAdPlaying: boolean) => void;
 }
 
+const FIRST_AD_MIN = 1;
+const FIRST_AD_MAX = 3;
+const NEXT_AD_MIN = 4;
+const NEXT_AD_MAX = 7;
+const MIN_MS_BETWEEN_ADS = 3 * 60 * 1000;
+
+function randomInt(min: number, max: number): number {
+  return min + Math.floor(Math.random() * (max - min + 1));
+}
+
 export const PlayerWithAds: React.FC<PlayerWithAdsProps> = (props) => {
-  const { playCount, incrementPlayCount, resetPlayCount } = useVideoPlay();
-  const [navElement, setNavElement] = useState<HTMLElement | null>(null);
   const [showAd, setShowAd] = useState(false);
-  const [adComplete, setAdComplete] = useState(false);
-  const [hasShownFirstAd, setHasShownFirstAd] = useState(false);
-  const [playsAfterAd, setPlaysAfterAd] = useState(0);
-  
-  // Add ref to track the current NFT
   const currentNftRef = useRef<string | null>(null);
+  const uniquePlaysRef = useRef(0);
+  const playsUntilNextAdRef = useRef(randomInt(FIRST_AD_MIN, FIRST_AD_MAX));
+  const lastAdAtRef = useRef(0);
+  const onPlayPauseRef = useRef(props.onPlayPause);
+  const onAdStateChangeRef = useRef(props.onAdStateChange);
 
-  // Check if we need to show an ad when attempting to play a video
+  onPlayPauseRef.current = props.onPlayPause;
+  onAdStateChangeRef.current = props.onAdStateChange;
+
   useEffect(() => {
-    if (!props.nft) return;
-    
-    // Create a unique ID for the current NFT
+    if (!props.nft || !props.isPlaying || showAd) return;
+
     const nftId = `${props.nft.contract}-${props.nft.tokenId}`;
-    
-    // Check if this is a new NFT (different from the previous one)
-    const isNewNft = nftId !== currentNftRef.current;
-    
-    // Only increment play count and check for ads when a new NFT is played
-    if (props.isPlaying && !showAd && isNewNft) {
-      console.log('New NFT detected:', nftId, 'Previous:', currentNftRef.current);
-      
-      // Update the current NFT ref
-      currentNftRef.current = nftId;
-      
-      // Increment play count
-      incrementPlayCount();
-      
-      // Update plays after ad if we've already shown the first ad
-      if (hasShownFirstAd) {
-        setPlaysAfterAd(prev => prev + 1);
-      }
-      
-      // Check if we need to show an ad
-      if (!hasShownFirstAd && playCount >= 2) {
-        console.log('Showing first ad after 3 plays');
-        setShowAd(true);
-        setHasShownFirstAd(true);
-      } else if (hasShownFirstAd && playsAfterAd >= 8) {
-        console.log('Showing subsequent ad after 9 more plays');
-        setShowAd(true);
-        setPlaysAfterAd(0); // Reset counter after showing ad
-      }
-    }
-  }, [props.nft, props.isPlaying, playCount, playsAfterAd, hasShownFirstAd, incrementPlayCount]);
+    if (nftId === currentNftRef.current) return;
+    currentNftRef.current = nftId;
 
-  // Notify parent component about ad state changes
+    uniquePlaysRef.current += 1;
+
+    const due = uniquePlaysRef.current >= playsUntilNextAdRef.current;
+    const cooledDown =
+      lastAdAtRef.current === 0 ||
+      Date.now() - lastAdAtRef.current >= MIN_MS_BETWEEN_ADS;
+
+    if (due && cooledDown) {
+      setShowAd(true);
+    }
+  }, [props.nft, props.isPlaying, showAd]);
+
   useEffect(() => {
-    if (props.onAdStateChange) {
-      props.onAdStateChange(showAd);
-    }
-
+    onAdStateChangeRef.current?.(showAd);
     if (showAd) {
-      // Pause the main content if it's playing
-      if (props.isPlaying) props.onPlayPause();
+      onPlayPauseRef.current();
     }
-  }, [showAd, props.onAdStateChange, props.isPlaying, props.onPlayPause]);
+  }, [showAd]);
 
   const handleAdComplete = () => {
+    lastAdAtRef.current = Date.now();
+    playsUntilNextAdRef.current =
+      uniquePlaysRef.current + randomInt(NEXT_AD_MIN, NEXT_AD_MAX);
     setShowAd(false);
-    setAdComplete(true);
-    resetPlayCount();
-    setPlaysAfterAd(0);
-    
-    // Notify parent that ad is no longer playing
-    if (props.onAdStateChange) {
-      props.onAdStateChange(false);
-    }
-    
-    // Resume the main content
-    props.onPlayPause();
+    onAdStateChangeRef.current?.(false);
+    onPlayPauseRef.current();
   };
 
-  // Don't render anything until ad is complete if we're showing an ad
   if (showAd) {
     return <AdPlayer onAdComplete={handleAdComplete} />;
   }
 
-  // Only render the Player when no ad is showing and nft exists
-  const { onPlayNFT, ...playerProps } = props;
-  
-  // Don't render Player if nft is null or undefined
   if (!props.nft) {
     return null;
   }
-  
+
+  const { onPlayNFT: _onPlayNFT, onAdStateChange: _onAdStateChange, ...playerProps } = props;
   return <Player {...playerProps} nft={props.nft} />;
 };
