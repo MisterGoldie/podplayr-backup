@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { isFarcasterMiniApp } from '../utils/platform';
 import { updatePodplayrFollowerCount, ensurePodplayrFollow } from '../lib/firebase';
 import { VideoPlayProvider } from '../contexts/VideoPlayContext';
@@ -105,56 +105,21 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
     updatePodplayrCount();
   }, []);
   
-  // Initialize environment detection using MiniKit context
+  // Initialize environment detection.
+  // Farcaster's own SDK is checked FIRST and is authoritative: Farcaster
+  // clients can also populate a MiniKit-shaped context (they share the same
+  // underlying frame/postMessage protocol as Base), so "MiniKit context is
+  // present" is not on its own reliable evidence that we're in Coinbase/Base.
+  // If we skipped the Farcaster check whenever MiniKit context existed (as
+  // this used to), a real Farcaster session could get mislabeled as
+  // 'coinbase' with isFarcaster stuck false for the whole session — which
+  // silently breaks any UX gated on isFarcaster (haptics, profile nav icon).
   useEffect(() => {
     async function initializeEnvironmentContext() {
       try {
-        // Check MiniKit context first (Coinbase environment)
-        if (miniKitContext) {
-          console.log('🔍 MiniKit context detected:', miniKitContext);
-          setIsMiniKit(true);
-          setEnvironment('coinbase');
-          
-          // Extract user data from MiniKit context
-          if (miniKitContext.user?.fid) {
-            console.log('🔑 Setting user FID from MiniKit context:', miniKitContext.user.fid);
-            setFid(miniKitContext.user.fid);
-            
-            setUserContext({
-              fid: miniKitContext.user.fid,
-              username: miniKitContext.user.username,
-              displayName: miniKitContext.user.displayName,
-              pfp: miniKitContext.user.pfpUrl,
-              bio: (miniKitContext.user as any).bio,
-            });
-            
-            // Set client context from MiniKit
-            if (miniKitContext.client) {
-              setClientContext({
-                clientFid: miniKitContext.client.clientFid || miniKitContext.user.fid,
-                added: miniKitContext.client.added || false,
-                safeAreaInsets: miniKitContext.client.safeAreaInsets,
-              });
-            }
-            
-            // Set location context from MiniKit
-            if (miniKitContext.location) {
-              setLocationContext({
-                type: typeof miniKitContext.location === 'string' 
-                  ? miniKitContext.location 
-                  : miniKitContext.location.type || 'unknown',
-              });
-            }
-          }
-          
-          setIsFidReady(true);
-          return; // IMPORTANT: Return early to prevent Farcaster detection from overriding
-        }
-        
-        // Only fall back to Farcaster detection if MiniKit context is not available
         const isInMiniApp = await isFarcasterMiniApp();
         setIsFarcaster(isInMiniApp);
-        
+
         if (isInMiniApp) {
           setEnvironment('farcaster');
           console.log('🚨 App is RUNNING in Farcaster mini-app');
@@ -200,11 +165,52 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
           } else {
             console.warn('⚠️ No FID found in Farcaster context');
           }
-        } else {
-          console.log('🌐 App is running in WEB environment');
-          setEnvironment('web');
+
+          setIsFidReady(true);
+          return;
         }
-        
+
+        // Not Farcaster — fall back to MiniKit (Base/Coinbase) context if present.
+        if (miniKitContext) {
+          console.log('🔍 MiniKit context detected:', miniKitContext);
+          setIsMiniKit(true);
+          setEnvironment('coinbase');
+          
+          if (miniKitContext.user?.fid) {
+            console.log('🔑 Setting user FID from MiniKit context:', miniKitContext.user.fid);
+            setFid(miniKitContext.user.fid);
+            
+            setUserContext({
+              fid: miniKitContext.user.fid,
+              username: miniKitContext.user.username,
+              displayName: miniKitContext.user.displayName,
+              pfp: miniKitContext.user.pfpUrl,
+              bio: (miniKitContext.user as any).bio,
+            });
+            
+            if (miniKitContext.client) {
+              setClientContext({
+                clientFid: miniKitContext.client.clientFid || miniKitContext.user.fid,
+                added: miniKitContext.client.added || false,
+                safeAreaInsets: miniKitContext.client.safeAreaInsets,
+              });
+            }
+            
+            if (miniKitContext.location) {
+              setLocationContext({
+                type: typeof miniKitContext.location === 'string' 
+                  ? miniKitContext.location 
+                  : miniKitContext.location.type || 'unknown',
+              });
+            }
+          }
+
+          setIsFidReady(true);
+          return;
+        }
+
+        console.log('🌐 App is running in WEB environment');
+        setEnvironment('web');
         setIsFidReady(true);
       } catch (error) {
         console.error('❌ Error initializing environment context:', error);
@@ -216,28 +222,46 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
     initializeEnvironmentContext();
   }, [miniKitContext]);
   
-  // Ensure user follows PODPlayr whenever they have a valid FID
+  // Ensure user follows PODPlayr whenever they have a valid FID.
+  // Keyed on fid only (not environment) — the environment label can flip
+  // from a transient MiniKit false-positive to the correct Farcaster result
+  // moments later without the fid actually changing, and we don't want to
+  // re-run this (and its Firestore read/write) for the same fid twice.
+  const followedFidRef = useRef<number | undefined>(undefined);
   useEffect(() => {
-    if (fid) {
+    if (fid && followedFidRef.current !== fid) {
+      followedFidRef.current = fid;
       console.log(`🔑 User has FID: ${fid} in ${environment} environment`);
-      // Add the missing ensurePodplayrFollow call
       ensurePodplayrFollow(fid).catch(error => {
         console.error('Error ensuring PODPlayr follow:', error);
       });
     }
-  }, [fid, environment]);
+  }, [fid]);
+
+  // Memoized so consumers only re-render when the actual values change,
+  // instead of on every render of InnerProviders (e.g. from unrelated state
+  // updates elsewhere in the app tree).
+  const userFidContextValue = useMemo(
+    () => ({ fid, setFid, isFidReady, environment }),
+    [fid, setFid, isFidReady, environment]
+  );
+
+  const unifiedContextValue = useMemo(
+    () => ({
+      isFarcaster,
+      isMiniKit,
+      environment,
+      user: userContext,
+      client: clientContext,
+      location: locationContext,
+      miniKitContext,
+    }),
+    [isFarcaster, isMiniKit, environment, userContext, clientContext, locationContext, miniKitContext]
+  );
 
   return (
-    <UserFidContext.Provider value={{ fid, setFid, isFidReady, environment }}>
-      <UnifiedContext.Provider value={{ 
-        isFarcaster, 
-        isMiniKit,
-        environment,
-        user: userContext,
-        client: clientContext,
-        location: locationContext,
-        miniKitContext
-      }}>
+    <UserFidContext.Provider value={userFidContextValue}>
+      <UnifiedContext.Provider value={unifiedContextValue}>
         <VideoPlayProvider>
           <PlayerProvider>
             <NFTNotificationProvider>
