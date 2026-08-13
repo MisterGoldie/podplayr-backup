@@ -360,17 +360,26 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
     const followerLabel = formatCount(user.follower_count);
     const bio = getBio(user);
     return (
-      <button
+      <div
         key={key}
-        type="button"
-        onClick={() => openUser(user)}
-        className="w-full text-left rounded-2xl bg-black/40 border border-purple-400/15 p-3 flex items-center gap-3 active:scale-[0.99] touch-manipulation"
+        className="w-full rounded-2xl bg-black/40 border border-purple-400/15 p-3 flex items-center gap-3"
       >
-        <div className="relative">
-          {renderAvatar(user)}
+        <div className="relative flex-shrink-0">
+          <button
+            type="button"
+            onClick={() => openUser(user)}
+            className="block rounded-full active:scale-95 touch-manipulation"
+            aria-label={`Open ${user.display_name || user.username}`}
+          >
+            {renderAvatar(user)}
+          </button>
           {renderFollowButton(toFarcasterUser(user))}
         </div>
-        <div className="min-w-0 flex-1">
+        <button
+          type="button"
+          onClick={() => openUser(user)}
+          className="min-w-0 flex-1 text-left active:scale-[0.99] touch-manipulation"
+        >
           <p className="text-white font-medium truncate">{user.display_name || user.username}</p>
           <p className={`text-sm truncate ${user.isENS ? 'text-blue-300' : 'text-white/50'}`}>
             {user.isENS ? user.username : `@${user.username}`}
@@ -378,8 +387,8 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
           </p>
           {bio ? <p className="text-xs text-white/40 truncate mt-0.5">{bio}</p> : null}
           {renderBadges(user)}
-        </div>
-      </button>
+        </button>
+      </div>
     );
   };
 
@@ -433,7 +442,7 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
         className="space-y-7 pt-20 pb-48 overflow-y-auto overscroll-y-contain min-h-screen bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082] h-[calc(100vh-130px)] md:h-[calc(100vh-150px)]"
       >
         <div className="px-4">
-          <p className="text-white/50 text-sm mb-3 px-1">Find Farcaster and ENS listeners</p>
+          <p className="text-white/50 text-sm mb-3 px-1 text-center">Find Farcaster and ENS listeners</p>
           <SearchBar
             onSearch={onSearch}
             isSearching={isSearching}
@@ -442,7 +451,7 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
         </div>
 
         {showDiscovery && (
-          <div className="px-4 flex gap-2">
+          <div className="px-4 flex gap-2 justify-center">
             {([
               ['all', 'All'],
               ['farcaster', 'Farcaster'],
@@ -493,17 +502,24 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
         {showDiscovery && (
           <div className="px-4 space-y-8">
             {officialUser && filter !== 'ens' && (
-              <button
-                type="button"
-                onClick={() => openUser(officialUser)}
-                className="w-full text-left rounded-2xl p-4 flex items-center gap-4 active:scale-[0.99] touch-manipulation border border-purple-300/25 bg-gradient-to-r from-purple-700/40 via-fuchsia-700/20 to-black/30"
-              >
-                <div className="relative">
-                  {renderAvatar(officialUser, 72)}
+              <div className="w-full rounded-2xl p-4 flex items-center gap-4 border border-purple-300/25 bg-gradient-to-r from-purple-700/40 via-fuchsia-700/20 to-black/30">
+                <div className="relative flex-shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => openUser(officialUser)}
+                    className="block rounded-full active:scale-95 touch-manipulation"
+                    aria-label={`Open ${officialUser.display_name || officialUser.username}`}
+                  >
+                    {renderAvatar(officialUser, 72)}
+                  </button>
                   {renderFollowButton(officialUser)}
                 </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-[10px] uppercase tracking-[0.18em] text-purple-200/80">PODPlayr official</p>
+                <button
+                  type="button"
+                  onClick={() => openUser(officialUser)}
+                  className="min-w-0 flex-1 text-left active:scale-[0.99] touch-manipulation"
+                >
+                  <p className="text-[10px] uppercase tracking-[0.18em] text-purple-200/80">PODPLAYR official account</p>
                   <p className="text-white font-semibold truncate">{officialUser.display_name || officialUser.username}</p>
                   <p className="text-sm text-white/50 truncate">
                     @{officialUser.username}
@@ -512,8 +528,8 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
                   {officialUser.profile?.bio ? (
                     <p className="text-xs text-white/45 mt-1 line-clamp-2">{officialUser.profile.bio}</p>
                   ) : null}
-                </div>
-              </button>
+                </button>
+              </div>
             )}
 
             {filter !== 'ens' && renderRail('thepod', podUsers)}
@@ -521,7 +537,7 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
             {effectiveUserFid > 0 && filter !== 'ens' && circleOverlap.length > 0 && renderRail('In your circle', circleOverlap)}
             {effectiveUserFid > 0 && renderRail('People you follow', filteredFollowing, filter === 'ens' ? undefined : 'Follow someone to see them here.')}
             {effectiveUserFid > 0 && renderRail('Recently searched', filteredRecent)}
-            {renderRail('Popular on PODPlayr', filteredPopular)}
+            {renderRail('Popular on PODPLAYR', filteredPopular)}
             {filter !== 'farcaster' && ensRecent.length > 0 && renderRail('ENS names', ensRecent)}
           </div>
         )}
