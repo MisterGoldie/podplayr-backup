@@ -1,11 +1,12 @@
+'use client';
+
 import React, { useState, useEffect } from 'react';
 import { useNFTPlayCount } from '../../hooks/useNFTPlayCount';
 import { useNFTLikes } from '../../hooks/useNFTLikes';
 import { useNFTTopPlayed } from '../../hooks/useNFTTopPlayed';
 import type { NFT } from '../../types/user';
 import { getMediaKey } from '../../utils/media';
-import { getNftExplorerLinks } from '../../utils/nftExplorerLinks';
-import sdk from '@farcaster/miniapp-sdk';
+import { NFTImage } from '../media/NFTImage';
 
 interface InfoPanelProps {
   nft: NFT;
@@ -18,43 +19,34 @@ const InfoPanel: React.FC<InfoPanelProps> = ({ nft, onClose, isLiked = false }) 
   const { playCount, loading, realCountIncrease } = useNFTPlayCount(nft);
   const { likesCount, isLoading: likesLoading } = useNFTLikes(nft);
   const { hasBeenInTopPlayed, loading: topPlayedLoading } = useNFTTopPlayed(nft);
-  const explorerLinks = getNftExplorerLinks(nft);
   const [isClosing, setIsClosing] = useState(false);
 
-  // State to track animation of play count
   const [isPlayCountAnimating, setIsPlayCountAnimating] = useState(false);
-  
-  // Trigger animation only when a real Firebase count increase happens (25% threshold)
+  const imageSrc = nft.image || nft.metadata?.image || nft.collection?.image || '';
+
   useEffect(() => {
     if (realCountIncrease) {
-      // Real play count increase from Firebase - trigger animation
       setIsPlayCountAnimating(true);
-      
-      // Reset animation after it completes
       const timer = setTimeout(() => {
         setIsPlayCountAnimating(false);
-      }, 1500); // Animation duration (slightly longer than the CSS animation)
-      
+      }, 1500);
       return () => clearTimeout(timer);
     }
   }, [realCountIncrease]);
 
-  // Handle closing animation
   const handleClose = () => {
     setIsClosing(true);
     setTimeout(() => {
       onClose();
-    }, 300); // Match this to the animation duration
+    }, 300);
   };
 
-  // Reset closing state when component mounts
   useEffect(() => {
     setIsClosing(false);
   }, [nft]);
 
   return (
     <div className="fixed inset-0 z-[101] flex items-center justify-center px-4 pointer-events-none">
-      {/* Backdrop overlay with fade animation */}
       <div 
         className={`absolute inset-0 bg-black/40 backdrop-blur-sm pointer-events-auto ${
           isClosing ? 'animate-fade-out' : 'animate-fade-in'
@@ -62,19 +54,22 @@ const InfoPanel: React.FC<InfoPanelProps> = ({ nft, onClose, isLiked = false }) 
         onClick={handleClose}
       ></div>
       
-      {/* Info panel with slide-up animation */}
       <div 
         className={`relative bg-gray-900/95 backdrop-blur-lg rounded-xl p-5 shadow-2xl border border-purple-400/30 w-full max-w-sm pointer-events-auto ${
           isClosing ? 'animate-slide-down' : 'animate-slide-up'
         }`}
       >
-        {/* Enhanced Header */}
         <div className="flex items-start gap-3 mb-4">
-          <div className="w-12 h-12 rounded-lg overflow-hidden border border-purple-400/30 flex-shrink-0">
-            <img 
-              src={nft.image || nft.metadata?.image || '/default-nft.png'} 
+          <div className="w-12 h-12 rounded-lg overflow-hidden border border-purple-400/30 flex-shrink-0 bg-gray-800">
+            <NFTImage
+              nft={nft}
+              src={imageSrc}
               alt={nft.name}
               className="w-full h-full object-cover"
+              width={48}
+              height={48}
+              priority
+              loading="eager"
             />
           </div>
           <div className="flex-1 min-w-0">
@@ -129,7 +124,6 @@ const InfoPanel: React.FC<InfoPanelProps> = ({ nft, onClose, isLiked = false }) 
           </button>
         </div>
 
-        {/* Content */}
         <div 
           className="space-y-4 max-h-[50vh] overflow-y-auto overscroll-contain will-change-scroll pr-2"
           style={{
@@ -140,7 +134,6 @@ const InfoPanel: React.FC<InfoPanelProps> = ({ nft, onClose, isLiked = false }) 
             backfaceVisibility: 'hidden'
           }}
         >
-          {/* Description */}
           {(nft.description || nft.metadata?.description) && (
             <div className="bg-black/30 rounded-lg p-3 border border-purple-400/10">
               <h3 className="text-purple-300 font-mono text-xs uppercase tracking-wider mb-2">Description</h3>
@@ -148,7 +141,6 @@ const InfoPanel: React.FC<InfoPanelProps> = ({ nft, onClose, isLiked = false }) 
             </div>
           )}
 
-          {/* Properties */}
           {nft.metadata?.properties && Object.keys(nft.metadata.properties).length > 0 && (
             <div className="bg-black/30 rounded-lg p-3 border border-purple-400/10">
               <h3 className="text-purple-300 font-mono text-xs uppercase tracking-wider mb-3">Properties</h3>
@@ -163,28 +155,7 @@ const InfoPanel: React.FC<InfoPanelProps> = ({ nft, onClose, isLiked = false }) 
             </div>
           )}
 
-          {/* Quick Actions */}
-          <div className="bg-black/30 rounded-lg p-3 border border-purple-400/10">
-            <h3 className="text-purple-300 font-mono text-xs uppercase tracking-wider mb-3">Quick Actions</h3>
-            {!explorerLinks.valid ? (
-              <p className="text-gray-500 text-xs font-mono">Contract or token ID missing for this NFT.</p>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {explorerLinks.explorerUrl && (
-                  <button
-                    onClick={() => handleOpenUrl(explorerLinks.explorerUrl!)}
-                    className="flex-1 min-w-[7.5rem] bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 text-xs font-mono py-2 px-3 rounded-md transition-colors border border-purple-400/20"
-                  >
-                    View on {explorerLinks.explorerName}
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Contract and Token ID */}
           <div className="bg-black/30 rounded-lg p-3 border border-purple-400/10 overflow-hidden space-y-3">
-            {/* Contract */}
             <div>
               <h3 className="text-purple-300 font-mono text-xs uppercase tracking-wider mb-2">Contract</h3>
               <div className="flex items-center gap-2">
@@ -200,7 +171,6 @@ const InfoPanel: React.FC<InfoPanelProps> = ({ nft, onClose, isLiked = false }) 
                 </button>
               </div>
             </div>
-            {/* Token ID */}
             <div>
               <h3 className="text-purple-300 font-mono text-xs uppercase tracking-wider mb-2">Token ID</h3>
               <div className="flex items-center gap-2">
@@ -224,22 +194,3 @@ const InfoPanel: React.FC<InfoPanelProps> = ({ nft, onClose, isLiked = false }) 
 };
 
 export default InfoPanel;
-
-const handleOpenUrl = async (url: string) => {
-  try {
-    // Check if we're in a Farcaster mini-app environment
-    const isInMiniApp = await sdk.isInMiniApp();
-    
-    if (isInMiniApp) {
-      // Use Farcaster SDK to open URL
-      await sdk.actions.openUrl(url);
-    } else {
-      // Fallback to regular window.open for web environment
-      window.open(url, '_blank');
-    }
-  } catch (error) {
-    console.error('Error opening URL:', error);
-    // Fallback to window.open if SDK fails
-    window.open(url, '_blank');
-  }
-};
