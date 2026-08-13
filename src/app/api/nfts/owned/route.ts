@@ -11,17 +11,12 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    let debugInfo: Record<string, unknown> | null = null;
-    const nfts = await fetchOwnedNftsFromAlchemy(address, (info) => {
-      debugInfo = info;
+    const nfts = await fetchOwnedNftsFromAlchemy(address);
+    return NextResponse.json(nfts, {
+      headers: {
+        'Cache-Control': 'private, max-age=60',
+      },
     });
-    const headers: Record<string, string> = {
-      'Cache-Control': 'private, max-age=60',
-    };
-    if (debugInfo) {
-      headers['X-Nft-Debug'] = JSON.stringify(debugInfo).slice(0, 2000);
-    }
-    return NextResponse.json(nfts, { headers });
   } catch (error) {
     console.error('Error fetching owned NFTs:', error);
     return NextResponse.json(

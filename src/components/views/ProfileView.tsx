@@ -18,10 +18,6 @@ import NFTNotification from '../NFTNotification';
 // Remove this import since we're not using the cache
 // import { useNFTCache } from '../../contexts/NFTCacheContext';
 import { UserProfileNFTGrid } from '../nft/UserProfileNFTGrid';
-import { DebugLogPanel } from '../debug/DebugLogPanel';
-import { pushDebugLog } from '../../utils/debugReporter';
-
-const NFT_DEBUG_SCOPE = 'nft-fetch';
 
 interface ProfileViewProps {
   farcasterContext: {
@@ -74,10 +70,6 @@ const filterMediaNFTs = (nfts: NFT[]) => {
   if (!nfts || nfts.length === 0) return [];
   const filtered = filterPlayableMediaNFTs(nfts);
   console.log(`ProfileView: Showing ${filtered.length} media NFTs out of ${nfts.length} total NFTs`);
-  pushDebugLog(NFT_DEBUG_SCOPE, 'Own profile: media filter applied', {
-    totalNfts: nfts.length,
-    mediaNfts: filtered.length,
-  });
   return filtered;
 };
 
@@ -200,22 +192,13 @@ const ProfileView: React.FC<ProfileViewProps> = ({
   // Replace the NFT loading useEffect with cached version:
   useEffect(() => {
     const loadNFTs = async () => {
-      if (typeof navigator !== 'undefined') {
-        pushDebugLog(NFT_DEBUG_SCOPE, 'Own profile: env', {
-          userAgent: navigator.userAgent,
-          online: navigator.onLine,
-        });
-      }
-
       if (!isUserLoggedIn()) {
         console.log('🚫 No FID found in farcasterContext:', farcasterContext);
-        pushDebugLog(NFT_DEBUG_SCOPE, 'Own profile: not logged in, aborting', { farcasterContext });
         return;
       }
       
       if (!userFid) {
         console.log('🚫 FID is undefined even though user is logged in');
-        pushDebugLog(NFT_DEBUG_SCOPE, 'Own profile: FID undefined despite logged in');
         return;
       }
 
@@ -225,7 +208,6 @@ const ProfileView: React.FC<ProfileViewProps> = ({
       
       if (cached && cached.nfts.length > 0 && (now - cached.timestamp) < CACHE_DURATION) {
         console.log('✅ Using cached profile data for FID:', userFid);
-        pushDebugLog(NFT_DEBUG_SCOPE, 'Own profile: using cached NFTs', { fid: userFid, count: cached.nfts.length });
         setAllUserNFTs(cached.nfts);
         setLikedNFTs(cached.likedNFTs);
         setAppFollowerCount(cached.followerCount);
@@ -235,20 +217,14 @@ const ProfileView: React.FC<ProfileViewProps> = ({
       }
       
       console.log('🔄 Loading all NFTs directly for FID:', userFid);
-      pushDebugLog(NFT_DEBUG_SCOPE, 'Own profile: fetch starting', { fid: userFid, url: `/api/nfts/by-fid?fid=${userFid}` });
       
       try {
         setIsLoading(true);
         setError(null);
 
         const nftsResponse = await fetch(`/api/nfts/by-fid?fid=${userFid}`);
-        pushDebugLog(NFT_DEBUG_SCOPE, 'Own profile: fetch responded', {
-          status: nftsResponse.status,
-          ok: nftsResponse.ok,
-        });
         if (!nftsResponse.ok) {
           const errorText = await nftsResponse.text();
-          pushDebugLog(NFT_DEBUG_SCOPE, 'Own profile: fetch NOT ok', { status: nftsResponse.status, errorText });
           throw new Error(errorText || 'Failed to fetch NFTs');
         }
 
@@ -256,10 +232,6 @@ const ProfileView: React.FC<ProfileViewProps> = ({
         const list = Array.isArray(uniqueNFTs) ? uniqueNFTs : [];
 
         console.log(`✅ Fetched ${list.length} unique media NFTs`);
-        pushDebugLog(NFT_DEBUG_SCOPE, 'Own profile: fetch parsed', {
-          count: list.length,
-          sample: list.slice(0, 2).map((n: NFT) => ({ name: n.name, contract: n.contract, tokenId: n.tokenId, network: (n as any).network })),
-        });
 
         const nftsWithMediaKey = list.map((nft: NFT) => ({
           ...nft,
@@ -281,10 +253,6 @@ const ProfileView: React.FC<ProfileViewProps> = ({
         
       } catch (err) {
         console.error('❌ Error loading NFTs:', err);
-        pushDebugLog(NFT_DEBUG_SCOPE, 'Own profile: fetch THREW', {
-          name: err instanceof Error ? err.name : typeof err,
-          message: err instanceof Error ? err.message : String(err),
-        });
         setError(err instanceof Error ? err.message : 'Failed to load NFTs');
         setHasCompletedInitialLoad(true);
       } finally {
@@ -606,7 +574,6 @@ const ProfileView: React.FC<ProfileViewProps> = ({
 
         {/* User's NFTs - Replace with virtualized grid */}
         <div className="container mx-auto px-4">
-          <DebugLogPanel scope={NFT_DEBUG_SCOPE} title="NFT Fetch Debug Log" />
           <h2 className="text-2xl font-bold text-green-400 mb-4">Your NFTs</h2>
           {/* Enhanced loading state check - show loading state during any uncertainty */}
           {(() => {

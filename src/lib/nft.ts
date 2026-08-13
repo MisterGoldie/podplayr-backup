@@ -183,10 +183,7 @@ async function fetchAlchemyWithRetry(url: string, maxRetries = 3): Promise<Respo
   throw lastError instanceof Error ? lastError : new Error('Alchemy fetch failed after retries');
 }
 
-export const fetchOwnedNftsFromAlchemy = async (
-  address: string,
-  onDebug?: (info: Record<string, unknown>) => void
-): Promise<NFT[]> => {
+export const fetchOwnedNftsFromAlchemy = async (address: string): Promise<NFT[]> => {
   try {
     console.log('\n🔍 Fetching NFTs for address:', address);
     const alchemyKey = process.env.NEXT_PUBLIC_ALCHEMY_API_KEY || process.env.ALCHEMY_API_KEY;
@@ -212,13 +209,6 @@ export const fetchOwnedNftsFromAlchemy = async (
 
     if (!ethResponse.ok || !baseResponse.ok) {
       const errorText = await ((!ethResponse.ok ? ethResponse : baseResponse).text());
-      onDebug?.({
-        stage: 'alchemy-response-not-ok',
-        address,
-        ethStatus: ethResponse.status,
-        baseStatus: baseResponse.status,
-        errorText,
-      });
       throw new Error(`Alchemy API error: ${errorText}`);
     }
 
@@ -369,14 +359,6 @@ export const fetchOwnedNftsFromAlchemy = async (
       }),
     ].filter((nft): nft is NFT => !!nft && isPlayableMediaNFT(nft));
 
-    onDebug?.({
-      stage: 'success',
-      address,
-      ethRawCount: ethData.ownedNfts?.length || 0,
-      baseRawCount: baseData.ownedNfts?.length || 0,
-      mediaNftCount: processedNFTs.length,
-    });
-
     return processedNFTs.map((nft) => ({
       ...nft,
       contract: nft.contract.toLowerCase(),
@@ -387,54 +369,22 @@ export const fetchOwnedNftsFromAlchemy = async (
     }));
   } catch (error) {
     console.error(`Error fetching NFTs for address ${address}:`, error);
-    onDebug?.({
-      stage: 'threw',
-      address,
-      name: error instanceof Error ? error.name : typeof error,
-      message: error instanceof Error ? error.message : String(error),
-    });
     return [];
   }
 };
 
 export const fetchUserNFTsFromAlchemy = async (address: string): Promise<NFT[]> => {
   if (typeof window !== 'undefined') {
-    const { pushDebugLog } = await import('../utils/debugReporter');
-    const url = `/api/nfts/owned?address=${encodeURIComponent(address)}`;
     try {
-      pushDebugLog('nft-fetch', 'Client -> same-origin API request', { address, url });
-      const res = await fetch(url);
-      pushDebugLog('nft-fetch', 'Client <- same-origin API response', {
-        address,
-        status: res.status,
-        ok: res.ok,
-      });
-      const nftDebugHeader = res.headers.get('x-nft-debug');
-      if (nftDebugHeader) {
-        try {
-          pushDebugLog('nft-fetch', 'Server-side Alchemy debug', { address, ...JSON.parse(nftDebugHeader) });
-        } catch {
-          pushDebugLog('nft-fetch', 'Server-side Alchemy debug (raw)', { address, raw: nftDebugHeader });
-        }
-      }
+      const res = await fetch(`/api/nfts/owned?address=${encodeURIComponent(address)}`);
       if (!res.ok) {
-        const errorText = await res.text();
-        console.error(`Owned NFT API error ${res.status}:`, errorText);
-        pushDebugLog('nft-fetch', 'Client: same-origin API NOT ok', { address, status: res.status, errorText });
+        console.error(`Owned NFT API error ${res.status}:`, await res.text());
         return [];
       }
       const data = await res.json();
-      const list = Array.isArray(data) ? data : [];
-      pushDebugLog('nft-fetch', 'Client: same-origin API parsed', { address, count: list.length });
-      return list;
+      return Array.isArray(data) ? data : [];
     } catch (error) {
       console.error(`Error fetching NFTs for address ${address}:`, error);
-      pushDebugLog('nft-fetch', 'Client: same-origin API fetch THREW', {
-        address,
-        url,
-        name: error instanceof Error ? error.name : typeof error,
-        message: error instanceof Error ? error.message : String(error),
-      });
       return [];
     }
   }
