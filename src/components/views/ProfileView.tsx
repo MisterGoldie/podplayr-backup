@@ -221,88 +221,19 @@ const ProfileView: React.FC<ProfileViewProps> = ({
       try {
         setIsLoading(true);
         setError(null);
-        
-        const { fetchUserNFTsFromAlchemy } = await import('../../lib/nft');
-        
-        // FIX: Use the correct function from firebase.ts to get user data
-        const neynarKey = process.env.NEXT_PUBLIC_NEYNAR_API_KEY;
-        if (!neynarKey) throw new Error('Neynar API key not found');
 
-        // Fetch user profile directly from Neynar API
-        const profileResponse = await fetch(
-          `https://api.neynar.com/v2/farcaster/user/bulk?fids=${userFid}`,
-          {
-            headers: {
-              'accept': 'application/json',
-              'api_key': neynarKey
-            }
-          }
-        );
-
-        if (!profileResponse.ok) {
-          throw new Error('Failed to fetch user profile');
+        const nftsResponse = await fetch(`/api/nfts/by-fid?fid=${userFid}`);
+        if (!nftsResponse.ok) {
+          const errorText = await nftsResponse.text();
+          throw new Error(errorText || 'Failed to fetch NFTs');
         }
 
-        const profileData = await profileResponse.json();
-        const userData = profileData.users?.[0];
-        
-        if (!userData) {
-          console.log('❌ No user data found for FID:', userFid);
-          setAllUserNFTs([]);
-          setHasCompletedInitialLoad(true);
-          return;
-        }
-        
-        // Get addresses from user data
-        const addresses: string[] = [];
-        
-        // Add verified addresses - FIX: Handle different address structures
-        if (userData.verified_addresses?.eth_addresses) {
-          addresses.push(...userData.verified_addresses.eth_addresses);
-        } else if (userData.verifications) {
-          addresses.push(...userData.verifications);
-        }
-        
-        // Add custody address if available
-        if (userData.custody_address) {
-          addresses.push(userData.custody_address);
-        }
-        
-        console.log(`📍 Found ${addresses.length} addresses for user:`, addresses);
-        
-        if (addresses.length === 0) {
-          console.log('❌ No addresses found for user');
-          setAllUserNFTs([]);
-          setHasCompletedInitialLoad(true);
-          return;
-        }
-        
-        // Fetch all NFTs from all addresses - Use raw Alchemy data instead
-        const allNFTsPromises = addresses.map(async (address) => {
-          console.log(`🔍 Fetching NFTs for address: ${address}`);
-          const nfts = await fetchUserNFTsFromAlchemy(address);
-          console.log(`📦 Address ${address} returned ${nfts.length} NFTs`);
-          return nfts;
-        });
-        
-        const allNFTsArrays = await Promise.all(allNFTsPromises);
-        const allNFTs = allNFTsArrays.flat();
-        
-        console.log(`🎯 Raw NFT fetch results:`, {
-          totalAddresses: addresses.length,
-          nftArrays: allNFTsArrays.map((arr, i) => ({ address: addresses[i], count: arr.length })),
-          totalNFTs: allNFTs.length
-        });
-        
-        // Deduplicate by contract and tokenId - FIX: Use correct property access
-        const uniqueNFTs = Array.from(
-          new Map(allNFTs.map(nft => [`${nft.contract}-${nft.tokenId}`, nft])).values()
-        );
-        
-        console.log(`✅ Fetched ${allNFTs.length} total NFTs, ${uniqueNFTs.length} unique NFTs`);
-        
-        // Generate mediaKey for NFTs that don't have it
-        const nftsWithMediaKey = uniqueNFTs.map(nft => ({
+        const uniqueNFTs = await nftsResponse.json();
+        const list = Array.isArray(uniqueNFTs) ? uniqueNFTs : [];
+
+        console.log(`✅ Fetched ${list.length} unique media NFTs`);
+
+        const nftsWithMediaKey = list.map((nft: NFT) => ({
           ...nft,
           mediaKey: nft.mediaKey || getMediaKey(nft)
         }));

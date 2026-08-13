@@ -87,39 +87,14 @@ export const NFTCard: React.FC<NFTCardProps> = ({
     }
   };
 
-  // Add animation styles - same as LibraryView
-  const animationStyle = {
-    opacity: 0,
-    transform: 'translateY(20px)',
-    animation: `fadeInUp 0.5s ease-out ${animationDelay}s forwards`
-  };
-
-  // Add keyframes style
-  const animationKeyframes = `
-    @keyframes fadeInUp {
-      from {
-        opacity: 0;
-        transform: translateY(20px);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
-    }
-  `;
-
-  // Use the prop function to determine liked state, fallback to hook state
   const displayIsLiked = isNFTLiked ? isNFTLiked() : isLiked;
 
   return (
-    <>
-      <style>{animationKeyframes}</style>
-      
-      <div 
-        className="relative group cursor-pointer" 
-        onClick={handlePlay}
-        style={animationStyle}
-      >
+    <div 
+      className="relative group cursor-pointer nft-card-enter" 
+      onClick={handlePlay}
+      style={animationDelay ? { animationDelay: `${animationDelay}s` } : undefined}
+    >
         <div className="aspect-square rounded-lg overflow-hidden bg-gray-800/20 shadow-lg relative">
           <NFTImage
             nft={nft}
@@ -166,7 +141,6 @@ export const NFTCard: React.FC<NFTCardProps> = ({
             {likesCount > 0 && <span>{likesCount} likes</span>}
           </div>
         </div>
-      </div>
-    </>
+    </div>
   );
 };

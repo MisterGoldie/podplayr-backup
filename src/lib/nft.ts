@@ -124,10 +124,15 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
   }
 };
 
-export const fetchUserNFTsFromAlchemy = async (address: string): Promise<NFT[]> => {
+/**
+ * Direct Alchemy fetch. Use from server/API routes only — Farcaster/Base
+ * mini-app webviews often block client calls to alchemy.com, which made
+ * profile grids empty on mobile while desktop browsers still worked.
+ */
+export const fetchOwnedNftsFromAlchemy = async (address: string): Promise<NFT[]> => {
   try {
     console.log('\n🔍 Fetching NFTs for address:', address);
-    const alchemyKey = process.env.NEXT_PUBLIC_ALCHEMY_API_KEY;
+    const alchemyKey = process.env.NEXT_PUBLIC_ALCHEMY_API_KEY || process.env.ALCHEMY_API_KEY;
     if (!alchemyKey) throw new Error('Alchemy API key not found');
 
     console.log('🌐 Starting parallel fetch from ETH and BASE networks...');
@@ -303,6 +308,24 @@ export const fetchUserNFTsFromAlchemy = async (address: string): Promise<NFT[]> 
   }
 };
 
+export const fetchUserNFTsFromAlchemy = async (address: string): Promise<NFT[]> => {
+  if (typeof window !== 'undefined') {
+    try {
+      const res = await fetch(`/api/nfts/owned?address=${encodeURIComponent(address)}`);
+      if (!res.ok) {
+        console.error(`Owned NFT API error ${res.status}:`, await res.text());
+        return [];
+      }
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
+    } catch (error) {
+      console.error(`Error fetching NFTs for address ${address}:`, error);
+      return [];
+    }
+  }
+  return fetchOwnedNftsFromAlchemy(address);
+};
+
 export const fetchUserNFTs = async (fid: number): Promise<NFT[]> => {
   try {
     console.log('🚀 === START NFT FETCH FOR FID:', fid, '===');
@@ -331,26 +354,19 @@ export const fetchUserNFTs = async (fid: number): Promise<NFT[]> => {
     console.log('👤 Raw Neynar Profile Data:', JSON.stringify(profileData, null, 2));
     
     let allAddresses: string[] = [];
+    const user = profileData.users?.[0];
 
-    // Get verified addresses
-    console.log('🔍 Checking verified addresses...');
-    if (profileData.users?.[0]?.verifications) {
-      console.log('✅ Found verified addresses:', profileData.users[0].verifications);
-      allAddresses = [...profileData.users[0].verifications];
-    } else {
-      console.log('⚠️ No verified addresses found in profile');
+    const verifiedEth = user?.verified_addresses?.eth_addresses;
+    if (Array.isArray(verifiedEth) && verifiedEth.length > 0) {
+      allAddresses.push(...verifiedEth);
+    }
+    if (Array.isArray(user?.verifications)) {
+      allAddresses.push(...user.verifications);
+    }
+    if (user?.custody_address) {
+      allAddresses.push(user.custody_address);
     }
 
-    // Get custody address
-    console.log('🔍 Checking custody address...');
-    if (profileData.users?.[0]?.custody_address) {
-      console.log('✅ Found custody address:', profileData.users[0].custody_address);
-      allAddresses.push(profileData.users[0].custody_address);
-    } else {
-      console.log('⚠️ No custody address found in profile');
-    }
-
-    // Filter addresses
     allAddresses = [...new Set(allAddresses)].filter(addr => {
       const isValid = addr && addr.startsWith('0x') && addr.length === 42;
       if (!isValid) {
@@ -373,7 +389,7 @@ export const fetchUserNFTs = async (fid: number): Promise<NFT[]> => {
       console.log(`\n🔄 Processing address ${i + 1}/${allAddresses.length}:`, address);
       
       try {
-        const nfts = await fetchUserNFTsFromAlchemy(address);
+        const nfts = await fetchOwnedNftsFromAlchemy(address);
         console.log(`✨ NFTs found for address ${address}:`, {
           total: nfts.length,
           audio: nfts.filter(nft => nft.hasValidAudio).length,

@@ -286,6 +286,7 @@ const DemoBase: React.FC = () => {
   const [searchResults, setSearchResults] = useState<FarcasterUser[]>([]);
   const [selectedUser, setSelectedUser] = useState<FarcasterUser | null>(null);
   const [userNFTs, setUserNFTs] = useState<NFT[]>([]);
+  const [userNftsLoading, setUserNftsLoading] = useState(false);
   const [filteredNFTs, setFilteredNFTs] = useState<NFT[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -601,10 +602,12 @@ const DemoBase: React.FC = () => {
   // Add these memoized callbacks for UserDataLoader
   const handleNFTsLoaded = useCallback((nfts: NFT[]) => {
     setUserNFTs(nfts);
+    setUserNftsLoading(false);
   }, []);
 
   const handleUserDataError = useCallback((error: string) => {
     console.error('NFT loading error:', error);
+    setUserNftsLoading(false);
   }, []);
 
   // Add a function to handle direct video playback
@@ -816,6 +819,8 @@ const DemoBase: React.FC = () => {
     try {
       demoLogger.info(`Selected user: ${user.username}`);
       setSelectedUser(user);
+      setUserNFTs([]);
+      setUserNftsLoading(true);
       
       // Track the user search to update recently searched list
       if (fid && user.fid) {
@@ -846,6 +851,9 @@ const DemoBase: React.FC = () => {
         // Apply the same deduplication logic as ProfileView
         const deduplicatedNFTs = deduplicateNFTsByMediaKey(nfts);
         setUserNFTs(deduplicatedNFTs);
+        if (deduplicatedNFTs.length > 0) {
+          setUserNftsLoading(false);
+        }
       }).catch(error => {
         console.error('❌ Error loading NFTs for user:', error);
         demoLogger.error('Error loading NFTs for user:', error);
@@ -876,6 +884,7 @@ const DemoBase: React.FC = () => {
       // Reset selectedUser when switching views to clear explore state
       setSelectedUser(null);
       setUserNFTs([]);
+      setUserNftsLoading(false);
       setCurrentPage({
         isHome: view === 'home',
         isExplore: view === 'explore',
@@ -954,6 +963,8 @@ const DemoBase: React.FC = () => {
               onUserProfileClick={(user) => {
               demoLogger.info('Navigating to user profile from ProfileView modal:', user.username);
               setSelectedUser(user);
+              setUserNFTs([]);
+              setUserNftsLoading(true);
               setNavigationSource({ fromExplore: false, fromProfile: true });
               setCurrentPage(prev => ({ ...prev, isProfile: false, isUserProfile: true }));
             }}
@@ -964,6 +975,7 @@ const DemoBase: React.FC = () => {
           <UserProfileView
             user={selectedUser}
             nfts={userNFTs}
+            nftsLoading={userNftsLoading}
             handlePlayAudio={handlePlayNFT}
             isPlaying={isPlaying}
             currentlyPlaying={currentlyPlaying}
@@ -974,6 +986,7 @@ const DemoBase: React.FC = () => {
               // Reset selectedUser and userNFTs when going back from user profile
               setSelectedUser(null);
               setUserNFTs([]);
+              setUserNftsLoading(false);
               
               // Smart back navigation based on source
               if (navigationSource.fromProfile) {

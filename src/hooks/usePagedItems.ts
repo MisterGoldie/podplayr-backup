@@ -42,7 +42,7 @@ export function usePagedItems<T>(items: T[], options: UsePagedItemsOptions = {})
 
   useLayoutEffect(() => {
     const sentinel = sentinelRef.current;
-    if (!sentinel || !hasMore || !resolvedRoot) return;
+    if (!sentinel || !hasMore) return;
 
     const observer = new IntersectionObserver(
       (entries) => {
@@ -50,7 +50,7 @@ export function usePagedItems<T>(items: T[], options: UsePagedItemsOptions = {})
           setVisibleCount((prev) => Math.min(prev + pageSize, items.length));
         }
       },
-      { root: resolvedRoot, rootMargin, threshold: 0 }
+      { root: resolvedRoot ?? undefined, rootMargin, threshold: 0 }
     );
     observer.observe(sentinel);
     return () => observer.disconnect();

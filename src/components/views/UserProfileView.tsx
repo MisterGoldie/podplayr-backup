@@ -21,6 +21,7 @@ import { isENSUserObject } from '../../utils/ensUtils';
 interface UserProfileViewProps {
   user: FarcasterUser;
   nfts: NFT[];
+  nftsLoading?: boolean;
   handlePlayAudio: (nft: NFT, context?: { queue?: NFT[], queueType?: string }) => Promise<void>;
   isPlaying: boolean;
   currentlyPlaying: string | null;
@@ -51,6 +52,7 @@ const USER_PROFILE_CACHE_DURATION = 3 * 60 * 1000; // 3 minutes
 const UserProfileView: React.FC<UserProfileViewProps> = ({
   user,
   nfts,
+  nftsLoading = false,
   handlePlayAudio,
   isPlaying,
   currentlyPlaying,
@@ -135,40 +137,31 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
 
   // Handle NFTs loading completion
   useEffect(() => {
-    // For ENS users, we need to wait longer for the Alchemy API to complete
-    // Don't immediately set loading to false for empty arrays if this is an ENS user
-    if (nfts !== undefined) {
-      // Make sure we're still looking at the same user
-      if (user?.fid === currentLoadingFidRef.current) {
-        // For ENS users (negative FIDs), be more patient with empty results
-        const isENSUser = user?.fid && user.fid < 0;
-        
-        if (nfts.length > 0) {
-          // We have NFTs, definitely done loading
-          setIsNFTsLoading(false);
-          setHasCompletedInitialLoad(true);
-          console.log(`${nfts.length} NFTs loaded for ${user?.username} (FID: ${user?.fid}), setting loading state to false and hasCompletedInitialLoad to true`);
-        } else if (!isENSUser) {
-          // For regular Farcaster users, empty means no NFTs
-          setIsNFTsLoading(false);
-          setHasCompletedInitialLoad(true);
-          console.log(`No NFTs found for ${user?.username} (FID: ${user?.fid}), setting loading state to false and hasCompletedInitialLoad to true`);
-        } else {
-          // For ENS users, wait a bit longer before concluding no NFTs
-          // Only set loading to false if we've been waiting for a reasonable time
-          const waitTime = 10000; // 10 seconds should be enough for Alchemy API
-          setTimeout(() => {
-            // Double-check we're still on the same user and still have no NFTs
-            if (user?.fid === currentLoadingFidRef.current && nfts.length === 0) {
-              setIsNFTsLoading(false);
-              setHasCompletedInitialLoad(true);
-              console.log(`No NFTs found for ENS user ${user?.username} (FID: ${user?.fid}) after extended wait, setting loading state to false and hasCompletedInitialLoad to true`);
-            }
-          }, waitTime);
-        }
-      }
+    if (nfts === undefined || user?.fid !== currentLoadingFidRef.current) return;
+
+    if (nfts.length > 0) {
+      setIsNFTsLoading(false);
+      setHasCompletedInitialLoad(true);
+      return;
     }
-  }, [nfts, user?.fid, user?.username]);
+
+    if (nftsLoading) {
+      setIsNFTsLoading(true);
+      setHasCompletedInitialLoad(false);
+      return;
+    }
+
+    const isENSUser = Boolean(user?.fid && user.fid < 0);
+    const waitTime = isENSUser ? 10000 : 400;
+    const timer = setTimeout(() => {
+      if (user?.fid === currentLoadingFidRef.current) {
+        setIsNFTsLoading(false);
+        setHasCompletedInitialLoad(true);
+      }
+    }, waitTime);
+
+    return () => clearTimeout(timer);
+  }, [nfts, nftsLoading, user?.fid, user?.username]);
 
   // Load follower and following counts
   useEffect(() => {
