@@ -683,7 +683,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({
         </div>
         {/* Copyright text - positioned higher on the page */}
         <div className="text-center mt-8 mb-20 text-white/60 text-sm">
-          © THEPOD 2025 ALL RIGHTS RESERVED
+          © THEPOD 2026 ALL RIGHTS RESERVED
           <div className="mt-2">
             <button 
               onClick={() => setShowPrivacyPolicy(prev => !prev)} 
