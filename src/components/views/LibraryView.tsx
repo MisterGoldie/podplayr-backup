@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import type { NFT, UserContext } from '../../types/user';
 import { NFTImage } from '../media/NFTImage';
+import { NFTCard } from '../nft/NFTCard';
 import { getMediaKey } from '~/utils/media';
 import Image from 'next/image';
 import NotificationHeader from '../NotificationHeader';
@@ -47,15 +48,15 @@ interface SimpleNFTCardProps {
   isPlaying: boolean;
   currentlyPlaying: string | null;
   onLikeToggle: (nft: NFT) => Promise<void>;
-  viewMode: 'grid' | 'list';
   animationDelay?: number;
   parent: LibraryView;
 }
 
-// This is a simple component that doesn't use hooks
+// Compact horizontal row layout used only for Library's "list" view mode.
+// Grid view mode renders the shared NFTCard instead (see LibraryView.render).
 class SimpleNFTCard extends React.Component<SimpleNFTCardProps> {
   render() {
-    const { nft, onPlay, isPlaying, currentlyPlaying, onLikeToggle, viewMode, animationDelay = 0 } = this.props;
+    const { nft, onPlay, isPlaying, currentlyPlaying, animationDelay = 0 } = this.props;
     const isCurrentTrack = currentlyPlaying === getMediaKey(nft);
 
     // Add animation styles
@@ -65,103 +66,63 @@ class SimpleNFTCard extends React.Component<SimpleNFTCardProps> {
       animation: `fadeInUp 0.5s ease-out ${animationDelay}s forwards`
     };
 
-    if (viewMode === 'grid') {
-      return (
-        <div 
-          className="group relative bg-gradient-to-br from-gray-800/30 to-gray-800/10 rounded-lg overflow-hidden hover:bg-gray-800/40 active:bg-gray-800/60 transition-all duration-500 ease-in-out touch-manipulation shadow-xl shadow-purple-900/30 border border-purple-400/10 cursor-pointer"
-          onClick={() => onPlay(nft)}
-          style={animationStyle}
-        >
-          <div className="aspect-square relative">
-            <NFTImage
-              nft={nft}
-              src={nft.image || nft.metadata?.image || ''}
-              alt={nft.name || 'NFT'}
-              className="w-full h-full object-cover"
-              width={300}
-              height={300}
-            />
-            
-            <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
-            
-            <button 
-              onClick={(e) => {
-                e.stopPropagation(); // Prevent triggering the parent onClick
-                // Call the parent's handleUnlike method
-                this.props.parent.handleUnlike(nft);
-              }}
-              className="absolute top-2 right-2 text-red-500 transition-all duration-300 hover:scale-125 z-10"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24" fill="currentColor">
-                <path d="m480-120-58-52q-101-91-167-157T150-447.5Q111-500 95.5-544T80-634q0-94 63-157t157-63q52 0 99 22t81 62q34-40 81-62t99-22q94 0 157 63t63 157q0 46-15.5 90T810-447.5Q771-395 705-329T538-172l-58 52Z"/>
-              </svg>
-            </button>
-            
-            <div className="absolute bottom-0 left-0 right-0 bg-black/50 p-2">
-              <h3 className="text-white font-mono text-sm text-center truncate">{nft.name}</h3>
-            </div>
-          </div>
+    return (
+      <div 
+        className="bg-gray-800/30 rounded-lg p-3 flex items-center gap-4 group hover:bg-gray-800/50 transition-colors"
+        style={animationStyle}
+      >
+        {/* Thumbnail */}
+        <div className="w-12 h-12 rounded-md overflow-hidden flex-shrink-0">
+          <NFTImage 
+            src={nft.metadata?.image || ''}
+            alt={nft.name}
+            className="w-full h-full object-cover"
+            width={48}
+            height={48}
+            priority={true}
+            nft={nft}
+          />
         </div>
-      );
-    } else {
-      return (
-        <div 
-          className="bg-gray-800/30 rounded-lg p-3 flex items-center gap-4 group hover:bg-gray-800/50 transition-colors"
-          style={animationStyle}
-        >
-          {/* Thumbnail */}
-          <div className="w-12 h-12 rounded-md overflow-hidden flex-shrink-0">
-            <NFTImage 
-              src={nft.metadata?.image || ''}
-              alt={nft.name}
-              className="w-full h-full object-cover"
-              width={48}
-              height={48}
-              priority={true}
-              nft={nft}
-            />
-          </div>
 
-          {/* Track Info */}
-          <div className="flex-grow min-w-0">
-            <h3 className="font-mono text-purple-400 truncate">{nft.name}</h3>
-          </div>
+        {/* Track Info */}
+        <div className="flex-grow min-w-0">
+          <h3 className="font-mono text-purple-400 truncate">{nft.name}</h3>
+        </div>
 
-          {/* Controls */}
-          <div className="flex items-center gap-2">
-            {/* Like Button */}
-            <button 
-              onClick={(e) => {
-                e.stopPropagation(); // Prevent triggering the parent onClick
-                // Call the parent's handleUnlike method
-                this.props.parent.handleUnlike(nft);
-              }}
-              className="text-red-500 hover:scale-110 transition-transform"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24" fill="currentColor">
-                <path d="m480-120-58-52q-101-91-167-157T150-447.5Q111-500 95.5-544T80-634q0-94 63-157t157-63q52 0 99 22t81 62q34-40 81-62t99-22q94 0 157 63t63 157q0 46-15.5 90T810-447.5Q771-395 705-329T538-172l-58 52Z"/>
-              </svg>
-            </button>
-
-            {/* Play Button */}
-            <button 
-              onClick={() => onPlay(nft)}
-              className="text-purple-400 hover:scale-110 transition-transform"
-            >
-            {isCurrentTrack && isPlaying ? (
-              <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="currentColor">
-                <path d="M320-640v320h80V-640h-80Zm240 0v320h80V-640h-80Z"/>
-              </svg>
-            ) : (
-              <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="currentColor">
-                <path d="M320-200v-560l440 280-440 280Z"/>
-              </svg>
-            )}
+        {/* Controls */}
+        <div className="flex items-center gap-2">
+          {/* Like Button */}
+          <button 
+            onClick={(e) => {
+              e.stopPropagation(); // Prevent triggering the parent onClick
+              // Call the parent's handleUnlike method
+              this.props.parent.handleUnlike(nft);
+            }}
+            className="text-red-500 hover:scale-110 transition-transform"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24" fill="currentColor">
+              <path d="m480-120-58-52q-101-91-167-157T150-447.5Q111-500 95.5-544T80-634q0-94 63-157t157-63q52 0 99 22t81 62q34-40 81-62t99-22q94 0 157 63t63 157q0 46-15.5 90T810-447.5Q771-395 705-329T538-172l-58 52Z"/>
+            </svg>
           </button>
-          </div>
+
+          {/* Play Button */}
+          <button 
+            onClick={() => onPlay(nft)}
+            className="text-purple-400 hover:scale-110 transition-transform"
+          >
+          {isCurrentTrack && isPlaying ? (
+            <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="currentColor">
+              <path d="M320-640v320h80V-640h-80Zm240 0v320h80V-640h-80Z"/>
+            </svg>
+          ) : (
+            <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="currentColor">
+              <path d="M320-200v-560l440 280-440 280Z"/>
+            </svg>
+          )}
+        </button>
         </div>
-      );
-    }
+      </div>
+    );
   }
 }
 
@@ -300,6 +261,7 @@ class LibraryView extends React.Component<LibraryViewProps> {
       handlePlayAudio, 
       currentlyPlaying, 
       isPlaying, 
+      handlePlayPause,
       onReset, 
       userContext, 
       onLikeToggle 
@@ -440,9 +402,28 @@ class LibraryView extends React.Component<LibraryViewProps> {
                 // Calculate a staggered delay based on index
                 // This creates a wave-like appearance as cards animate in
                 const staggerDelay = 0.05 * (index % 8); // Reset every 8 items to keep delays reasonable
-                
+
+                if (viewMode === 'grid') {
+                  // Every NFT here is already liked (it's the Library), so the
+                  // like button always acts as "remove from library".
+                  return (
+                    <NFTCard
+                      key={uniqueKey}
+                      nft={nft}
+                      onPlay={async (nft: NFT) => {
+                        handlePlayAudio(nft);
+                      }}
+                      isPlaying={isPlaying}
+                      currentlyPlaying={currentlyPlaying}
+                      handlePlayPause={handlePlayPause}
+                      onLikeToggle={onLikeToggle}
+                      isNFTLiked={() => true}
+                      animationDelay={staggerDelay}
+                    />
+                  );
+                }
+
                 return (
-                  // In the render method, around line 460
                   <SimpleNFTCard
                     key={uniqueKey}
                     nft={nft}
@@ -453,7 +434,6 @@ class LibraryView extends React.Component<LibraryViewProps> {
                     isPlaying={isPlaying}
                     currentlyPlaying={currentlyPlaying}
                     onLikeToggle={onLikeToggle}
-                    viewMode={viewMode}
                     animationDelay={staggerDelay}
                     parent={this}
                   />

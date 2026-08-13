@@ -1,11 +1,11 @@
 'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React from 'react';
 import { useFarcasterContext } from '~/app/providers';
 import { NFT } from '~/types/nft';
 import { useNFTLikeState } from '~/hooks/useNFTLikeState';
 import { useNFTLike } from '~/hooks/useNFTLike';
-import { processMediaUrl, buildArweaveMediaFallbackUrls } from '~/utils/media';
+import { NFTImage } from '../media/NFTImage';
 
 interface NFTCardProps {
   nft: NFT;
@@ -56,38 +56,6 @@ export const NFTCard: React.FC<NFTCardProps> = ({
   });
 
   const rawImageUrl = nft.image || nft.metadata?.image || '';
-  const primaryImageUrl = useMemo(
-    () => processMediaUrl(rawImageUrl, '/default-nft.png', 'image'),
-    [rawImageUrl]
-  );
-
-  const fallbackUrls = useRef<string[]>([]);
-  const fallbackIndex = useRef(0);
-  const [imageUrl, setImageUrl] = useState(primaryImageUrl);
-
-  // Reset when the NFT image source changes
-  useEffect(() => {
-    fallbackUrls.current = [];
-    fallbackIndex.current = 0;
-    setImageUrl(primaryImageUrl);
-  }, [primaryImageUrl]);
-
-  const handleImageError = () => {
-    if (fallbackUrls.current.length === 0 && rawImageUrl) {
-      fallbackUrls.current = buildArweaveMediaFallbackUrls(rawImageUrl).filter(
-        (url) => url !== primaryImageUrl
-      );
-      fallbackIndex.current = 0;
-    }
-
-    if (fallbackIndex.current < fallbackUrls.current.length) {
-      const nextUrl = fallbackUrls.current[fallbackIndex.current++];
-      setImageUrl(nextUrl);
-      return;
-    }
-
-    setImageUrl('/default-nft.png');
-  };
 
   const handlePlay = () => {
     if (onPlay) {
@@ -141,13 +109,15 @@ export const NFTCard: React.FC<NFTCardProps> = ({
         onClick={handlePlay}
         style={animationStyle}
       >
-        <div className="aspect-square rounded-lg overflow-hidden bg-gray-800/20 shadow-lg">
-          <img
-            src={imageUrl}
+        <div className="aspect-square rounded-lg overflow-hidden bg-gray-800/20 shadow-lg relative">
+          <NFTImage
+            nft={nft}
+            src={rawImageUrl}
             alt={nft.name}
             className="w-full h-full object-cover"
+            width={300}
+            height={300}
             loading="lazy"
-            onError={handleImageError}
           />
           
           {/* Change this condition to use effectiveFid */}

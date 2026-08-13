@@ -118,7 +118,7 @@ export const getNftCdnUrl = (nft: NFT, mediaType: 'image' | 'audio'): string => 
     // If CDN is not enabled, use the original URL processing
     if (!CDN_CONFIG.enabled || !CDN_CONFIG.baseUrl) {
       if (mediaType === 'image') {
-        const url = processMediaUrl(nft.metadata?.image || '', '', 'image');
+        const url = processMediaUrl(nft.image || nft.metadata?.image || '', '', 'image');
         return url;
       } else {
         const url = processMediaUrl(nft.metadata?.animation_url || '', '', 'audio');
@@ -163,7 +163,7 @@ export const getNftCdnUrl = (nft: NFT, mediaType: 'image' | 'audio'): string => 
     cdnLogger.error('Error generating NFT CDN URL', { nft: nft.name, mediaKey, mediaType, error });
     // On error, fall back to the original URL processing
     if (mediaType === 'image') {
-      const url = processMediaUrl(nft.metadata?.image || '', '', 'image');
+      const url = processMediaUrl(nft.image || nft.metadata?.image || '', '', 'image');
       cdnLogger.info('Falling back to direct image URL after error', { mediaKey, url });
       return url;
     } else {
