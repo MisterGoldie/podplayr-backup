@@ -76,12 +76,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
     <nav className="fixed bottom-0 left-0 right-0 z-[110] bg-black/90 backdrop-blur-lg border-t border-purple-500/20 transition-all duration-300">
       <div className="flex justify-around items-center py-2">
         <motion.button
-          variants={{
-            tap: { scale: 0.95 },
-            hover: { scale: 1.05 }
-          }}
-          whileTap="tap"
-          whileHover="hover"
+          whileTap={{ scale: 0.95 }}
           onClick={() => {
             console.log('🏠 Home button clicked');
             handleViewChange('home');
@@ -97,12 +92,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
         </motion.button>
 
         <motion.button
-          variants={{
-            tap: { scale: 0.95 },
-            hover: { scale: 1.05 }
-          }}
-          whileTap="tap"
-          whileHover="hover"
+          whileTap={{ scale: 0.95 }}
           onClick={() => {
             console.log('🔍 Explore button clicked');
             handleViewChange('explore');
@@ -118,12 +108,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
         </motion.button>
 
         <motion.button
-          variants={{
-            tap: { scale: 0.95 },
-            hover: { scale: 1.05 }
-          }}
-          whileTap="tap"
-          whileHover="hover"
+          whileTap={{ scale: 0.95 }}
           onClick={() => {
             console.log('📚 Library button clicked');
             handleViewChange('library');
@@ -139,12 +124,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
         </motion.button>
 
         <motion.button
-          variants={{
-            tap: { scale: 0.95 },
-            hover: { scale: 1.05 }
-          }}
-          whileTap="tap"
-          whileHover="hover"
+          whileTap={{ scale: 0.95 }}
           onClick={() => {
             console.log('👤 Profile button clicked');
             handleViewChange('profile');
