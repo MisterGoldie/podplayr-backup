@@ -8,8 +8,8 @@ import { getFollowersCount, getFollowingCount, isUserFollowed, toggleFollowUser,
 import { optimizeImage } from '../../utils/imageOptimizer';
 import NotificationHeader from '../NotificationHeader';
 import FollowsModal from '../FollowsModal';
-import { useNFTNotification } from '../../context/NFTNotificationContext';
-import NFTNotification from '../NFTNotification';
+import FollowNotification from '../FollowNotification';
+import { useFollowNotification } from '../../hooks/useFollowNotification';
 import { getMediaKey } from '../../utils/media';
 import { filterPlayableMediaNFTs } from '../../utils/isMediaNFT';
 import { VirtualizedNFTGrid } from '../nft/VirtualizedNFTGrid';
@@ -70,7 +70,7 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
   const [isFollowingLoading, setIsFollowingLoading] = useState<boolean>(false);
   const [showInfoPanel, setShowInfoPanel] = useState<boolean>(false);
   const toast = useToast();
-  const nftNotification = useNFTNotification();
+  const { notification, showNotification } = useFollowNotification();
   
   // Fetch the viewed user's background image directly
   const { backgroundImage } = useUserProfileBackground(user?.fid);
@@ -288,23 +288,14 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
       // Update follower count immediately in UI
       setAppFollowerCount(prev => newStatus ? prev + 1 : Math.max(0, prev - 1));
       
-      // Use showNotification instead of showConnectionNotification
-      nftNotification.showNotification(
-        newStatus ? 'like' : 'unlike',
-        {
-          name: newStatus ? `Now following @${user.username}` : `Unfollowed @${user.username}`,
-          contract: '',
-          tokenId: ''
-        } as NFT
-      );
+      if (newStatus) {
+        showNotification(`Now following @${user.username}`);
+      } else {
+        showNotification(`Unfollowed @${user.username}`, 'info');
+      }
     } catch (error) {
       console.error('Error toggling follow:', error);
-      // Use showNotification instead of showConnectionNotification
-      nftNotification.showNotification('unlike', {
-        name: 'Failed to update follow status',
-        contract: '',
-        tokenId: ''
-      } as NFT);
+      showNotification('Failed to update follow status', 'info');
     } finally {
       setIsFollowingLoading(false);
     }
@@ -344,6 +335,15 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
           currentUserFid={currentUserFid}
           onFollowStatusChange={handleFollowStatusChange}
           onUserProfileClick={onUserProfileClick}
+        />
+      )}
+      
+      {/* Follow/unfollow toast (distinct from the NFT like/unlike header banner) */}
+      {notification.isVisible && (
+        <FollowNotification
+          message={notification.message}
+          type={notification.type}
+          isVisible={notification.isVisible}
         />
       )}
       

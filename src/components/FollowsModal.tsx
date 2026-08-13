@@ -5,6 +5,8 @@ import Image from 'next/image';
 import { subscribeToFollowers, subscribeToFollowingUsers, toggleFollowUser, isUserFollowed, getFollowerProfiles } from '../lib/firebase';
 import type { FollowedUser, FarcasterUser } from '../types/user';
 import { AnimatePresence, motion } from 'framer-motion';
+import FollowNotification from './FollowNotification';
+import { useFollowNotification } from '../hooks/useFollowNotification';
 
 interface FollowsModalProps {
   isOpen: boolean;
@@ -15,28 +17,6 @@ interface FollowsModalProps {
   onFollowStatusChange?: (newFollowStatus: boolean, targetFid: number) => void;
   onUserProfileClick?: (user: FarcasterUser) => void;
 }
-
-interface NotificationProps {
-  message: string;
-  type: 'success' | 'info';
-  isVisible: boolean;
-}
-
-// Follow notification component
-const FollowNotification: React.FC<NotificationProps> = ({ message, type, isVisible }) => {
-  if (!isVisible) return null;
-  
-  return (
-    <motion.div 
-      initial={{ opacity: 0, y: 20 }} 
-      animate={{ opacity: 1, y: 0 }} 
-      exit={{ opacity: 0, y: -20 }}
-      className={`fixed bottom-20 left-1/2 transform -translate-x-1/2 px-4 py-3 rounded-xl shadow-lg z-50 text-white text-sm font-medium ${type === 'success' ? 'bg-green-500/90' : 'bg-purple-500/90'}`}
-    >
-      {message}
-    </motion.div>
-  );
-};
 
 const FollowsModal: React.FC<FollowsModalProps> = ({
   isOpen,
@@ -53,12 +33,7 @@ const FollowsModal: React.FC<FollowsModalProps> = ({
   const [processingFollow, setProcessingFollow] = useState<Record<number, boolean>>({});
   const modalRef = useRef<HTMLDivElement>(null);
   
-  // Notification state
-  const [notification, setNotification] = useState({
-    message: '',
-    type: 'success' as 'success' | 'info',
-    isVisible: false
-  });
+  const { notification, showNotification } = useFollowNotification();
   
   // Load users based on type (followers or following)
   useEffect(() => {
@@ -104,20 +79,6 @@ const FollowsModal: React.FC<FollowsModalProps> = ({
     checkFollowStatus();
   }, [users, currentUserFid]);
   
-  // Show notification
-  const showNotification = (message: string, type: 'success' | 'info' = 'success') => {
-    setNotification({
-      message,
-      type,
-      isVisible: true
-    });
-    
-    // Auto hide after 2 seconds
-    setTimeout(() => {
-      setNotification(prev => ({ ...prev, isVisible: false }));
-    }, 2000);
-  };
-
   const handleToggleFollow = async (user: FollowedUser) => {
     if (!currentUserFid || user.fid === currentUserFid) return;
     
