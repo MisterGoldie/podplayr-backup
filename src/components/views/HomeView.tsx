@@ -16,7 +16,6 @@ import NotificationHeader from '../NotificationHeader';
 import NFTNotification from '../NFTNotification';
 import { useNFTNotification } from '../../context/NFTNotificationContext';
 import { logger } from '~/utils/logger';
-import { useRouter } from 'next/navigation';
 import { UserFidContext } from '~/app/providers'; // ✅ Use the correct context
 
 // Create a dedicated logger for the HomeView
@@ -36,10 +35,8 @@ interface HomeViewProps {
   onReset: () => void;
   onLikeToggle: (nft: NFT) => Promise<void>;
   likedNFTs: NFT[];
-  hasActivePlayer: boolean;
   currentPlayingNFT?: NFT | null; // Add currentPlayingNFT prop
   recentlyAddedNFT?: React.MutableRefObject<string | null>; // Add recentlyAddedNFT ref
-  featuredNfts: NFT[];
 }
 
 const HomeView: React.FC<HomeViewProps> = ({
@@ -53,16 +50,11 @@ const HomeView: React.FC<HomeViewProps> = ({
   onReset,
   onLikeToggle,
   likedNFTs,
-  hasActivePlayer = false,
   currentPlayingNFT,
   recentlyAddedNFT,
-  featuredNfts,
 }) => {
   // Get NFT notification context (use directly for instant notifications)
   const { showNotification } = useNFTNotification();
-  
-  // Add router for navigation
-  const router = useRouter();
 
   // Initialize featured NFTs once per session
   useEffect(() => {
@@ -164,37 +156,6 @@ const HomeView: React.FC<HomeViewProps> = ({
       });
     }
   };
-
-  // Filter out invalid NFTs from recently played
-  const validRecentlyPlayedNFTs = useMemo(() => {
-    return recentlyPlayedNFTs.filter(nft => {
-      // Basic validation
-      if (!nft) return false;
-      
-      // Check for critical display properties
-      const hasDisplayInfo = Boolean(
-        nft.name || (nft.contract && nft.tokenId)
-      );
-      
-      // Check for media
-      const hasMedia = Boolean(
-        nft.image || 
-        nft.metadata?.image ||
-        nft.audio ||
-        nft.metadata?.animation_url
-      );
-      
-      // Log invalid NFTs
-      if (!hasDisplayInfo || !hasMedia) {
-        homeLogger.warn('Filtering invalid NFT from recently played:', {
-          nft,
-          reason: !hasDisplayInfo ? 'missing display info' : 'missing media'
-        });
-      }
-      
-      return hasDisplayInfo && hasMedia;
-    });
-  }, [recentlyPlayedNFTs]);
 
   if (isLoading) {
     return (

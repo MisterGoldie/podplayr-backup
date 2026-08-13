@@ -140,10 +140,9 @@ const ProfileView: React.FC<ProfileViewProps> = ({
       setAppFollowerCount(prev => newStatus ? prev + 1 : Math.max(0, prev - 1));
     }
     
-    // If the current user is viewing their own profile, update their following count
-    if (farcasterContext?.user?.fid === farcasterContext?.user?.fid) {
-      setAppFollowingCount(prev => newStatus ? prev + 1 : Math.max(0, prev - 1));
-    }
+    // Any follow/unfollow triggered from this modal is always the current user
+    // acting on targetFid, so their own following count always changes.
+    setAppFollowingCount(prev => newStatus ? prev + 1 : Math.max(0, prev - 1));
   };
   
   // Debug farcasterContext

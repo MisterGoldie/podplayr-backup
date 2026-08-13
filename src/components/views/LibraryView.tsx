@@ -8,7 +8,6 @@ import Image from 'next/image';
 import NotificationHeader from '../NotificationHeader';
 import { useNFTNotification } from '../../context/NFTNotificationContext';
 import NFTNotification from '../NFTNotification';
-import { useNFTLike } from '../../hooks/useNFTLike';
 
 // This component is a wrapper that uses the hook and passes it to the class component
 const NotificationHandler = ({ nft, onTrigger }: { nft: NFT | null, onTrigger: () => void }) => {
@@ -324,19 +323,6 @@ class LibraryView extends React.Component<LibraryViewProps> {
       }
     `;
 
-    // Use the useNFTLike hook through a wrapper component
-    const LikeHandler = () => {
-      const { handleUnlike } = useNFTLike({
-        onLikeToggle: this.props.onLikeToggle,
-        setIsLiked: this.props.setIsLiked
-      });
-    
-      // Store the handleUnlike function in the instance
-      (this as any).handleUnlike = handleUnlike;
-    
-      return null;
-    };
-  
     return (
       <>
         <style>{animationKeyframes}</style>

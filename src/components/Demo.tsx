@@ -864,35 +864,6 @@ const DemoBase: React.FC = () => {
     }
   };
 
-  // Add the missing handleUserSelect function
-  const handleUserSelect = async (user: FarcasterUser) => {
-    setIsLoading(true);
-    try {
-      demoLogger.info(`Selecting user: ${user.username}`);
-      setSelectedUser(user);
-      
-      // Load user's NFTs
-      const nfts = await fetchUserNFTs(user.fid);
-      demoLogger.info(`Loaded ${nfts.length} NFTs for user ${user.username}`);
-      
-      // Apply the same deduplication logic as ProfileView
-      const deduplicatedNFTs = deduplicateNFTsByMediaKey(nfts);
-      setUserNFTs(deduplicatedNFTs);
-      
-      // Navigate to user profile view
-      setCurrentPage(prev => ({ 
-        ...prev, 
-        isExplore: false,
-        isUserProfile: true 
-      }));
-    } catch (error) {
-      demoLogger.error('Error selecting user:', error);
-      setError('Error selecting user');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   // Update local recent searches when Firebase data changes
   useEffect(() => {
     if (firebaseRecentSearches.length > 0) {
@@ -933,38 +904,18 @@ const DemoBase: React.FC = () => {
             onReset={onReset}
             onLikeToggle={onLikeToggle}
             likedNFTs={likedNFTs}
-            hasActivePlayer={!!currentPlayingNFT}
             currentPlayingNFT={currentPlayingNFT}
-            featuredNfts={[]}
           />
         )}
         {currentPage.isExplore && (
           <ExploreView
             onSearch={handleSearch}
-            selectedUser={null}
-            onPlayNFT={handlePlayNFT}
-            currentlyPlaying={currentlyPlaying}
             isPlaying={isPlaying}
             searchResults={searchResults}
-            nfts={[]}
             isSearching={isSearching}
-            handlePlayPause={handlePlayPause}
-            isLoadingNFTs={false}
-            onBack={() => {
-              demoLogger.info('Navigating back from explore view');
-              setCurrentPage(prev => ({ ...prev, isExplore: false, isHome: true }));
-            }}
-            publicCollections={[]}
             recentSearches={recentSearches}
-            handleUserSelect={handleDirectUserSelect}
             handleDirectUserSelect={handleDirectUserSelect}
             onReset={onReset}
-            onLikeToggle={onLikeToggle}
-            isNFTLiked={isNFTLiked}
-            userNFTs={[]}
-            searchType=""
-            searchParam=""
-            likedNFTs={likedNFTs}
           />
         )}
         {currentPage.isLibrary && (
