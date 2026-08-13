@@ -42,6 +42,7 @@ import { logger } from '../utils/logger';
 import { useNFTLike } from '../hooks/useNFTLike';
 import { NFTCard } from './NFTCard';
 import { filterPlayableMediaNFTs, hasPlayableAudio, hasPlayableVideo, isPlayableMediaNFT, getNftPlaybackPlan } from '../utils/isMediaNFT';
+import { isNftMediaDead, subscribeToDeadNftUpdates } from '../utils/deadNftRegistry';
 
 import { UserImageProvider } from '../contexts/UserImageContext';
 
@@ -296,7 +297,7 @@ const DemoBase: React.FC = () => {
   const [recentSearches, setRecentSearches] = useState<SearchedUser[]>([]);
   const [isLiked, setIsLiked] = useState(false);
   const [userData, setUserData] = useState<FarcasterUser | null>(null);
-  const [isLoadingLikedNFTs, setIsLoadingLikedNFTs] = useState(false);
+  const isLoadingLikedNFTsRef = useRef(false);
   const videoRef = useRef<HTMLVideoElement>(document.createElement('video'));
 
   // Add this near your other state variables
@@ -702,29 +703,39 @@ const DemoBase: React.FC = () => {
   // Find where you initially load the liked NFTs
   useEffect(() => {
     const loadLikedNFTs = async () => {
-      if (isLoadingLikedNFTs) return; // Prevent duplicate calls
+      if (isLoadingLikedNFTsRef.current) return; // Prevent duplicate calls
       if (!fid) return;
       
-      setIsLoadingLikedNFTs(true);
+      isLoadingLikedNFTsRef.current = true;
       try {
         const liked = await getLikedNFTs(fid);
         
         // CRITICAL: Apply our permanent blacklist using mediaKey (content-first approach)
+        // Also drop anything we've already confirmed is dead (unreachable media, see deadNftRegistry)
         const filteredLiked = liked.filter(item => {
           const mediaKey = getMediaKey(item);
-          return !permanentlyRemovedNFTs.has(mediaKey);
+          return !permanentlyRemovedNFTs.has(mediaKey) && !isNftMediaDead(item);
         });
         
         setLikedNFTs(filteredLiked);
       } catch (error) {
         demoLogger.error('Error loading liked NFTs:', error);
       } finally {
-        setIsLoadingLikedNFTs(false);
+        isLoadingLikedNFTsRef.current = false;
       }
     };
     
     loadLikedNFTs();
-  }, [fid, permanentlyRemovedNFTs, isLoadingLikedNFTs]); // Add permanentlyRemovedNFTs as a dependency
+  }, [fid, permanentlyRemovedNFTs]); // isLoadingLikedNFTs is a ref now, not a dep — it must never retrigger this effect
+
+  // Prune already-rendered lists the moment an NFT's media is confirmed dead
+  // (e.g. a play attempt just exhausted every fallback) — no refetch needed.
+  useEffect(() => {
+    return subscribeToDeadNftUpdates((deadMediaKey) => {
+      setLikedNFTs(prev => prev.filter(nft => getMediaKey(nft) !== deadMediaKey));
+      setUserNFTs(prev => prev.filter(nft => getMediaKey(nft) !== deadMediaKey));
+    });
+  }, []);
 
   // Add this effect to monitor for problematic NFTs
   const checkProblematicNFTs = useCallback(() => {

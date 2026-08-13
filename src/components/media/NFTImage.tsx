@@ -6,6 +6,7 @@ import type { NFT } from '../../types/user';
 import { useNFTPreloader } from '../../hooks/useNFTPreloader';
 import { logger } from '../../utils/logger';
 import { getNftCdnUrl, preloadNftMedia } from '../../utils/cdn';
+import { markNftMediaDead } from '../../utils/deadNftRegistry';
 
 // Create a dedicated logger for NFT images
 const imageLogger = logger.getModuleLogger('nftImage');
@@ -435,6 +436,12 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       }
     }
     
+    // Every gateway/fallback has been tried at this point — safe to remember
+    // this NFT's image as dead so other views don't retry it needlessly.
+    if (nft) {
+      markNftMediaDead(nft, 'image');
+    }
+
     // CRITICAL: Immediately switch to fallback image and force re-render
     setTimeout(() => {
       // Use setTimeout to ensure state updates happen in new event loop

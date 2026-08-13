@@ -5,6 +5,7 @@ import {
   extractIPFSPath,
   processMediaUrl,
 } from './media';
+import { isNftMediaDead } from './deadNftRegistry';
 
 const AUDIO_EXT_RE = /\.(mp3|wav|m4a|aac|ogg|flac)(?:\?|#|$)/i;
 const VIDEO_EXT_RE = /\.(mp4|webm|mov|m4v)(?:\?|#|$)/i;
@@ -128,10 +129,10 @@ export const isPlayableMediaNFT = (candidate: MediaCandidate | NFT): boolean => 
   }
 };
 
-/** Filter helper for profile/Demo grids. */
+/** Filter helper for profile/Demo grids. Also drops NFTs whose media is confirmed dead (see deadNftRegistry). */
 export const filterPlayableMediaNFTs = <T extends MediaCandidate | NFT>(nfts: T[]): T[] => {
   if (!nfts?.length) return [];
-  return nfts.filter((nft) => isPlayableMediaNFT(nft));
+  return nfts.filter((nft) => isPlayableMediaNFT(nft) && !isNftMediaDead(nft as NFT));
 };
 
 /** Pick the best raw media URL from metadata before processMediaUrl. */

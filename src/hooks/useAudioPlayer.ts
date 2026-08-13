@@ -38,6 +38,8 @@ const trackNFTPlay = (nft: NFT, fid: number, options?: { forceTrack?: boolean, t
 import { processMediaUrl, getMediaKey, buildArweaveAudioFallbackUrls, buildIpfsFallbackUrls, extractIPFSPath } from '../utils/media';
 import { applyPlaybackPlanToNft, getNftPlaybackPlan, resolveNftPlaybackPlan } from '../utils/isMediaNFT';
 import { logger } from '../utils/logger';
+import { useToast } from './useToast';
+import { markNftMediaDead } from '../utils/deadNftRegistry';
 
 // Create a dedicated logger for this module
 const audioLogger = logger.getModuleLogger('audioPlayer');
@@ -93,6 +95,7 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
     currentIndex: 0,
     urls: [] as string[]
   });
+  const { error: showErrorToast } = useToast();
 
   const handleError = useCallback((e: Event) => {
     const target = e.target as HTMLAudioElement;
@@ -433,6 +436,15 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
       
       // Add comprehensive error handling with multiple fallbacks
       let fallbackIndex = 0;
+      let unplayableToastShown = false;
+      const showUnplayableToast = () => {
+        if (unplayableToastShown) return;
+        unplayableToastShown = true;
+        showErrorToast(`Couldn't play "${nft.name || 'this track'}" — its media file is currently unavailable.`);
+        // Every fallback/gateway/last-resort URL is exhausted at this point — safe to
+        // remember this NFT as dead so it stops showing up as "playable" elsewhere.
+        markNftMediaDead(nft, 'audio');
+      };
       
       audio.onerror = (e) => {
         const errorInfo = {
@@ -502,10 +514,15 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
             if (playPromise) {
               playPromise.catch(playError => {
                 audioLogger.error('Error playing last resort URL:', { url: lastResortUrl, error: playError });
+                showUnplayableToast();
               });
             }
+            return;
           }
         }
+        
+        // Nothing left to try — let the user know instead of failing silently
+        showUnplayableToast();
       };
       
       // Stream Arweave / PODs audio directly (avoid blobbing large files like ~100MB episodes)
