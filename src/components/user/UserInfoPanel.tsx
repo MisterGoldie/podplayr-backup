@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import type { FarcasterUser } from '../../types/user';
+import { getBioText } from '../../utils/format';
 
 interface UserInfoPanelProps {
   user: FarcasterUser;
@@ -116,19 +117,7 @@ const UserInfoPanel: React.FC<UserInfoPanelProps> = ({
           <div className="bg-purple-500/20 rounded-lg p-3 mt-4">
             <h3 className="text-purple-300 font-medium mb-2">Bio</h3>
             <p className="text-white text-sm">
-              {(() => {
-                // Handle different possible bio formats safely
-                const bio = user.profile?.bio;
-                if (typeof bio === 'string') {
-                  return bio || "No bio available";
-                } else if (bio && typeof bio === 'object') {
-                  // Check if bio is an object with a text property
-                  const bioObj = bio as any; // Use type assertion to avoid TypeScript errors
-                  return bioObj.text || "No bio available";
-                } else {
-                  return "No bio available";
-                }
-              })()}
+              {getBioText(user.profile?.bio) || 'No bio available'}
             </p>
           </div>
         </div>

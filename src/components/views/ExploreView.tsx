@@ -20,6 +20,7 @@ import {
   isOfficialAccount,
   isPodMember,
 } from '../../constants/community';
+import { getBioText } from '../../utils/format';
 
 type ExploreFilter = 'all' | 'farcaster' | 'ens';
 
@@ -52,7 +53,7 @@ function getIsEns(user: FarcasterUser | SearchedUser | FollowedUser) {
 }
 
 function getBio(user: FarcasterUser | SearchedUser) {
-  return 'profile' in user ? user.profile?.bio || '' : '';
+  return 'profile' in user ? getBioText(user.profile?.bio) : '';
 }
 
 function matchesFilter(user: FarcasterUser | SearchedUser | FollowedUser, filter: ExploreFilter) {
@@ -525,8 +526,8 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
                     @{officialUser.username}
                     {officialUser.follower_count ? ` · ${formatCount(officialUser.follower_count)} followers` : ''}
                   </p>
-                  {officialUser.profile?.bio ? (
-                    <p className="text-xs text-white/45 mt-1 line-clamp-2">{officialUser.profile.bio}</p>
+                  {getBioText(officialUser.profile?.bio) ? (
+                    <p className="text-xs text-white/45 mt-1 line-clamp-2">{getBioText(officialUser.profile?.bio)}</p>
                   ) : null}
                 </button>
               </div>

@@ -18,6 +18,8 @@ import NFTNotification from '../NFTNotification';
 // Remove this import since we're not using the cache
 // import { useNFTCache } from '../../contexts/NFTCacheContext';
 import { UserProfileNFTGrid } from '../nft/UserProfileNFTGrid';
+import { isAcylMember, isOfficialAccount, isPodMember } from '../../constants/community';
+import { getBioText } from '../../utils/format';
 
 interface ProfileViewProps {
   farcasterContext: {
@@ -69,9 +71,15 @@ const cleanImageUrl = (url: string | undefined): string => {
 const filterMediaNFTs = (nfts: NFT[]) => {
   if (!nfts || nfts.length === 0) return [];
   const filtered = filterPlayableMediaNFTs(nfts);
-  console.log(`ProfileView: Showing ${filtered.length} media NFTs out of ${nfts.length} total NFTs`);
   return filtered;
 };
+
+function formatCount(value?: number) {
+  if (!value) return '0';
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1).replace(/\.0$/, '')}k`;
+  return String(value);
+}
 
 // Add session-level caching variables at the top of the file, after imports
 let profileDataCache = new Map<number, {
@@ -152,18 +160,6 @@ const ProfileView: React.FC<ProfileViewProps> = ({
     // Remove this debug log since it's too noisy
     // console.log('🔍 FULL USER CONTEXT:', JSON.stringify(farcasterContext, null, 2));
   }, [farcasterContext]);
-  
-  // Add this useEffect for debugging state updates
-  useEffect(() => {
-    console.log('🔍 ProfileView state update:', {
-      userFid: farcasterContext?.user?.fid,
-      username: farcasterContext?.user?.username,
-      showFollowsModal,
-      followsModalType,
-      appFollowerCount,
-      appFollowingCount
-    });
-  }, [farcasterContext?.user?.fid, showFollowsModal, followsModalType, appFollowerCount, appFollowingCount]);
   
   // Helper function to check if user is truly logged in
   // Move the useRef hook to the component body (top level)
@@ -338,10 +334,52 @@ const ProfileView: React.FC<ProfileViewProps> = ({
 
     fetchFollowCounts();
     
-    // Keep the interval for periodic updates but make it less frequent
-    const interval = setInterval(fetchFollowCounts, 10 * 60 * 1000); // 10 minutes
+    const interval = setInterval(fetchFollowCounts, 10 * 60 * 1000);
     return () => clearInterval(interval);
   }, [farcasterContext?.user?.fid]);
+
+  const handleBackgroundUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const input = e.target;
+    const files = input.files;
+
+    if (!files || files.length === 0) {
+      setError('No file selected');
+      return;
+    }
+
+    const file = files[0];
+    if (!farcasterContext?.user?.fid) {
+      setError('User not authenticated');
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setError('Image size must be less than 5MB');
+      return;
+    }
+
+    if (!file.type.startsWith('image/')) {
+      setError('Please select an image file');
+      return;
+    }
+
+    try {
+      setError(null);
+      setIsUploading(true);
+      const optimized = await optimizeImage(file);
+      const url = await uploadProfileBackground(farcasterContext.user.fid, optimized.file);
+      setBackgroundImage(url);
+      input.value = '';
+      setShowSuccessBanner(true);
+      setTimeout(() => setShowSuccessBanner(false), 3000);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to upload background image';
+      setError(errorMessage);
+      toast?.error(errorMessage);
+    } finally {
+      setIsUploading(false);
+    }
+  };
 
   return (
     <>
@@ -374,207 +412,157 @@ const ProfileView: React.FC<ProfileViewProps> = ({
       )}
       <div 
         ref={setScrollRoot}
-        className="space-y-8 pt-20 pb-48 overflow-y-auto h-screen overscroll-y-contain min-h-screen bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082]"
+        className="pt-16 pb-48 overflow-y-auto overscroll-y-contain min-h-screen bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082] h-[calc(100vh-130px)] md:h-[calc(100vh-150px)]"
       >
-        {/* Profile Header */}
-        <div className="relative flex flex-col items-center justify-between text-center p-8 pt-6 pb-4 rounded-3xl mx-4 w-[340px] h-[280px] mx-auto border border-purple-400/20 shadow-xl shadow-purple-900/30 overflow-hidden hover:border-indigo-400/30 transition-all duration-300"
-          style={{
-            background: backgroundImage 
-              ? `url(${backgroundImage}) center/cover no-repeat`
-              : 'linear-gradient(to bottom right, rgba(37, 99, 235, 0.4), rgba(147, 51, 234, 0.3), rgba(219, 39, 119, 0.4))'
-          }}
-        >
-          {/* Glow effect */}
-          <div className="absolute inset-0 bg-black/30"></div>
+        <div className="relative w-full h-[200px] sm:h-[240px] overflow-hidden">
+          <div
+            className="absolute inset-0 bg-cover bg-center"
+            style={{
+              backgroundImage: backgroundImage
+                ? `url(${backgroundImage})`
+                : undefined,
+            }}
+          />
+          {!backgroundImage && (
+            <div className="absolute inset-0 bg-gradient-to-br from-purple-800 via-fuchsia-800 to-indigo-950" />
+          )}
+          <div className="absolute inset-0 bg-gradient-to-t from-[#1E1525] via-[#1E1525]/35 to-black/20" />
+          {isUploading && <div className="absolute inset-0 bg-black/40" />}
+
           {error && (
-            <div className="absolute top-4 left-4 right-4 p-2 bg-red-500/80 text-white text-sm rounded-lg z-20">
+            <div className="absolute top-4 left-4 right-16 p-2 bg-red-500/80 text-white text-sm rounded-lg z-20">
               {error}
             </div>
           )}
+
           <input
             type="file"
             ref={fileInputRef}
             className="hidden"
             accept="image/*"
-            onChange={async (e) => {
-              const input = e.target as HTMLInputElement;
-              const files = input.files;
-              
-              if (!files || files.length === 0) {
-                setError('No file selected');
-                return;
-              }
-
-              const file = files[0];
-              if (!farcasterContext?.user?.fid) {
-                setError('User not authenticated');
-                return;
-              }
-
-              if (file.size > 5 * 1024 * 1024) { // 5MB limit
-                setError('Image size must be less than 5MB');
-                return;
-              }
-
-              if (!file.type.startsWith('image/')) {
-                setError('Please select an image file');
-                return;
-              }
-
-              try {
-                setError(null);
-                setIsUploading(true);
-                console.log('Starting upload with file:', {
-                  name: file.name,
-                  type: file.type,
-                  size: file.size
-                });
-
-                // Optimize image before upload
-                const optimized = await optimizeImage(file);
-                console.log('Optimized image:', {
-                  width: optimized.width,
-                  height: optimized.height,
-                  size: optimized.size,
-                  reduction: `${Math.round((1 - optimized.size / file.size) * 100)}%`
-                });
-
-                // Upload optimized background
-                const url = await uploadProfileBackground(farcasterContext.user.fid, optimized.file);
-                setBackgroundImage(url);
-
-                // Clear the input and show success state
-                input.value = '';
-                setShowSuccessBanner(true);
-                setTimeout(() => setShowSuccessBanner(false), 3000);
-              } catch (err) {
-                console.error('Error uploading background:', err);
-                const errorMessage = err instanceof Error ? err.message : 'Failed to upload background image';
-                setError(errorMessage);
-                toast?.error(errorMessage);
-              } finally {
-                setIsUploading(false);
-              }
-            }}
+            onChange={handleBackgroundUpload}
           />
           <button
+            type="button"
             onClick={() => fileInputRef.current?.click()}
-            className={`absolute top-4 right-4 p-2 rounded-full transition-colors duration-200 z-10 ${isUploading ? 'bg-purple-500/40 cursor-not-allowed' : 'bg-purple-500/20 hover:bg-purple-500/30 cursor-pointer'}`}
+            className={`absolute bottom-4 right-4 z-10 px-3 py-2 rounded-full flex items-center gap-2 text-sm text-white border border-white/20 backdrop-blur-md touch-manipulation ${
+              isUploading ? 'bg-black/50 cursor-not-allowed' : 'bg-black/45 active:bg-black/70'
+            }`}
             disabled={isUploading}
-            title="Change background"
+            aria-label="Change background"
           >
             {isUploading ? (
-              <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
             ) : (
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-            </svg>
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
             )}
+            {backgroundImage ? 'Edit cover' : 'Add cover'}
           </button>
-          {/* Floating music notes */}
-          <div className="absolute inset-0 overflow-hidden">
-            <div className="absolute text-2xl text-purple-400/30 animate-float-slow top-12 left-8">
-              ♪
-            </div>
-            <div className="absolute text-3xl text-purple-400/25 animate-float-slower top-32 right-12">
-              ♫
-            </div>
-            <div className="absolute text-2xl text-purple-400/20 animate-float-medium top-48 left-16">
-              ♩
-            </div>
-            <div className="absolute text-2xl text-purple-400/35 animate-float-fast right-8 top-24">
-              ♪
-            </div>
-            <div className="absolute text-3xl text-purple-400/15 animate-float-slowest left-24 top-6">
-              ♫
-            </div>
-          </div>
-          <div className="relative z-10 mb-auto">
-            <div className="rounded-full ring-4 ring-purple-400/20 overflow-hidden w-[120px] h-[120px]">
+        </div>
+
+        <div className="relative px-4 -mt-14 mb-8">
+          <div className="flex items-end gap-4">
+            <div className="rounded-full ring-4 ring-[#1E1525] overflow-hidden w-[112px] h-[112px] bg-purple-900/40 flex-shrink-0 shadow-xl">
               {farcasterContext?.user?.username ? (
-                <a 
+                <a
                   href={`https://warpcast.com/${farcasterContext.user.username}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="block w-full h-full transition-transform hover:scale-105 active:scale-95"
+                  className="block w-full h-full active:scale-95"
                 >
                   <Image
                     src={cleanImageUrl(farcasterContext.user?.pfp) || profileImage || '/default-avatar.png'}
                     alt={farcasterContext.user?.username || 'User'}
-                    width={120}
-                    height={120}
-                    className="w-full h-full"
-                    style={{ objectFit: 'cover' }}
-                    priority={true}
+                    width={112}
+                    height={112}
+                    className="w-full h-full object-cover"
+                    priority
                   />
                 </a>
               ) : (
                 <Image
-                  src='/default-avatar.png'
-                  alt='User'
-                  width={120}
-                  height={120}
-                  className="w-full h-full"
-                  style={{ objectFit: 'cover' }}
-                  priority={true}
+                  src="/default-avatar.png"
+                  alt="User"
+                  width={112}
+                  height={112}
+                  className="w-full h-full object-cover"
+                  priority
                 />
               )}
             </div>
+            {userFid ? (
+              <div className="flex flex-wrap items-center gap-1.5 pb-2">
+                {isPodMember(userFid) && (
+                  <span className="text-[10px] px-2 py-0.5 bg-purple-500/20 text-purple-300 rounded-full">thepod</span>
+                )}
+                {isOfficialAccount(userFid) && (
+                  <span className="text-[10px] px-2 py-0.5 bg-purple-800/40 text-purple-200 rounded-full">Official</span>
+                )}
+                {isAcylMember(userFid) && (
+                  <span
+                    className="text-[10px] px-2 py-0.5 rounded-full text-white/90"
+                    style={{
+                      background: 'linear-gradient(90deg, rgba(255,0,0,0.25) 0%, rgba(255,154,0,0.25) 40%, rgba(79,220,74,0.25) 100%)',
+                    }}
+                  >
+                    ACYL
+                  </span>
+                )}
+              </div>
+            ) : null}
           </div>
-          <div className="space-y-2 relative z-10">
-            <div className="bg-black/70 px-3 py-2 rounded-lg inline-block">
-              <h2 className="text-2xl font-mono text-purple-400 text-shadow">
-                {farcasterContext?.user?.username ? `@${farcasterContext.user.username}` : 'Welcome to PODPLAYR'}
-              </h2>
-              
-              {/* Follower and following counts */}
-              {farcasterContext?.user?.fid && (
-                <div className="flex items-center gap-2 mt-2 mb-1">
-                  <button 
-                    onClick={() => {
-                      console.log('🔥 FOLLOWERS BUTTON CLICKED in ProfileView!');
-                      console.log('📊 Current modal state:', { showFollowsModal, followsModalType });
-                      console.log('📊 User context:', farcasterContext?.user);
-                      setFollowsModalType('followers');
-                      setShowFollowsModal(true);
-                      console.log('📊 After setState - should show followers modal');
-                    }}
-                    className="bg-purple-500/20 hover:bg-purple-500/30 active:bg-purple-500/40 transition-colors rounded-full px-3 py-1 inline-flex items-center"
-                  >
-                    <span className="font-mono text-xs text-purple-300 font-medium">
-                      {appFollowerCount} Followers
-                    </span>
-                  </button>
-                  <button 
-                    onClick={() => {
-                      console.log('🔥 FOLLOWING BUTTON CLICKED in ProfileView!');
-                      console.log('📊 Current modal state:', { showFollowsModal, followsModalType });
-                      console.log('📊 User context:', farcasterContext?.user);
-                      setFollowsModalType('following');
-                      setShowFollowsModal(true);
-                      console.log('📊 After setState - should show following modal');
-                    }}
-                    className="bg-purple-500/20 hover:bg-purple-500/30 active:bg-purple-500/40 transition-colors rounded-full px-3 py-1 inline-flex items-center"
-                  >
-                    <span className="font-mono text-xs text-purple-300 font-medium">
-                      {appFollowingCount} Following
-                    </span>
-                  </button>
-                </div>
-              )}
-              
+
+          <div className="mt-3">
+            <h2 className="text-xl font-semibold text-white truncate">
+              {farcasterContext?.user?.displayName || farcasterContext?.user?.username || 'Welcome to PODPLAYR'}
+            </h2>
+            {farcasterContext?.user?.username && (
+              <p className="text-white/50 truncate">@{farcasterContext.user.username}</p>
+            )}
+            {getBioText(farcasterContext?.user?.bio) ? (
+              <p className="text-sm text-white/60 mt-2 line-clamp-3">{getBioText(farcasterContext.user?.bio)}</p>
+            ) : null}
+          </div>
+
+          {farcasterContext?.user?.fid && (
+            <div className="flex items-center gap-2 mt-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setFollowsModalType('followers');
+                  setShowFollowsModal(true);
+                }}
+                className="bg-black/40 active:bg-purple-500/20 border border-purple-400/20 rounded-full px-3 py-1.5 touch-manipulation"
+              >
+                <span className="text-xs text-white/80">
+                  <span className="text-white font-medium">{formatCount(appFollowerCount)}</span> Followers
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setFollowsModalType('following');
+                  setShowFollowsModal(true);
+                }}
+                className="bg-black/40 active:bg-purple-500/20 border border-purple-400/20 rounded-full px-3 py-1.5 touch-manipulation"
+              >
+                <span className="text-xs text-white/80">
+                  <span className="text-white font-medium">{formatCount(appFollowingCount)}</span> Following
+                </span>
+              </button>
               {!isLoading && isUserLoggedIn() && (
-                <p className="font-mono text-sm text-purple-300/60 text-shadow mt-1">
-                  {filteredNFTs.length} {filteredNFTs.length === 1 ? 'Media NFT' : 'Media NFTs'} found
-                </p>
+                <span className="text-xs text-white/45 px-1">
+                  {filteredNFTs.length} {filteredNFTs.length === 1 ? 'media NFT' : 'media NFTs'}
+                </span>
               )}
             </div>
-          </div>
+          )}
         </div>
 
-        {/* User's NFTs - Replace with virtualized grid */}
         <div className="container mx-auto px-4">
-          <h2 className="text-2xl font-bold text-green-400 mb-4">Your NFTs</h2>
+          <h2 className="text-lg font-semibold text-white/90 mb-4">Your collection</h2>
           {/* Enhanced loading state check - show loading state during any uncertainty */}
           {(() => {
             const shouldShowLoading = (isLoading || (filteredNFTs.length === 0 && !hasCompletedInitialLoad));
@@ -582,10 +570,10 @@ const ProfileView: React.FC<ProfileViewProps> = ({
           })() ? (
             <div className="flex flex-col items-center justify-center py-16 space-y-6 -mt-6">
               <div className="relative">
-                <div className="w-16 h-16 border-4 border-gray-800/30 rounded-full"></div>
-                <div className="absolute top-0 w-16 h-16 border-4 border-t-green-400 border-r-green-400 rounded-full animate-spin"></div>
+                <div className="w-16 h-16 border-4 border-purple-900/40 rounded-full"></div>
+                <div className="absolute top-0 w-16 h-16 border-4 border-t-purple-400 border-r-purple-400 rounded-full animate-spin"></div>
               </div>
-              <div className="text-xl font-mono text-green-400 animate-pulse">Loading your NFTs...</div>
+              <div className="text-lg text-purple-200">Loading your collection…</div>
             </div>
           ) : !isUserLoggedIn() ? (
             <div className="text-center py-12">

@@ -1,22 +1,21 @@
 'use client';
 
 import React, { useEffect, useState, useRef, useMemo } from 'react';
-import { useToast } from '../../hooks/useToast';
 import Image from 'next/image';
-import type { NFT, UserContext, FarcasterUser, NFTFile } from '../../types/user';
-import { getFollowersCount, getFollowingCount, isUserFollowed, toggleFollowUser, PODPLAYR_ACCOUNT, getUserTotalPlays, getUserLikedNFTsCount } from '../../lib/firebase';
-import { optimizeImage } from '../../utils/imageOptimizer';
+import type { NFT, FarcasterUser } from '../../types/user';
+import { getFollowersCount, getFollowingCount, isUserFollowed, toggleFollowUser, getUserTotalPlays, getUserLikedNFTsCount } from '../../lib/firebase';
 import NotificationHeader from '../NotificationHeader';
 import FollowsModal from '../FollowsModal';
 import FollowNotification from '../FollowNotification';
 import { useFollowNotification } from '../../hooks/useFollowNotification';
-import { getMediaKey } from '../../utils/media';
 import { filterPlayableMediaNFTs } from '../../utils/isMediaNFT';
 import { VirtualizedNFTGrid } from '../nft/VirtualizedNFTGrid';
 import { logger } from '../../utils/logger';
 import { useUserProfileBackground } from '../../hooks/useUserProfileBackground';
 import UserInfoPanel from '../user/UserInfoPanel';
 import { isENSUserObject } from '../../utils/ensUtils';
+import { isAcylMember, isOfficialAccount, isPodMember } from '../../constants/community';
+import { getBioText } from '../../utils/format';
 
 interface UserProfileViewProps {
   user: FarcasterUser;
@@ -36,6 +35,13 @@ interface UserProfileViewProps {
 
 // Create logger for NFT filtering in profile view
 const nftLogger = logger.getModuleLogger('ProfileNFTs');
+
+function formatCount(value?: number) {
+  if (!value) return '0';
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1).replace(/\.0$/, '')}k`;
+  return String(value);
+}
 
 let userProfileDataCache = new Map<string, {
   userData: FarcasterUser;
@@ -71,7 +77,6 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
   const [isFollowed, setIsFollowed] = useState<boolean>(false);
   const [isFollowingLoading, setIsFollowingLoading] = useState<boolean>(false);
   const [showInfoPanel, setShowInfoPanel] = useState<boolean>(false);
-  const toast = useToast();
   const { notification, showNotification } = useFollowNotification();
   
   // Fetch the viewed user's background image directly
@@ -311,10 +316,8 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
   return (
     <>
       <NotificationHeader 
-        show={true}
-        type="profile"
-        message={user?.username ? `@${user.username}` : 'User profile'}
-        autoHideDuration={3000}
+        show={false}
+        message=""
         onReset={onReset}
         onLogoClick={onReset}
       />
@@ -352,201 +355,189 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
           </div>
         </div>
       )}
-      <div ref={setScrollRoot} className="space-y-8 pt-16 pb-48 overflow-y-auto h-screen overscroll-y-contain">
-        {/* Profile Header with Back Button */}
-        <div 
-          className="border-b border-purple-500/20 shadow-md relative" 
-          style={{
-            background: extendedUser?.backgroundImage 
-              ? `url(${extendedUser.backgroundImage}) center/cover no-repeat` 
-              : 'linear-gradient(to bottom, rgba(126, 34, 206, 0.5), #000)'
-          }}
-        >
-          {/* No overlay for better background image visibility */}
-          <div className="container mx-auto px-4 py-6 relative z-10">
-            {/* Top navigation bar with back button and info button */}
-            <div className="flex justify-between items-center mb-4">
-              {/* Back button */}
-              <button 
-                onClick={onBack}
-                className="flex items-center text-purple-300 hover:text-purple-100 transition-colors bg-black/60 px-3 py-1 rounded-full"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L4.414 9H17a1 1 0 110 2H4.414l5.293 5.293a1 1 0 010 1.414z" clipRule="evenodd" />
-                </svg>
-                Back
-              </button>
-              
-              {/* Info button */}
-              <button 
-                onClick={() => setShowInfoPanel(true)}
-                className="bg-black/70 hover:bg-black/80 active:bg-black/90 transition-colors rounded-full p-2 inline-flex items-center justify-center"
-                aria-label="Show user info"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24" fill="currentColor" className="text-purple-300">
-                  <path d="M440-280h80v-240h-80v240Zm40-320q17 0 28.5-11.5T520-640q0-17-11.5-28.5T480-680q-17 0-28.5 11.5T440-640q0 17 11.5 28.5T480-600Zm0 520q-83 0-156-31.5T197-197q-54-54-85.5-127T80-480q0-83 31.5-156T197-763q54-54 127-85.5T480-880q83 0 156 31.5T763-763q54 54 85.5 127T880-480q0 83-31.5 156T763-197q-54 54-127 85.5T480-80Zm0-80q134 0 227-93t93-227q0-134-93-227t-227-93q-134 0-227 93t-93 227q0 134 93 227t227 93Zm0-320Z"/>
-                </svg>
-              </button>
-            </div>
+      <div ref={setScrollRoot} className="pt-16 pb-48 overflow-y-auto overscroll-y-contain min-h-screen bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082] h-[calc(100vh-130px)] md:h-[calc(100vh-150px)]">
+        <div className="relative w-full h-[200px] sm:h-[240px] overflow-hidden">
+          <div
+            className="absolute inset-0 bg-cover bg-center"
+            style={{
+              backgroundImage: extendedUser?.backgroundImage
+                ? `url(${extendedUser.backgroundImage})`
+                : undefined,
+            }}
+          />
+          {!extendedUser?.backgroundImage && (
+            <div className="absolute inset-0 bg-gradient-to-br from-purple-800 via-fuchsia-800 to-indigo-950" />
+          )}
+          <div className="absolute inset-0 bg-gradient-to-t from-[#1E1525] via-[#1E1525]/35 to-black/20" />
 
-            <div className="flex items-start md:items-center flex-col md:flex-row gap-6">
-              <div className="relative">
-                <div className="w-28 h-28 rounded-full overflow-hidden flex-shrink-0 relative ring-4 ring-purple-500/50 shadow-xl shadow-black/50 border-2 border-white/10">
-                  <Image
-                    src={user?.pfp_url || `/default-avatar.png`}
-                    alt={user?.display_name || user?.username || 'User'}
-                    className="object-cover"
-                    fill
-                    sizes="80px"
-                  />
-                </div>
-                
-                {/* Linked Identity Indicator */}
-                {user?.linkedIdentity && (
-                  <div 
-                    className="absolute -top-2 -right-2 bg-blue-500 text-white rounded-full w-7 h-7 flex items-center justify-center cursor-pointer shadow-md border-2 border-blue-400/30 hover:bg-blue-400 transition-all duration-200"
-                    onClick={() => {
-                      // Navigate to the linked identity profile
-                      if (user.linkedIdentity?.type === 'farcaster') {
-                        // Use the onUserProfileClick prop to navigate to the linked Farcaster profile
-                        const linkedUser: FarcasterUser = {
-                          fid: user.linkedIdentity.fid,
-                          username: user.linkedIdentity.username,
-                          display_name: user.linkedIdentity.display_name,
-                          follower_count: 0,
-                          following_count: 0
-                        };
-                        onUserProfileClick?.(linkedUser);
-                      }
-                    }}
-                    title={`View linked ${user.linkedIdentity.type === 'farcaster' ? 'Farcaster' : 'ENS'} profile`}
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                      <path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z" />
-                    </svg>
-                  </div>
-                )}
-                {currentUserFid !== user?.fid && (
-                  <div 
-                    onClick={handleFollowToggle}
-                    className={`absolute -bottom-1 -right-1 w-7 h-7 ${isFollowed ? 'bg-green-600 hover:bg-green-500' : 'bg-purple-600 hover:bg-purple-500'} rounded-full flex items-center justify-center shadow-lg border-2 ${isFollowed ? 'border-green-400/30' : 'border-purple-400/30'} transition-all duration-200 cursor-pointer transform hover:scale-110 active:scale-95`}
-                  >
-                    {isFollowingLoading ? (
-                      <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                    ) : isFollowed ? (
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-white" viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                      </svg>
-                    ) : (
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-white" viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z" clipRule="evenodd" />
-                      </svg>
-                    )}
-                  </div>
-                )}
-              </div>
-              <div className="space-y-2 flex-1 min-w-0">
-                <div className="bg-black/70 px-3 py-2 rounded-lg inline-block">
-                  <div className="flex items-center gap-2">
-                    <h2 className="text-2xl font-mono text-green-400 truncate">@{user?.username}</h2>
-                    {/* Show ENS badge only for actual ENS users */}
-                    {isENSUserObject(user) && (
-                      <span className="bg-blue-500 text-white text-xs px-2 py-0.5 rounded-full font-mono shadow-glow-sm animate-pulse-subtle flex items-center">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 293.5 293.5" className="w-3 h-3 mr-1 fill-current">
-                          <path d="M147.1 0C65.9 0 0 65.9 0 147.1s65.9 147.1 147.1 147.1 147.1-65.9 147.1-147.1S228.3 0 147.1 0zm0 270.9c-68.4 0-123.8-55.4-123.8-123.8S78.7 23.3 147.1 23.3s123.8 55.4 123.8 123.8-55.4 123.8-123.8 123.8z"/>
-                          <path d="M147.1 52.9 41.9 146.3l105.2 62.2 105.2-62.2z"/>
-                        </svg>
-                        ENS
-                      </span>
-                    )}
-                  </div>
-                  {user?.display_name && (
-                    <p className="text-lg text-white font-semibold">{user.display_name}</p>
-                  )}
-                </div>
-                
-                {/* App-specific follower and following counts */}
-                <div className="flex items-center gap-2 mb-2">
-                  <button 
-                    onClick={() => {
-                      setFollowsModalType('followers');
-                      setShowFollowsModal(true);
-                    }}
-                    className="bg-black/60 hover:bg-purple-900/60 active:bg-purple-900/80 transition-all duration-200 rounded-full px-4 py-1.5 inline-flex items-center border border-purple-500/20 shadow-md hover:shadow-purple-500/10 transform hover:scale-105 active:scale-100"
-                  >
-                    <span className="font-mono text-xs text-purple-200 font-medium">
-                      {appFollowerCount} Followers
-                    </span>
-                  </button>
-                  <button 
-                    onClick={() => {
-                      setFollowsModalType('following');
-                      setShowFollowsModal(true);
-                    }}
-                    className="bg-black/60 hover:bg-purple-900/60 active:bg-purple-900/80 transition-all duration-200 rounded-full px-4 py-1.5 inline-flex items-center border border-purple-500/20 shadow-md hover:shadow-purple-500/10 transform hover:scale-105 active:scale-100"
-                  >
-                    <span className="font-mono text-xs text-purple-200 font-medium">
-                      {appFollowingCount} Following
-                    </span>
-                  </button>
-                </div>
-                
-
-                
-                {/* User Info Panel */}
-                {showInfoPanel && (
-                  <UserInfoPanel
-                    user={{
-                      ...user,
-                      // Ensure user always has a profile object with bio
-                      profile: user.profile || { bio: "" }
-                    }}
-                    totalPlays={totalPlays}
-                    likedNFTsCount={likedNFTsCount}
-                    nftCount={filteredNFTs.length}
-                    onClose={() => setShowInfoPanel(false)}
-                  />
-                )}
-                
-                {/* Badges in a separate container */}
-                <div className="bg-black/70 px-3 py-2 rounded-lg inline-block">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {/* THEPOD badge */}
-                    {user?.fid && [15019, 7472, 14871, 414859, 235025, 892616, 323867, 892130].includes(user.fid) && (
-                      <span className="text-xs font-mono px-2 py-0.5 bg-purple-500/20 text-purple-400 rounded-full flex items-center">
-                        thepod
-                      </span>
-                    )}
-                    
-                    {/* ACYL badge */}
-                    {user?.fid && [7472, 14871, 414859, 356115, 296462, 195864, 1020224, 1020659].includes(user.fid) && (
-                      <span className="text-xs font-mono px-2 py-0.5 rounded-full flex items-center font-semibold" 
-                            style={{ 
-                              background: 'linear-gradient(90deg, rgba(255,0,0,0.2) 0%, rgba(255,154,0,0.2) 25%, rgba(208,222,33,0.2) 50%, rgba(79,220,74,0.2) 75%, rgba(63,218,216,0.2) 100%)', 
-                              color: '#f0f0f0',
-                              textShadow: '0 0 2px rgba(0,0,0,0.5)'
-                            }}>
-                        ACYL
-                      </span>
-                    )}
-                    
-                    {/* Official badge for PODPlayr account */}
-                    {user?.fid === PODPLAYR_ACCOUNT.fid && (
-                      <span className="text-xs font-mono px-2 py-0.5 bg-purple-800/40 text-purple-300 rounded-full flex items-center font-semibold">
-                        Official
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
+          <div className="absolute top-3 left-4 right-4 z-10 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={onBack}
+              className="flex items-center text-white bg-black/45 backdrop-blur-md border border-white/15 px-3 py-1.5 rounded-full touch-manipulation"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L4.414 9H17a1 1 0 110 2H4.414l5.293 5.293a1 1 0 010 1.414z" clipRule="evenodd" />
+              </svg>
+              Back
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowInfoPanel(true)}
+              className="bg-black/45 backdrop-blur-md border border-white/15 rounded-full p-2 touch-manipulation"
+              aria-label="Show user info"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" height="22" viewBox="0 -960 960 960" width="22" fill="currentColor" className="text-white">
+                <path d="M440-280h80v-240h-80v240Zm40-320q17 0 28.5-11.5T520-640q0-17-11.5-28.5T480-680q-17 0-28.5 11.5T440-640q0 17 11.5 28.5T480-600Zm0 520q-83 0-156-31.5T197-197q-54-54-85.5-127T80-480q0-83 31.5-156T197-763q54-54 127-85.5T480-880q83 0 156 31.5T763-763q54 54 85.5 127T880-480q0 83-31.5 156T763-197q-54 54-127 85.5T480-80Zm0-80q134 0 227-93t93-227q0-134-93-227t-227-93q-134 0-227 93t-93 227q0 134 93 227t227 93Zm0-320Z"/>
+              </svg>
+            </button>
           </div>
         </div>
 
-        {/* NFT Gallery */}
+        <div className="relative px-4 -mt-14 mb-8">
+          <div className="flex items-end gap-4">
+            <div className="relative flex-shrink-0">
+              <div className="w-[112px] h-[112px] rounded-full overflow-hidden relative ring-4 ring-[#1E1525] bg-purple-900/40 shadow-xl">
+                <Image
+                  src={user?.pfp_url || '/default-avatar.png'}
+                  alt={user?.display_name || user?.username || 'User'}
+                  className="object-cover"
+                  fill
+                  sizes="112px"
+                />
+              </div>
+              {user?.linkedIdentity && (
+                <button
+                  type="button"
+                  className="absolute -top-1 -right-1 bg-blue-500 text-white rounded-full w-7 h-7 flex items-center justify-center border-2 border-[#1E1525] touch-manipulation"
+                  onClick={() => {
+                    if (user.linkedIdentity?.type === 'farcaster') {
+                      const linkedUser: FarcasterUser = {
+                        fid: user.linkedIdentity.fid,
+                        username: user.linkedIdentity.username,
+                        display_name: user.linkedIdentity.display_name,
+                        follower_count: 0,
+                        following_count: 0,
+                      };
+                      onUserProfileClick?.(linkedUser);
+                    }
+                  }}
+                  aria-label={`View linked ${user.linkedIdentity.type === 'farcaster' ? 'Farcaster' : 'ENS'} profile`}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                    <path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z" />
+                  </svg>
+                </button>
+              )}
+              {currentUserFid !== user?.fid && (
+                <button
+                  type="button"
+                  onClick={handleFollowToggle}
+                  className={`absolute -bottom-1 -right-1 w-8 h-8 rounded-full flex items-center justify-center shadow-lg border-2 border-[#1E1525] touch-manipulation ${
+                    isFollowed ? 'bg-green-600' : 'bg-purple-600'
+                  }`}
+                  aria-label={isFollowed ? 'Unfollow' : 'Follow'}
+                >
+                  {isFollowingLoading ? (
+                    <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : isFollowed ? (
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-white" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                    </svg>
+                  ) : (
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-white" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z" clipRule="evenodd" />
+                    </svg>
+                  )}
+                </button>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5 pb-2 min-w-0">
+              {isENSUserObject(user) && (
+                <span className="text-[10px] px-2 py-0.5 bg-blue-500/20 text-blue-300 rounded-full">ENS</span>
+              )}
+              {user?.fid && isPodMember(user.fid) && (
+                <span className="text-[10px] px-2 py-0.5 bg-purple-500/20 text-purple-300 rounded-full">thepod</span>
+              )}
+              {user?.fid && isOfficialAccount(user.fid) && (
+                <span className="text-[10px] px-2 py-0.5 bg-purple-800/40 text-purple-200 rounded-full">Official</span>
+              )}
+              {user?.fid && isAcylMember(user.fid) && (
+                <span
+                  className="text-[10px] px-2 py-0.5 rounded-full text-white/90"
+                  style={{
+                    background: 'linear-gradient(90deg, rgba(255,0,0,0.25) 0%, rgba(255,154,0,0.25) 40%, rgba(79,220,74,0.25) 100%)',
+                  }}
+                >
+                  ACYL
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className="mt-3">
+            <h2 className="text-xl font-semibold text-white truncate">
+              {user?.display_name || user?.username || 'User'}
+            </h2>
+            {user?.username && (
+              <p className={`truncate ${isENSUserObject(user) ? 'text-blue-300' : 'text-white/50'}`}>
+                {isENSUserObject(user) ? user.username : `@${user.username}`}
+              </p>
+            )}
+            {getBioText(user?.profile?.bio) ? (
+              <p className="text-sm text-white/60 mt-2 line-clamp-3">{getBioText(user?.profile?.bio)}</p>
+            ) : null}
+          </div>
+
+          <div className="flex items-center gap-2 mt-4">
+            <button
+              type="button"
+              onClick={() => {
+                setFollowsModalType('followers');
+                setShowFollowsModal(true);
+              }}
+              className="bg-black/40 active:bg-purple-500/20 border border-purple-400/20 rounded-full px-3 py-1.5 touch-manipulation"
+            >
+              <span className="text-xs text-white/80">
+                <span className="text-white font-medium">{formatCount(appFollowerCount)}</span> Followers
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setFollowsModalType('following');
+                setShowFollowsModal(true);
+              }}
+              className="bg-black/40 active:bg-purple-500/20 border border-purple-400/20 rounded-full px-3 py-1.5 touch-manipulation"
+            >
+              <span className="text-xs text-white/80">
+                <span className="text-white font-medium">{formatCount(appFollowingCount)}</span> Following
+              </span>
+            </button>
+            {!isNFTsLoading && (
+              <span className="text-xs text-white/45 px-1">
+                {filteredNFTs.length} {filteredNFTs.length === 1 ? 'media NFT' : 'media NFTs'}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {showInfoPanel && (
+          <UserInfoPanel
+            user={{
+              ...user,
+              profile: user.profile || { bio: '' },
+            }}
+            totalPlays={totalPlays}
+            likedNFTsCount={likedNFTsCount}
+            nftCount={filteredNFTs.length}
+            onClose={() => setShowInfoPanel(false)}
+          />
+        )}
+
         <div className="container mx-auto px-4">
-          <h3 className="text-xl font-semibold mb-3 font-mono text-green-400">
-            Media NFTs
+          <h3 className="text-lg font-semibold mb-3 text-white/90">
+            Collection
           </h3>
           
           {/* Display filtered media NFTs */}
