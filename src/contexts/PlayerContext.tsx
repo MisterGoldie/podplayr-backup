@@ -15,7 +15,7 @@ interface PlayerContextType {
   handlePlayNext: () => void;
   handlePlayPrevious: () => void;
   handleSeek: (time: number) => void;
-  handlePlayAudio: (nft: NFT) => Promise<void>;
+  handlePlayAudio: (nft: NFT, context?: { queue?: NFT[]; queueType?: string }) => Promise<void>;
   setIsPlayerMinimized: (minimized: boolean) => void;
 }
 

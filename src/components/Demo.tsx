@@ -772,15 +772,9 @@ const DemoBase: React.FC = () => {
       
       // Set the queue context if provided
       if (context?.queue && context?.queueType) {
-        console.log('🎵 Setting NFT queue:', {
-          queueType: context.queueType,
-          queueLength: context.queue.length,
-          currentNFT: nft.name
-        });
-        // Set window.nftList for backward compatibility with useAudioPlayer
         window.nftList = context.queue;
       }
-      
+
       await handlePlayAudio(nft);
     } else {
       // Same NFT - just ensure player is minimized without restarting audio
