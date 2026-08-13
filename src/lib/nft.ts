@@ -152,7 +152,41 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
  * mini-app webviews often block client calls to alchemy.com, which made
  * profile grids empty on mobile while desktop browsers still worked.
  */
-export const fetchOwnedNftsFromAlchemy = async (address: string): Promise<NFT[]> => {
+const alchemyFetchDelay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+/** Alchemy occasionally 429s under burst load (e.g. multiple addresses fetched in parallel). Retry transient failures before giving up. */
+async function fetchAlchemyWithRetry(url: string, maxRetries = 3): Promise<Response> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const res = await fetch(url, { headers: { accept: 'application/json' } });
+      if (res.status === 429 || res.status >= 500) {
+        lastError = new Error(`Alchemy HTTP ${res.status}`);
+        if (attempt < maxRetries) {
+          const waitMs = Math.pow(2, attempt) * 500;
+          console.warn(`⏳ Alchemy ${res.status}, retrying in ${waitMs}ms (attempt ${attempt + 1}/${maxRetries})`);
+          await alchemyFetchDelay(waitMs);
+          continue;
+        }
+      }
+      return res;
+    } catch (error) {
+      lastError = error;
+      if (attempt < maxRetries) {
+        const waitMs = Math.pow(2, attempt) * 500;
+        console.warn(`⏳ Alchemy fetch threw, retrying in ${waitMs}ms (attempt ${attempt + 1}/${maxRetries}):`, error);
+        await alchemyFetchDelay(waitMs);
+        continue;
+      }
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('Alchemy fetch failed after retries');
+}
+
+export const fetchOwnedNftsFromAlchemy = async (
+  address: string,
+  onDebug?: (info: Record<string, unknown>) => void
+): Promise<NFT[]> => {
   try {
     console.log('\n🔍 Fetching NFTs for address:', address);
     const alchemyKey = process.env.NEXT_PUBLIC_ALCHEMY_API_KEY || process.env.ALCHEMY_API_KEY;
@@ -162,13 +196,11 @@ export const fetchOwnedNftsFromAlchemy = async (address: string): Promise<NFT[]>
     
     // Fetch from both networks
     const [ethResponse, baseResponse] = await Promise.all([
-      fetch(
-        `https://eth-mainnet.g.alchemy.com/v2/${alchemyKey}/getNFTs?owner=${address}&withMetadata=true&pageSize=100`,
-        { headers: { accept: 'application/json' } }
+      fetchAlchemyWithRetry(
+        `https://eth-mainnet.g.alchemy.com/v2/${alchemyKey}/getNFTs?owner=${address}&withMetadata=true&pageSize=100`
       ),
-      fetch(
-        `https://base-mainnet.g.alchemy.com/v2/${alchemyKey}/getNFTs?owner=${address}&withMetadata=true&pageSize=100`,
-        { headers: { accept: 'application/json' } }
+      fetchAlchemyWithRetry(
+        `https://base-mainnet.g.alchemy.com/v2/${alchemyKey}/getNFTs?owner=${address}&withMetadata=true&pageSize=100`
       )
     ]);
 
@@ -180,6 +212,13 @@ export const fetchOwnedNftsFromAlchemy = async (address: string): Promise<NFT[]>
 
     if (!ethResponse.ok || !baseResponse.ok) {
       const errorText = await ((!ethResponse.ok ? ethResponse : baseResponse).text());
+      onDebug?.({
+        stage: 'alchemy-response-not-ok',
+        address,
+        ethStatus: ethResponse.status,
+        baseStatus: baseResponse.status,
+        errorText,
+      });
       throw new Error(`Alchemy API error: ${errorText}`);
     }
 
@@ -330,6 +369,14 @@ export const fetchOwnedNftsFromAlchemy = async (address: string): Promise<NFT[]>
       }),
     ].filter((nft): nft is NFT => !!nft && isPlayableMediaNFT(nft));
 
+    onDebug?.({
+      stage: 'success',
+      address,
+      ethRawCount: ethData.ownedNfts?.length || 0,
+      baseRawCount: baseData.ownedNfts?.length || 0,
+      mediaNftCount: processedNFTs.length,
+    });
+
     return processedNFTs.map((nft) => ({
       ...nft,
       contract: nft.contract.toLowerCase(),
@@ -340,6 +387,12 @@ export const fetchOwnedNftsFromAlchemy = async (address: string): Promise<NFT[]>
     }));
   } catch (error) {
     console.error(`Error fetching NFTs for address ${address}:`, error);
+    onDebug?.({
+      stage: 'threw',
+      address,
+      name: error instanceof Error ? error.name : typeof error,
+      message: error instanceof Error ? error.message : String(error),
+    });
     return [];
   }
 };
@@ -356,6 +409,14 @@ export const fetchUserNFTsFromAlchemy = async (address: string): Promise<NFT[]> 
         status: res.status,
         ok: res.ok,
       });
+      const nftDebugHeader = res.headers.get('x-nft-debug');
+      if (nftDebugHeader) {
+        try {
+          pushDebugLog('nft-fetch', 'Server-side Alchemy debug', { address, ...JSON.parse(nftDebugHeader) });
+        } catch {
+          pushDebugLog('nft-fetch', 'Server-side Alchemy debug (raw)', { address, raw: nftDebugHeader });
+        }
+      }
       if (!res.ok) {
         const errorText = await res.text();
         console.error(`Owned NFT API error ${res.status}:`, errorText);
