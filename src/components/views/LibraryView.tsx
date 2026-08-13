@@ -1,33 +1,15 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { NFT, UserContext } from '../../types/user';
 import { NFTImage } from '../media/NFTImage';
 import { NFTCard } from '../nft/NFTCard';
 import { getMediaKey } from '~/utils/media';
 import NotificationHeader from '../NotificationHeader';
-import { useNFTNotification } from '../../context/NFTNotificationContext';
 import NFTNotification from '../NFTNotification';
 import { PAGE_SIZE, usePagedItems } from '../../hooks/usePagedItems';
+import { useNFTLike } from '../../hooks/useNFTLike';
 
-// This component is a wrapper that uses the hook and passes it to the class component
-const NotificationHandler = ({ nft, onTrigger }: { nft: NFT | null, onTrigger: () => void }) => {
-  const nftNotification = useNFTNotification();
-  
-  React.useEffect(() => {
-    if (nft) {
-      console.log('🔔 NotificationHandler: Showing unlike notification for', nft.name);
-      nftNotification.showNotification('unlike', nft);
-      // Call the callback to reset the nft state immediately
-      onTrigger();
-    }
-  }, [nft, nftNotification, onTrigger]);
-  
-  // This component doesn't render anything visible, but it's responsible for triggering notifications
-  return null;
-};
-
-/** Normalize like-time from Firestore Timestamp, millis, {seconds}, or ISO string. */
 function getNftLikedTime(nft: NFT): number {
   if (typeof nft.likedTimestamp === 'number' && Number.isFinite(nft.likedTimestamp) && nft.likedTimestamp > 0) {
     return nft.likedTimestamp;
@@ -54,6 +36,31 @@ function getNftLikedTime(nft: NFT): number {
   return 0;
 }
 
+function getUniqueLikedNFTs(likedNFTs: NFT[]) {
+  const uniqueNFTs: NFT[] = [];
+  const seenMediaKeys = new Set<string>();
+  const seenContractTokenIds = new Set<string>();
+
+  for (const nft of likedNFTs) {
+    if (!nft) continue;
+    const mediaKey = getMediaKey(nft);
+    if (!seenMediaKeys.has(mediaKey)) {
+      seenMediaKeys.add(mediaKey);
+      uniqueNFTs.push(nft);
+      continue;
+    }
+    if (nft.contract && nft.tokenId) {
+      const contractTokenKey = `${nft.contract.toLowerCase()}-${nft.tokenId}`;
+      if (!seenContractTokenIds.has(contractTokenKey)) {
+        seenContractTokenIds.add(contractTokenKey);
+        uniqueNFTs.push(nft);
+      }
+    }
+  }
+
+  return uniqueNFTs;
+}
+
 interface LibraryViewProps {
   likedNFTs: NFT[];
   isPlaying: boolean;
@@ -67,102 +74,108 @@ interface LibraryViewProps {
   setIsPlayerVisible: (visible: boolean) => void;
   setIsPlayerMinimized: (minimized: boolean) => void;
   onLikeToggle: (nft: NFT) => Promise<void>;
+  isLoading?: boolean;
 }
 
 interface SimpleNFTCardProps {
   nft: NFT;
   onPlay: (nft: NFT) => Promise<void>;
+  handlePlayPause: () => void;
   isPlaying: boolean;
   currentlyPlaying: string | null;
   onLikeToggle: (nft: NFT) => Promise<void>;
   animationDelay?: number;
-  parent: LibraryView;
 }
 
-// Compact horizontal row layout used only for Library's "list" view mode.
-// Grid view mode renders the shared NFTCard instead (see LibraryView.render).
-class SimpleNFTCard extends React.Component<SimpleNFTCardProps, { hasEntered: boolean }> {
-  state = { hasEntered: false };
-  private enterTimer: number | undefined;
-  private enterStyle = this.props.animationDelay
-    ? { animationDelay: `${this.props.animationDelay}s` }
-    : undefined;
+const SimpleNFTCard: React.FC<SimpleNFTCardProps> = ({
+  nft,
+  onPlay,
+  handlePlayPause,
+  isPlaying,
+  currentlyPlaying,
+  onLikeToggle,
+  animationDelay,
+}) => {
+  const { handleUnlike } = useNFTLike({ onLikeToggle });
+  const [hasEntered, setHasEntered] = useState(false);
+  const enterStyle = animationDelay ? { animationDelay: `${animationDelay}s` } : undefined;
+  const isCurrentTrack = currentlyPlaying === getMediaKey(nft);
 
-  componentDidMount() {
-    const delayMs = (this.props.animationDelay || 0) * 1000 + 500;
-    this.enterTimer = window.setTimeout(() => this.setState({ hasEntered: true }), delayMs);
-  }
+  useEffect(() => {
+    const delayMs = (animationDelay || 0) * 1000 + 500;
+    const timer = window.setTimeout(() => setHasEntered(true), delayMs);
+    return () => window.clearTimeout(timer);
+  }, [animationDelay]);
 
-  componentWillUnmount() {
-    if (this.enterTimer) window.clearTimeout(this.enterTimer);
-  }
-
-  render() {
-    const { nft, onPlay, isPlaying, currentlyPlaying } = this.props;
-    const isCurrentTrack = currentlyPlaying === getMediaKey(nft);
-
-    return (
-      <div 
-        className={`bg-gray-800/30 rounded-lg p-3 flex items-center gap-4 group hover:bg-gray-800/50 transition-colors${this.state.hasEntered ? '' : ' nft-card-enter'}`}
-        style={this.state.hasEntered ? undefined : this.enterStyle}
-        onAnimationEnd={(event) => {
-          if (event.target === event.currentTarget) this.setState({ hasEntered: true });
-        }}
+  return (
+    <div
+      className={`rounded-2xl p-3 flex items-center gap-3 border touch-manipulation ${
+        isCurrentTrack
+          ? 'bg-purple-500/15 border-purple-400/40'
+          : 'bg-black/40 border-purple-400/15'
+      }${hasEntered ? '' : ' nft-card-enter'}`}
+      style={hasEntered ? undefined : enterStyle}
+      onAnimationEnd={(event) => {
+        if (event.target === event.currentTarget) setHasEntered(true);
+      }}
+    >
+      <button
+        type="button"
+        onClick={() => (isCurrentTrack ? handlePlayPause() : onPlay(nft))}
+        className="flex items-center gap-3 min-w-0 flex-1 text-left active:scale-[0.99]"
       >
-        {/* Thumbnail */}
-        <div className="w-12 h-12 rounded-md overflow-hidden flex-shrink-0">
-          <NFTImage 
+        <div className="w-12 h-12 rounded-md overflow-hidden flex-shrink-0 bg-purple-900/30">
+          <NFTImage
             src={nft.metadata?.image || ''}
             alt={nft.name}
             className="w-full h-full object-cover"
             width={48}
             height={48}
-            priority={true}
+            priority
             nft={nft}
           />
         </div>
-
-        {/* Track Info */}
-        <div className="flex-grow min-w-0">
-          <h3 className="font-mono text-purple-400 truncate">{nft.name}</h3>
-        </div>
-
-        {/* Controls */}
-        <div className="flex items-center gap-2">
-          {/* Like Button */}
-          <button 
-            onClick={(e) => {
-              e.stopPropagation(); // Prevent triggering the parent onClick
-              // Call the parent's handleUnlike method
-              this.props.parent.handleUnlike(nft);
-            }}
-            className="text-red-500 hover:scale-110 transition-transform"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24" fill="currentColor">
-              <path d="m480-120-58-52q-101-91-167-157T150-447.5Q111-500 95.5-544T80-634q0-94 63-157t157-63q52 0 99 22t81 62q34-40 81-62t99-22q94 0 157 63t63 157q0 46-15.5 90T810-447.5Q771-395 705-329T538-172l-58 52Z"/>
-            </svg>
-          </button>
-
-          {/* Play Button */}
-          <button 
-            onClick={() => onPlay(nft)}
-            className="text-purple-400 hover:scale-110 transition-transform"
-          >
-          {isCurrentTrack && isPlaying ? (
-            <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="currentColor">
-              <path d="M320-640v320h80V-640h-80Zm240 0v320h80V-640h-80Z"/>
-            </svg>
-          ) : (
-            <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="currentColor">
-              <path d="M320-200v-560l440 280-440 280Z"/>
-            </svg>
+        <div className="min-w-0 flex-1">
+          <h3 className="text-white truncate">{nft.name}</h3>
+          {isCurrentTrack && (
+            <p className="text-[11px] text-purple-300">{isPlaying ? 'Playing' : 'Paused'}</p>
           )}
-        </button>
         </div>
-      </div>
-    );
-  }
-}
+      </button>
+
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          void handleUnlike(nft);
+        }}
+        className="text-red-400 p-1.5 active:scale-95 touch-manipulation"
+        aria-label="Remove from library"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" height="22" viewBox="0 -960 960 960" width="22" fill="currentColor">
+          <path d="m480-120-58-52q-101-91-167-157T150-447.5Q111-500 95.5-544T80-634q0-94 63-157t157-63q52 0 99 22t81 62q34-40 81-62t99-22q94 0 157 63t63 157q0 46-15.5 90T810-447.5Q771-395 705-329T538-172l-58 52Z"/>
+        </svg>
+      </button>
+
+      <button
+        type="button"
+        onClick={() => (isCurrentTrack ? handlePlayPause() : onPlay(nft))}
+        className="text-purple-300 p-1.5 active:scale-95 touch-manipulation"
+        aria-label={isCurrentTrack && isPlaying ? 'Pause' : 'Play'}
+      >
+        {isCurrentTrack && isPlaying ? (
+          <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24" fill="currentColor">
+            <path d="M320-640v320h80V-640h-80Zm240 0v320h80V-640h-80Z"/>
+          </svg>
+        ) : (
+          <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24" fill="currentColor">
+            <path d="M320-200v-560l440 280-440 280Z"/>
+          </svg>
+        )}
+      </button>
+    </div>
+  );
+};
 
 interface LibraryNFTFeedProps {
   nfts: NFT[];
@@ -174,10 +187,8 @@ interface LibraryNFTFeedProps {
   handlePlayPause: () => void;
   handlePlayAudio: (nft: NFT, context?: { queue?: NFT[]; queueType?: string }) => Promise<void>;
   onLikeToggle: (nft: NFT) => Promise<void>;
-  parent: LibraryView;
 }
 
-/** Pages Library cards so mobile doesn't mount every NFTImage on first paint. */
 const LibraryNFTFeed: React.FC<LibraryNFTFeedProps> = ({
   nfts,
   viewMode,
@@ -188,7 +199,6 @@ const LibraryNFTFeed: React.FC<LibraryNFTFeedProps> = ({
   handlePlayPause,
   handlePlayAudio,
   onLikeToggle,
-  parent,
 }) => {
   const { visibleItems: visibleNFTs, hasMore, sentinelRef } = usePagedItems(nfts, {
     pageSize: PAGE_SIZE,
@@ -199,22 +209,23 @@ const LibraryNFTFeed: React.FC<LibraryNFTFeedProps> = ({
   return (
     <>
       <div
-        className={`px-4 pb-16 ${viewMode === 'grid' ? 'grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4' : 'space-y-4'}`}
+        className={`px-4 pb-16 ${viewMode === 'grid' ? 'grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4' : 'space-y-3'}`}
       >
         {visibleNFTs.map((nft, index) => {
           const uniqueKey = nft.contract && nft.tokenId
             ? `library-${nft.contract}-${nft.tokenId}-${index}`
             : `library-${getMediaKey(nft)}-${index}`;
           const staggerDelay = 0.05 * (index % 8);
+          const playNft = async (played: NFT) => {
+            handlePlayAudio(played, { queue: nfts, queueType: 'library' });
+          };
 
           if (viewMode === 'grid') {
             return (
               <NFTCard
                 key={uniqueKey}
                 nft={nft}
-                onPlay={async (played: NFT) => {
-                  handlePlayAudio(played, { queue: nfts, queueType: 'library' });
-                }}
+                onPlay={playNft}
                 isPlaying={isPlaying}
                 currentlyPlaying={currentlyPlaying}
                 handlePlayPause={handlePlayPause}
@@ -229,14 +240,12 @@ const LibraryNFTFeed: React.FC<LibraryNFTFeedProps> = ({
             <SimpleNFTCard
               key={uniqueKey}
               nft={nft}
-              onPlay={async (played: NFT) => {
-                handlePlayAudio(played, { queue: nfts, queueType: 'library' });
-              }}
+              onPlay={playNft}
+              handlePlayPause={handlePlayPause}
               isPlaying={isPlaying}
               currentlyPlaying={currentlyPlaying}
               onLikeToggle={onLikeToggle}
               animationDelay={staggerDelay}
-              parent={parent}
             />
           );
         })}
@@ -246,260 +255,172 @@ const LibraryNFTFeed: React.FC<LibraryNFTFeedProps> = ({
   );
 };
 
-// Main LibraryView component as a class component
-class LibraryView extends React.Component<LibraryViewProps> {
-  scrollRootRef = React.createRef<HTMLDivElement>();
+const LibraryView: React.FC<LibraryViewProps> = ({
+  likedNFTs,
+  isPlaying,
+  currentlyPlaying,
+  currentPlayingNFT,
+  handlePlayAudio,
+  handlePlayPause,
+  onReset,
+  userContext,
+  setIsLiked,
+  onLikeToggle,
+  isLoading = false,
+}) => {
+  const scrollRootRef = useRef<HTMLDivElement>(null);
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [searchFilter, setSearchFilter] = useState('');
+  const [filterSort, setFilterSort] = useState<'recent' | 'name'>('recent');
 
-  // State for the component including notification handling
-  state = {
-    viewMode: 'grid' as 'grid' | 'list',
-    searchFilter: '',
-    filterSort: 'recent' as 'recent' | 'name',
-    isLoading: true, // Add loading state, initially true
-    nftToNotify: null as NFT | null // Track the NFT that needs a notification
-  };
+  const uniqueNFTs = useMemo(() => getUniqueLikedNFTs(likedNFTs), [likedNFTs]);
 
-  componentDidMount() {
-    console.log('🔄 LibraryView mounting - NFT count:', this.props.likedNFTs.length);
-    
-    // Immediately check if we already have liked NFTs and render them
-    if (this.props.likedNFTs.length > 0) {
-      console.log('✅ LibraryView has liked NFTs on mount, immediately rendering');
-      this.setState({ isLoading: false });
-      // Force a refresh of the component
-      this.forceUpdate();
-    } else {
-      console.log('⏳ No liked NFTs available yet, showing loading state');
-      // Set a short timeout to finish loading
-      setTimeout(() => {
-        console.log('⌛ Loading timeout complete - NFT count now:', this.props.likedNFTs.length);
-        this.setState({ isLoading: false });
-        // Force a refresh to ensure NFTs are displayed
-        this.forceUpdate();
-      }, 1000);
-    }
-  }
-
-  componentDidUpdate(prevProps: LibraryViewProps) {
-    // If likedNFTs changes, force a complete refresh
-    if (prevProps.likedNFTs !== this.props.likedNFTs) {
-      console.log('🔄 LibraryView detected likedNFTs change - refreshing view');
-      // Force a refresh of the component
-      this.forceUpdate();
-    }
-
-    // Update liked status for currently playing NFT
-    if (this.props.currentPlayingNFT !== prevProps.currentPlayingNFT && 
-        this.props.currentPlayingNFT && 
-        this.props.userContext?.user?.fid) {
-      const currentMediaKey = getMediaKey(this.props.currentPlayingNFT);
-      const isNFTLiked = this.props.likedNFTs.some(nft => getMediaKey(nft) === currentMediaKey);
-      this.props.setIsLiked(isNFTLiked);
-    }
-  }
-
-  // Deduplicate NFTs based on mediaKey as the primary identifier
-  // with fallback to contract-tokenId
-  getUniqueNFTs() {
-    // Log the number of liked NFTs for debugging
-    console.log(`📊 Processing ${this.props.likedNFTs.length} liked NFTs in getUniqueNFTs`); 
-    
-    const uniqueNFTs: NFT[] = [];
-    const seenMediaKeys = new Set<string>();
-    const seenContractTokenIds = new Set<string>();
-    
-    for (const nft of this.props.likedNFTs) {
-      // Skip invalid NFTs
-      if (!nft) continue;
-      
-      // Get the mediaKey for this NFT
-      const mediaKey = getMediaKey(nft);
-      
-      // First try to deduplicate by mediaKey (primary identifier)
-      if (!seenMediaKeys.has(mediaKey)) {
-        seenMediaKeys.add(mediaKey);
-        uniqueNFTs.push(nft);
-      }
-      // Fallback to contract-tokenId if available
-      else if (nft.contract && nft.tokenId) {
-        const contractTokenKey = `${nft.contract.toLowerCase()}-${nft.tokenId}`;
-        if (!seenContractTokenIds.has(contractTokenKey)) {
-          seenContractTokenIds.add(contractTokenKey);
-          uniqueNFTs.push(nft);
-        }
-      }
-    }
-    
-    console.log(`✅ Returning ${uniqueNFTs.length} unique NFTs after deduplication`);
-    return uniqueNFTs;
-  }
-
-  getFilteredNFTs() {
-    const uniqueNFTs = this.getUniqueNFTs();
-    const { searchFilter, filterSort } = this.state;
-
+  const filteredNFTs = useMemo(() => {
+    const query = searchFilter.trim().toLowerCase();
     return uniqueNFTs
-      .filter(nft => 
-        nft.name && nft.name.toLowerCase().includes(searchFilter.toLowerCase())
-      )
+      .filter((nft) => !query || (nft.name || '').toLowerCase().includes(query))
       .sort((a, b) => {
-        switch (filterSort) {
-          case 'name':
-            return (a.name || '').localeCompare(b.name || '');
-          case 'recent':
-            return getNftLikedTime(b) - getNftLikedTime(a);
-          default:
-            return 0;
-        }
+        if (filterSort === 'name') return (a.name || '').localeCompare(b.name || '');
+        return getNftLikedTime(b) - getNftLikedTime(a);
       });
-  }
+  }, [uniqueNFTs, searchFilter, filterSort]);
 
-  handleUnlike = async (nft: NFT) => {
-    try {
-      // Set the NFT that needs a notification
-      // The NotificationHandler component will pick this up and show the notification
-      this.setState({ nftToNotify: nft });
-      
-      // Call the original onLikeToggle function
-      await this.props.onLikeToggle(nft);
-      
-      // Force a re-render after the unlike operation
-      this.forceUpdate();
-    } catch (error) {
-      console.error('Error unliking NFT:', error);
-    }
-  };
-  
-  // Reset the NFT to notify after the notification has been triggered
-  resetNftToNotify = () => {
-    this.setState({ nftToNotify: null });
-  };
+  useEffect(() => {
+    if (!currentPlayingNFT || !userContext?.user?.fid) return;
+    const currentMediaKey = getMediaKey(currentPlayingNFT);
+    setIsLiked(uniqueNFTs.some((nft) => getMediaKey(nft) === currentMediaKey));
+  }, [currentPlayingNFT, uniqueNFTs, userContext?.user?.fid, setIsLiked]);
 
-  render() {
-    const { 
-      handlePlayAudio, 
-      currentlyPlaying, 
-      isPlaying, 
-      handlePlayPause,
-      onReset, 
-      userContext, 
-      onLikeToggle 
-    } = this.props;
-    
-    const { viewMode, searchFilter, filterSort, isLoading } = this.state;
-    const uniqueNFTs = this.getUniqueNFTs();
-    const filteredNFTs = this.getFilteredNFTs();
+  const hasFid = Boolean(userContext?.user?.fid);
 
-    return (
-      <>
-        <NotificationHeader show={false} message="" onReset={onReset} />
-        
-        {/* Main content with EXACTLY matching HomeView styling */}
-        <div 
-          ref={this.scrollRootRef}
-          className={`space-y-4 pt-20 pb-40 overflow-y-auto overscroll-y-contain min-h-screen bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082] h-[calc(100vh-130px)]`}
-        >
-          {/* Add the NotificationHandler component to handle unlike notifications */}
-          <NotificationHandler 
-            nft={this.state.nftToNotify} 
-            onTrigger={this.resetNftToNotify} 
-          />
-          
-          {/* Header and Filters */}
-          <div className="flex justify-between items-center px-4">
-            <div>
-              <h2 className="text-base font-semibold text-purple-400">Your Library</h2>
-              <p className="text-xs text-gray-400 mt-0.5 font-mono">{uniqueNFTs.length} NFTs</p>
-            </div>
-            <div className="flex items-center gap-4">
-              {/* View Toggle */}
-              <div className="flex gap-2">
-                <button
-                  onClick={() => this.setState({ viewMode: 'grid' })}
-                  className={`p-2 rounded ${
-                    viewMode === 'grid' ? 'bg-purple-400 text-black' : 'text-gray-400'
-                  }`}
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24" fill="currentColor">
-                    <path d="M120-520v-320h320v320H120Zm0 400v-320h320v320H120Zm400-400v-320h320v320H520Zm0 400v-320h320v320H520ZM200-600h160v-160H200v160Zm400 0h160v-160H600v160Zm0 400h160v-160H600v160Zm-400 0h160v-160H200v160Z"/>
-                  </svg>
-                </button>
-                <button
-                  onClick={() => this.setState({ viewMode: 'list' })}
-                  className={`p-2 rounded ${
-                    viewMode === 'list' ? 'bg-purple-400 text-black' : 'text-gray-400'
-                  }`}
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24" fill="currentColor">
-                    <path d="M120-240v-80h720v80H120Zm0-200v-80h720v80H120Zm0-200v-80h720v80H120Z"/>
-                  </svg>
-                </button>
-              </div>
-  
-              {/* Sort Options */}
-              <select
-                value={filterSort}
-                onChange={(e) => this.setState({ filterSort: e.target.value as 'recent' | 'name' })}
-                className="bg-gray-800/50 text-purple-400 rounded-lg px-3 py-2 font-mono text-sm border border-purple-400/20 focus:outline-none focus:border-purple-400"
-              >
-                <option value="recent">Recently Added</option>
-                <option value="name">Name</option>
-              </select>
-            </div>
+  return (
+    <>
+      <NotificationHeader show={false} message="" onReset={onReset} />
+      <NFTNotification onReset={onReset} />
+
+      <div
+        ref={scrollRootRef}
+        className="space-y-5 pt-20 pb-40 overflow-y-auto overscroll-y-contain min-h-screen bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082] h-[calc(100vh-130px)] md:h-[calc(100vh-150px)]"
+      >
+        <div className="px-4 flex items-end justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold text-white">Library</h2>
+            <p className="text-sm text-white/50 mt-0.5">
+              {uniqueNFTs.length} {uniqueNFTs.length === 1 ? 'liked NFT' : 'liked NFTs'}
+            </p>
           </div>
-  
-          {/* Search Filter */}
-          <div className="relative px-4">
+          <div className="flex rounded-full bg-black/40 border border-purple-400/20 p-1">
+            <button
+              type="button"
+              onClick={() => setViewMode('grid')}
+              className={`p-2 rounded-full touch-manipulation ${
+                viewMode === 'grid' ? 'bg-purple-500 text-white' : 'text-white/50'
+              }`}
+              aria-label="Grid view"
+              aria-pressed={viewMode === 'grid'}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" height="20" viewBox="0 -960 960 960" width="20" fill="currentColor">
+                <path d="M120-520v-320h320v320H120Zm0 400v-320h320v320H120Zm400-400v-320h320v320H520Zm0 400v-320h320v320H520ZM200-600h160v-160H200v160Zm400 0h160v-160H600v160Zm0 400h160v-160H600v160Zm-400 0h160v-160H200v160Z"/>
+              </svg>
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('list')}
+              className={`p-2 rounded-full touch-manipulation ${
+                viewMode === 'list' ? 'bg-purple-500 text-white' : 'text-white/50'
+              }`}
+              aria-label="List view"
+              aria-pressed={viewMode === 'list'}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" height="20" viewBox="0 -960 960 960" width="20" fill="currentColor">
+                <path d="M120-240v-80h720v80H120Zm0-200v-80h720v80H120Zm0-200v-80h720v80H120Z"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div className="px-4">
+          <div className="relative">
+            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-purple-300/70 pointer-events-none">
+              <svg xmlns="http://www.w3.org/2000/svg" height="20" viewBox="0 -960 960 960" width="20" fill="currentColor" aria-hidden="true">
+                <path d="M784-120 532-372q-30 24-69 38t-83 14q-109 0-184.5-75.5T120-580q0-109 75.5-184.5T380-840q109 0 184.5 75.5T640-580q0 44-14 83t-38 69l252 252-56 56ZM380-400q75 0 127.5-52.5T560-580q0-75-52.5-127.5T380-760q-75 0-127.5 52.5T200-580q0 75 52.5 127.5T380-400Z"/>
+              </svg>
+            </span>
             <input
               type="text"
               value={searchFilter}
-              onChange={(e) => this.setState({ searchFilter: e.target.value })}
-              placeholder="Search NFTs..."
-              className="w-full px-4 py-3 bg-gray-800/50 border border-purple-400/20 rounded-lg text-purple-400 placeholder-purple-400/50 focus:outline-none focus:border-purple-400 font-mono text-sm"
+              onChange={(e) => setSearchFilter(e.target.value)}
+              placeholder="Search liked NFTs"
+              className="w-full pl-11 pr-10 py-3 bg-black/40 border border-purple-400/30 rounded-full text-white placeholder-white/40 focus:outline-none focus:border-purple-400 text-base"
+              autoComplete="off"
             />
-            <svg xmlns="http://www.w3.org/2000/svg" height="20" viewBox="0 -960 960 960" width="20" fill="currentColor" 
-              className="absolute right-8 top-1/2 transform -translate-y-1/2 text-purple-400/50">
-              <path d="M784-120 532-372q-30 24-69 38t-83 14q-109 0-184.5-75.5T120-580q0-109 75.5-184.5T380-840q109 0 184.5 75.5T640-580q0 44-14 83t-38 69l252 252-56 56ZM380-400q75 0 127.5-52.5T560-580q0-75-52.5-127.5T380-760q-75 0-127.5 52.5T200-580q0 75 52.5 127.5T380-400Z"/>
-            </svg>
+            {searchFilter && (
+              <button
+                type="button"
+                onClick={() => setSearchFilter('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 p-1 touch-manipulation"
+                aria-label="Clear search"
+              >
+                ✕
+              </button>
+            )}
           </div>
-  
-          {/* Content */}
-          {isLoading ? (
-            <div className="flex flex-col justify-center items-center py-12 space-y-4">
-              <div className="animate-spin rounded-full h-12 w-12 border-4 border-purple-400 border-t-transparent"></div>
-              <p className="text-purple-400 font-mono text-sm">Loading your library...</p>
-            </div>
-          ) : uniqueNFTs.length === 0 ? (
-            <div className="text-center py-12">
-              <h3 className="text-xl text-purple-400 mb-2">Your Library is Empty</h3>
-              <p className="text-gray-400">
-                {!userContext?.user?.fid
-                  ? 'Must be logged in to view your library'
-                  : 'Like some media NFTs to add them to your library.'
-                }
-              </p>
-            </div>
-          ) : (
-            <LibraryNFTFeed
-              nfts={filteredNFTs}
-              viewMode={viewMode}
-              scrollRootRef={this.scrollRootRef}
-              resetKey={`${searchFilter}|${filterSort}`}
-              isPlaying={isPlaying}
-              currentlyPlaying={currentlyPlaying}
-              handlePlayPause={handlePlayPause}
-              handlePlayAudio={handlePlayAudio}
-              onLikeToggle={onLikeToggle}
-              parent={this}
-            />
-          )}
+          <div className="flex gap-2 mt-3">
+            {([
+              ['recent', 'Recently liked'],
+              ['name', 'Name'],
+            ] as const).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setFilterSort(id)}
+                className={`px-3 py-1.5 rounded-full text-sm touch-manipulation ${
+                  filterSort === id
+                    ? 'bg-purple-500 text-white'
+                    : 'bg-black/40 text-white/60 border border-purple-400/20'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
-        
-        {/* Add NFTNotification component to handle like/unlike notifications - EXACTLY matching HomeView */}
-        <NFTNotification onReset={onReset} />
-      </>
-    );
-  }
-}
+
+        {isLoading ? (
+          <div className="flex flex-col justify-center items-center py-12 space-y-3">
+            <div className="w-10 h-10 border-2 border-purple-400/30 border-t-purple-400 rounded-full animate-spin" />
+            <p className="text-sm text-purple-200">Loading your library…</p>
+          </div>
+        ) : uniqueNFTs.length === 0 ? (
+          <div className="text-center py-16 px-6">
+            <p className="text-lg text-white mb-2">Your library is empty</p>
+            <p className="text-sm text-white/50">
+              {!hasFid
+                ? 'Sign in on Farcaster or Base to save liked NFTs here.'
+                : 'Like a track and it will show up here.'}
+            </p>
+          </div>
+        ) : filteredNFTs.length === 0 ? (
+          <div className="text-center py-16 px-6">
+            <p className="text-lg text-white mb-2">No matches</p>
+            <p className="text-sm text-white/50">Nothing in your library matches “{searchFilter}”.</p>
+          </div>
+        ) : (
+          <LibraryNFTFeed
+            nfts={filteredNFTs}
+            viewMode={viewMode}
+            scrollRootRef={scrollRootRef}
+            resetKey={`${searchFilter}|${filterSort}|${viewMode}`}
+            isPlaying={isPlaying}
+            currentlyPlaying={currentlyPlaying}
+            handlePlayPause={handlePlayPause}
+            handlePlayAudio={handlePlayAudio}
+            onLikeToggle={onLikeToggle}
+          />
+        )}
+      </div>
+    </>
+  );
+};
 
 export default LibraryView;

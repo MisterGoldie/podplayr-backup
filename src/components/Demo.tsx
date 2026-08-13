@@ -292,6 +292,7 @@ const DemoBase: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [likedNFTs, setLikedNFTs] = useState<NFT[]>([]);
+  const [likedNFTsLoaded, setLikedNFTsLoaded] = useState(false);
   const [recentSearches, setRecentSearches] = useState<SearchedUser[]>([]);
   const [isLiked, setIsLiked] = useState(false);
   const [userData, setUserData] = useState<FarcasterUser | null>(null);
@@ -707,21 +708,20 @@ const DemoBase: React.FC = () => {
     }
   };
 
-  // Add this near the top of the Demo component
-  const libraryViewRef = useRef<LibraryView>(null);
-
   // Find where you initially load the liked NFTs
   useEffect(() => {
     const loadLikedNFTs = async () => {
-      if (isLoadingLikedNFTsRef.current) return; // Prevent duplicate calls
-      if (!fid) return;
+      if (isLoadingLikedNFTsRef.current) return;
+      if (!fid) {
+        setLikedNFTsLoaded(true);
+        return;
+      }
       
       isLoadingLikedNFTsRef.current = true;
+      setLikedNFTsLoaded(false);
       try {
         const liked = await getLikedNFTs(fid);
         
-        // CRITICAL: Apply our permanent blacklist using mediaKey (content-first approach)
-        // Also drop anything we've already confirmed is dead (unreachable media, see deadNftRegistry)
         const filteredLiked = liked.filter(item => {
           const mediaKey = getMediaKey(item);
           return !permanentlyRemovedNFTs.has(mediaKey) && !isNftMediaDead(item);
@@ -732,6 +732,7 @@ const DemoBase: React.FC = () => {
         demoLogger.error('Error loading liked NFTs:', error);
       } finally {
         isLoadingLikedNFTsRef.current = false;
+        setLikedNFTsLoaded(true);
       }
     };
     
@@ -940,6 +941,7 @@ const DemoBase: React.FC = () => {
             setIsPlayerVisible={() => {}}
             setIsPlayerMinimized={setIsPlayerMinimized}
             onLikeToggle={onLikeToggle}
+            isLoading={!likedNFTsLoaded}
           />
         )}
         {currentPage.isProfile && (
