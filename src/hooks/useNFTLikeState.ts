@@ -26,8 +26,11 @@ export interface UseNFTLikeStateOptions {
   watchIsLiked?: boolean;
   /** Keep the global like count live via onSnapshot. Grids with many cards should
    * pass false to do a single one-time read instead of N concurrent listeners.
-   * Default true. */
+   * Default true. Ignored when watchCount is false. */
   liveCount?: boolean;
+  /** Fetch the global like count. Pass false when the caller does not display it.
+   * Default true. */
+  watchCount?: boolean;
 }
 
 export const useNFTLikeState = (
@@ -37,6 +40,7 @@ export const useNFTLikeState = (
 ) => {
   const watchIsLiked = options?.watchIsLiked ?? true;
   const liveCount = options?.liveCount ?? true;
+  const watchCount = options?.watchCount ?? true;
   const [isLiked, setIsLiked] = useState<boolean>(false);
   const [likesCount, setLikesCount] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -82,18 +86,20 @@ export const useNFTLikeState = (
     // Canonical global count: global_likes/{mediaKey}.likeCount
     const globalLikeRef = doc(db, 'global_likes', mediaKey);
     let unsubscribeCount: Unsubscribe | null = null;
-    if (liveCount) {
-      unsubscribeCount = onSnapshot(globalLikeRef, (snap) => {
-        if (cancelled) return;
-        setLikesCount(snap.exists() ? (snap.data()?.likeCount || 0) : 0);
-      });
-    } else {
-      getDoc(globalLikeRef).then((snap) => {
-        if (cancelled) return;
-        setLikesCount(snap.exists() ? (snap.data()?.likeCount || 0) : 0);
-      }).catch(() => {
-        if (!cancelled) setLikesCount(0);
-      });
+    if (watchCount) {
+      if (liveCount) {
+        unsubscribeCount = onSnapshot(globalLikeRef, (snap) => {
+          if (cancelled) return;
+          setLikesCount(snap.exists() ? (snap.data()?.likeCount || 0) : 0);
+        });
+      } else {
+        getDoc(globalLikeRef).then((snap) => {
+          if (cancelled) return;
+          setLikesCount(snap.exists() ? (snap.data()?.likeCount || 0) : 0);
+        }).catch(() => {
+          if (!cancelled) setLikesCount(0);
+        });
+      }
     }
 
     isSubscribedRef.current = true;
@@ -104,7 +110,7 @@ export const useNFTLikeState = (
       unsubscribeCount?.();
       isSubscribedRef.current = false;
     };
-  }, [nft, fid, watchIsLiked, liveCount]);
+  }, [nft, fid, watchIsLiked, liveCount, watchCount]);
 
   const toggleLike = async () => {
     if (!nft || !fid || !mediaKeyRef.current) return;

@@ -42,9 +42,9 @@ const NFTCardInner: React.FC<NFTCardProps> = ({
   // since displayIsLiked below prefers isNFTLiked() whenever it's provided.
   // Like counts are read once rather than kept live to avoid piling up dozens of
   // concurrent listeners in large grids (e.g. the Library view).
-  const { isLiked, likesCount, toggleLike } = useNFTLikeState(nft, effectiveFid, {
+  const { isLiked, toggleLike } = useNFTLikeState(nft, effectiveFid, {
     watchIsLiked: !isNFTLiked,
-    liveCount: false,
+    watchCount: false,
   });
 
   // Use the NFT like hook
@@ -141,9 +141,6 @@ const NFTCardInner: React.FC<NFTCardProps> = ({
         
         <div className={smallCard ? "mt-1" : "mt-2"}>
           <h3 className={`font-medium text-white ${smallCard ? 'text-xs' : 'text-sm'} truncate`}>{nft.name}</h3>
-          <div className={`flex items-center gap-2 text-white/45 ${smallCard ? 'text-xs' : 'text-xs'}`}>
-            {likesCount > 0 && <span>{likesCount} likes</span>}
-          </div>
         </div>
     </div>
   );
