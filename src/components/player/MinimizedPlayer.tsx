@@ -6,6 +6,7 @@ import InfoPanel from './InfoPanel';
 import { logger } from '../../utils/logger';
 import { FEATURED_NFTS } from '../sections/FeaturedSection';
 import { triggerHaptic } from '../../utils/haptics';
+import { formatTime, safeProgressPercent } from '../../utils/media';
 
 // Create a dedicated logger for the MinimizedPlayer
 const playerLogger = logger.getModuleLogger('minimizedPlayer');
@@ -206,21 +207,6 @@ export const MinimizedPlayer: React.FC<MinimizedPlayerProps> = ({
       setSwipeDistance(0);
     }, 300);
   };
-
-  // Remove the local formatTime function and import from utils
-// Local helper function for time formatting
-const formatTime = (seconds: number): string => {
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = Math.floor(seconds % 60);
-  return `${minutes}:${remainingSeconds < 10 ? '0' : ''}${remainingSeconds}`;
-};
-  
-  // Remove this local function:
-  // const formatTime = (seconds: number): string => {
-  //   const minutes = Math.floor(seconds / 60);
-  //   const remainingSeconds = Math.floor(seconds % 60);
-  //   return `${minutes}:${remainingSeconds < 10 ? '0' : ''}${remainingSeconds}`;
-  // };
 
   // Handle info button click with animation
   const handleInfoButtonClick = () => {
@@ -479,13 +465,15 @@ const formatTime = (seconds: number): string => {
           onClick={(e) => {
             const rect = e.currentTarget.getBoundingClientRect();
             const percent = (e.clientX - rect.left) / rect.width;
-            onSeek(duration * percent);
+            if (Number.isFinite(duration) && duration > 0) {
+              onSeek(duration * percent);
+            }
           }}
         >
           <div 
             className="absolute top-0 left-0 h-0.5 bg-indigo-500 transition-all duration-100 group-hover:h-1"
             style={{ 
-              width: `${(progress / duration) * 100}%`,
+              width: `${safeProgressPercent(progress, duration)}%`,
               backgroundColor: '#6366F1' 
             }}
           />

@@ -484,9 +484,20 @@ export const isAudioUrl = (url: string): boolean => {
   return audioExtensions.some(ext => url.toLowerCase().endsWith(ext));
 };
 
-// Function to format time in MM:SS format
+// Safe percentage for progress-bar widths/positions. Guards the same NaN/Infinity
+// cases as formatTime (duration not loaded yet, 0, or a stream with no reported
+// length) so the bar never gets a "NaN%"/"Infinity%" width — clamped to [0, 100].
+export const safeProgressPercent = (value: number, duration: number): number => {
+  if (!Number.isFinite(value) || !Number.isFinite(duration) || duration <= 0) return 0;
+  return Math.min(100, Math.max(0, (value / duration) * 100));
+};
+
+// Function to format time in MM:SS format.
+// Guards NaN/Infinity/negative so the UI can never show "NaN:NaN" — these happen
+// legitimately whenever duration/progress isn't known yet (metadata not loaded)
+// or a gateway streams audio without reporting a proper Content-Length.
 export const formatTime = (seconds: number): string => {
-  if (isNaN(seconds)) return '0:00';
+  if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
   const minutes = Math.floor(seconds / 60);
   const remainingSeconds = Math.floor(seconds % 60);
   return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;

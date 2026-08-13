@@ -165,7 +165,7 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
     if (!audio) return;
 
     const updateProgress = () => {
-      if (!audio.duration) return;
+      if (!Number.isFinite(audio.duration)) return;
       
       // Round to prevent micro-updates that cause UI jitter
       const currentTime = Math.floor(audio.currentTime * 10) / 10; // Round to 0.1s precision
@@ -180,8 +180,21 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
         duration: audio.duration,
         currentTime: audio.currentTime
       });
-      setAudioDuration(audio.duration);
+      // Some gateways stream audio without a proper Content-Length, so duration
+      // can be NaN/Infinity here — don't display "NaN:NaN" for that, wait for
+      // durationchange (below) to report the real value once it's known.
+      if (Number.isFinite(audio.duration)) {
+        setAudioDuration(audio.duration);
+      }
       setAudioProgress(audio.currentTime);
+    };
+
+    // Some gateways only reveal the true duration after the browser has
+    // buffered enough of the stream — this fires when that correction happens.
+    const handleDurationChange = () => {
+      if (Number.isFinite(audio.duration)) {
+        setAudioDuration(audio.duration);
+      }
     };
 
     const handleEnded = () => {
@@ -195,6 +208,7 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
     // Add timeupdate event to track progress
     audio.addEventListener('timeupdate', updateProgress);
     audio.addEventListener('loadedmetadata', handleLoadedMetadata);
+    audio.addEventListener('durationchange', handleDurationChange);
     audio.addEventListener('ended', handleEnded);
     audio.addEventListener('play', handlePlay);
     audio.addEventListener('pause', handlePause);
@@ -202,6 +216,7 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
     return () => {
       // Clean up event listeners when component unmounts
       audio.removeEventListener('timeupdate', updateProgress);
+      audio.removeEventListener('durationchange', handleDurationChange);
       audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
       audio.removeEventListener('ended', handleEnded);
       audio.removeEventListener('play', handlePlay);
@@ -552,11 +567,22 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
           duration: audio.duration,
           currentTime: audio.currentTime
         });
-        setAudioDuration(audio.duration);
+        // Some gateways stream audio without a proper Content-Length, so duration
+        // can be NaN/Infinity here — never store that; ondurationchange below will
+        // report the real value once the browser figures it out.
+        if (Number.isFinite(audio.duration)) {
+          setAudioDuration(audio.duration);
+        }
         // Metadata loading means whatever URL is currently on the element actually
         // worked (whether it was the primary or one reached via the onerror fallback
         // cascade) — remember it so next time we skip straight past dead gateways.
         rememberWorkingMediaUrl(mediaKey, 'audio', audio.currentSrc || audio.src);
+      };
+
+      audio.ondurationchange = () => {
+        if (Number.isFinite(audio.duration)) {
+          setAudioDuration(audio.duration);
+        }
       };
 
       audio.ontimeupdate = () => {

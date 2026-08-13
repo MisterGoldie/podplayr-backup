@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, ReactNode } from 'react';
 import { NFT } from '../types/user';
 import { useAudioPlayer } from '../hooks/useAudioPlayer';
 import { PlaybackButton } from '../components/buttons/PlaybackButton';
+import { formatTime, safeProgressPercent } from '../utils/media';
 
 interface PlayerContextType {
   isPlaying: boolean;
@@ -79,12 +80,6 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
   duration,
   isMinimized = false,
 }) => {
-  const formatTime = (time: number): string => {
-    const minutes = Math.floor(time / 60);
-    const seconds = Math.floor(time % 60);
-    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
-  };
-
   return (
     <div className={`flex flex-col gap-2 ${isMinimized ? 'w-48' : 'w-full'}`}>
       {/* Progress Bar */}
@@ -95,18 +90,18 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
         <div className="relative flex-1 h-1 bg-gray-700 rounded cursor-pointer group">
           <div
             className="absolute h-full bg-purple-400 rounded"
-            style={{ width: `${(currentTime / duration) * 100}%` }}
+            style={{ width: `${safeProgressPercent(currentTime, duration)}%` }}
           />
           <input
             type="range"
             min={0}
-            max={duration}
+            max={Number.isFinite(duration) ? duration : 0}
             value={currentTime}
             onChange={(e) => handleSeek(Number(e.target.value))}
             className="absolute w-full h-full opacity-0 cursor-pointer"
           />
           <div className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-purple-400 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-            style={{ left: `${(currentTime / duration) * 100}%` }}
+            style={{ left: `${safeProgressPercent(currentTime, duration)}%` }}
           />
         </div>
         <span className="text-xs font-mono text-gray-400 min-w-[40px]">

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import type { NFT } from '../../../types/user';
-import { processMediaUrl } from '../../../utils/media';
+import { processMediaUrl, formatTime } from '../../../utils/media';
 
 interface UsePlayerStateProps {
   nft: NFT;
@@ -190,13 +190,6 @@ export const usePlayerState = ({
     } catch (error) {
       console.error('Error toggling Picture-in-Picture mode:', error);
     }
-  };
-
-  // All the same functions from the original Player component
-  const formatTime = (seconds: number): string => {
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = Math.floor(seconds % 60);
-    return `${minutes}:${remainingSeconds < 10 ? '0' : ''}${remainingSeconds}`;
   };
 
   return {

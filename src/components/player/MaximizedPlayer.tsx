@@ -2,7 +2,7 @@ import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { usePlayerState } from './hooks/usePlayerState';
 import { NFTImage } from '../media/NFTImage';
 // PlaybackButton is already imported below - removing duplicate import
-import { processMediaUrl, getMediaKey } from '../../utils/media';
+import { processMediaUrl, getMediaKey, formatTime, safeProgressPercent } from '../../utils/media';
 import { applyPlaybackPlanToNft, getNftPlaybackPlan, mediaUrlNeedsMimeProbe, resolveNftPlaybackPlan } from '../../utils/isMediaNFT';
 import type { NFT } from '../../types/user';
 // Dynamic import for Farcaster SDK - will use miniapp-sdk in mini-app environment
@@ -349,12 +349,6 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
     }
   };
 
-  const formatTime = (seconds: number): string => {
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = Math.floor(seconds % 60);
-    return `${minutes}:${remainingSeconds < 10 ? '0' : ''}${remainingSeconds}`;
-  };
-
   // Create a dedicated logger for player
   const playerLogger = logger.getModuleLogger('player');
   
@@ -602,7 +596,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
   };
 
   const updateScrubPosition = (clientX: number) => {
-    if (progressBarRef.current) {
+    if (progressBarRef.current && Number.isFinite(duration) && duration > 0) {
       const rect = progressBarRef.current.getBoundingClientRect();
       const percent = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
       setScrubPosition(duration * percent);
@@ -806,13 +800,15 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
                   }
                   const rect = e.currentTarget.getBoundingClientRect();
                   const percent = (e.clientX - rect.left) / rect.width;
-                  onSeek(duration * percent);
+                  if (Number.isFinite(duration) && duration > 0) {
+                    onSeek(duration * percent);
+                  }
                 }}
               >
                 {/* Background progress */}
                 <div 
                   className="absolute inset-y-0 left-0 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full"
-                  style={{ width: `${((scrubPosition !== null ? scrubPosition : progress) / duration) * 100}%` }}
+                  style={{ width: `${safeProgressPercent(scrubPosition !== null ? scrubPosition : progress, duration)}%` }}
                 />
                 
                 {/* Scrubber handle - only shows during active scrubbing */}
@@ -820,7 +816,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
                   <div 
                     className="absolute top-1/2 h-8 w-8 rounded-full bg-white shadow-lg transform -translate-y-1/2 opacity-100 scale-100"
                     style={{ 
-                      left: `calc(${((scrubPosition !== null ? scrubPosition : progress) / duration) * 100}% - 16px)`,
+                      left: `calc(${safeProgressPercent(scrubPosition !== null ? scrubPosition : progress, duration)}% - 16px)`,
                     }}
                   />
                 )}
@@ -830,7 +826,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
                   <div 
                     className="absolute -top-10 py-1 px-3 bg-black/90 text-white text-sm font-medium rounded-md transform -translate-x-1/2 shadow-lg"
                     style={{ 
-                      left: `${(scrubPosition / duration) * 100}%`,
+                      left: `${safeProgressPercent(scrubPosition, duration)}%`,
                     }}
                   >
                     {formatTime(Math.floor(scrubPosition))}
