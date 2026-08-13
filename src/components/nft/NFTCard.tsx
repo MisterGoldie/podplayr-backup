@@ -121,7 +121,7 @@ const NFTCardInner: React.FC<NFTCardProps> = ({
           {effectiveFid && (
             <button 
               onClick={handleLikeClick}
-              className={`absolute top-2 right-2 ${smallCard ? 'w-8 h-8' : 'w-10 h-10'} flex items-center justify-center text-red-500 transition-all duration-300 hover:scale-125 z-10`}
+              className={`absolute top-2 right-2 ${smallCard ? 'w-8 h-8' : 'w-10 h-10'} flex items-center justify-center text-red-500 z-10 active:scale-95 touch-manipulation`}
             >
               {displayIsLiked ? (
                 <svg xmlns="http://www.w3.org/2000/svg" height={smallCard ? "20" : "24"} viewBox="0 -960 960 960" width={smallCard ? "20" : "24"} fill="currentColor">
@@ -148,7 +148,7 @@ const NFTCardInner: React.FC<NFTCardProps> = ({
         
         <div className={smallCard ? "mt-1" : "mt-2"}>
           <h3 className={`font-medium text-white ${smallCard ? 'text-xs' : 'text-sm'} truncate`}>{nft.name}</h3>
-          <div className={`flex items-center gap-2 text-gray-400 ${smallCard ? 'text-xs' : 'text-xs'}`}>
+          <div className={`flex items-center gap-2 text-white/45 ${smallCard ? 'text-xs' : 'text-xs'}`}>
             {likesCount > 0 && <span>{likesCount} likes</span>}
           </div>
         </div>

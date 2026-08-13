@@ -1,14 +1,10 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-// Change from:
-// import { useFarcasterContext } from '~/contexts/FarcasterContext';
-// To:
-import { useFarcasterContext } from '~/app/providers';
 import type { NFT } from '~/types/nft';
 import { preloadAudio } from '~/utils/audioPreloader';
 import { NFTCard } from '../nft/NFTCard';
-import { formatPlayCount } from '~/utils/format';
+import { getMediaKey } from '~/utils/media';
 
 // Hardcoded featured NFTs
 export const FEATURED_NFTS: NFT[] = [
@@ -125,8 +121,6 @@ const FeaturedSection: React.FC<FeaturedSectionProps> = ({
   userFid,
   nfts = FEATURED_NFTS
 }) => {
-  // Remove the useFarcasterContext hook since we're using userFid prop
-  // const { isFarcaster, fid } = useFarcasterContext();
   const [preloaded, setPreloaded] = useState(false);
 
   useEffect(() => {
@@ -154,37 +148,36 @@ const FeaturedSection: React.FC<FeaturedSectionProps> = ({
   }, [nfts]); // Only depend on nfts array, not preloaded state
 
   return (
-    <section className="w-full py-4">
+    <section className="w-full">
       <div className="container mx-auto px-4">
-        <div className="mb-6">
-          <h2 className="text-xl font-mono text-green-400 mb-4">Featured NFTs</h2>
-        </div>
-        
-        <div className="relative">
-          <div className="overflow-x-auto pb-4 hide-scrollbar">
-            <div className="flex gap-6">
-              {nfts.map((nft, index) => (
-                <div key={nft.contract + '-' + nft.tokenId} className="flex-shrink-0 w-[200px]">
-                  <NFTCard
-                    nft={nft}
-                    onPlay={async (nft) => {
-                      // Fix: Pass queue context when playing from Featured section
-                      await onPlayNFT(nft, {
-                        queue: nfts,
-                        queueType: 'featured'
-                      });
-                    }}
-                    isPlaying={isPlaying && currentlyPlaying === nft.contract + '-' + nft.tokenId}
-                    currentlyPlaying={currentlyPlaying}
-                    handlePlayPause={handlePlayPause}
-                    onLikeToggle={() => onLikeToggle(nft)}
-                    userFid={userFid}
-                    isNFTLiked={() => isNFTLiked(nft)}
-                    animationDelay={0.2 + (index * 0.05)}
-                  />
-                </div>
-              ))}
-            </div>
+        <h2 className="text-lg font-semibold text-white/90 mb-3">Featured</h2>
+        <div className="overflow-x-auto pb-2 hide-scrollbar">
+          <div className="flex gap-4">
+            {nfts.map((nft, index) => (
+              <div key={`${nft.contract}-${nft.tokenId}`} className="flex-shrink-0 w-[180px]">
+                <NFTCard
+                  nft={nft}
+                  onPlay={async (played) => {
+                    await onPlayNFT(played, {
+                      queue: nfts,
+                      queueType: 'featured',
+                    });
+                  }}
+                  isPlaying={Boolean(
+                    isPlaying && (
+                      currentlyPlaying === `${nft.contract}-${nft.tokenId}` ||
+                      currentlyPlaying === getMediaKey(nft)
+                    )
+                  )}
+                  currentlyPlaying={currentlyPlaying}
+                  handlePlayPause={handlePlayPause}
+                  onLikeToggle={() => onLikeToggle(nft)}
+                  userFid={userFid}
+                  isNFTLiked={() => isNFTLiked(nft)}
+                  animationDelay={0.2 + (index * 0.05)}
+                />
+              </div>
+            ))}
           </div>
         </div>
       </div>
@@ -193,16 +186,3 @@ const FeaturedSection: React.FC<FeaturedSectionProps> = ({
 };
 
 export default FeaturedSection;
-
-// Remove these lines (216-224):
-// useEffect(() => {
-//   // Preload first 2 immediately
-//   const priorityNFTs = nfts.slice(0, 2);
-//   priorityNFTs.forEach(nft => preloadAudio(nft.audio));
-//   
-//   // Preload rest after 2 seconds
-//   setTimeout(() => {
-//     const remainingNFTs = nfts.slice(2);
-//     remainingNFTs.forEach(nft => preloadAudio(nft.audio));
-//   }, 2000);
-// }, [nfts]);

@@ -1,24 +1,18 @@
 'use client';
 
-import React, { useContext, useState, useEffect, useCallback, useRef } from 'react';
+import React, { useContext, useEffect } from 'react';
 import { NFTCard } from '../nft/NFTCard';
 import type { NFT } from '~/types/nft';
 import FeaturedSection from '../sections/FeaturedSection';
 import RecentlyPlayed from '../RecentlyPlayed';
 import { getMediaKey } from '../../utils/media';
-// Change from:
-// import { useFarcasterContext } from '~/contexts/FarcasterContext';
-// To:
-import { useFarcasterContext } from '~/app/providers';
 import NotificationHeader from '../NotificationHeader';
 import NFTNotification from '../NFTNotification';
 import { logger } from '~/utils/logger';
-import { UserFidContext } from '~/app/providers'; // ✅ Use the correct context
+import { UserFidContext } from '~/app/providers';
 
-// Create a dedicated logger for the HomeView
 const homeLogger = logger.getModuleLogger('homeView');
 
-// Session-based cache to prevent re-processing featured NFTs
 let featuredNFTsInitialized = false;
 
 interface HomeViewProps {
@@ -32,8 +26,8 @@ interface HomeViewProps {
   onReset: () => void;
   onLikeToggle: (nft: NFT) => Promise<void>;
   likedNFTs: NFT[];
-  currentPlayingNFT?: NFT | null; // Add currentPlayingNFT prop
-  recentlyAddedNFT?: React.MutableRefObject<string | null>; // Add recentlyAddedNFT ref
+  currentPlayingNFT?: NFT | null;
+  recentlyAddedNFT?: React.MutableRefObject<string | null>;
 }
 
 const HomeView: React.FC<HomeViewProps> = ({
@@ -49,64 +43,45 @@ const HomeView: React.FC<HomeViewProps> = ({
   currentPlayingNFT,
   recentlyAddedNFT,
 }) => {
-  // Initialize featured NFTs once per session
+  const { fid } = useContext(UserFidContext);
+
   useEffect(() => {
     const initializeFeaturedNFTs = async () => {
-      // Check if already initialized in this session
-      if (featuredNFTsInitialized) {
-        homeLogger.info('Featured NFTs already initialized in this session, skipping');
-        return;
-      }
+      if (featuredNFTsInitialized) return;
 
       try {
-        homeLogger.info('Initializing featured NFTs for the first time this session');
         const { ensureFeaturedNFTsExist } = await import('../../lib/firebase');
         const { FEATURED_NFTS } = await import('../sections/FeaturedSection');
         await ensureFeaturedNFTsExist(FEATURED_NFTS);
-        
-        // Mark as initialized for this session
         featuredNFTsInitialized = true;
-        homeLogger.info('Featured NFTs initialization complete');
       } catch (error) {
         homeLogger.error('Error initializing featured NFTs:', error);
-        // Don't mark as initialized if there was an error
       }
     };
 
-    initializeFeaturedNFTs();
+    void initializeFeaturedNFTs();
   }, []);
 
-  // Get user's FID from context
-  const { fid } = useContext(UserFidContext); // ✅ Get fid from UserFidContext
-
-  // Directly check if an NFT is liked by comparing against likedNFTs prop
-  // This is more reliable than depending on context or hooks
   const checkDirectlyLiked = (nftToCheck: NFT): boolean => {
     if (!nftToCheck) return false;
-    
-    // CRITICAL: Use mediaKey as the primary identifier for comparison
-    // This aligns with the core architecture of using mediaKey for all NFT content
     const mediaKey = nftToCheck.mediaKey || getMediaKey(nftToCheck);
-    
+
     if (mediaKey) {
-      // First try to match by mediaKey (preferred method)
-      const mediaKeyMatch = likedNFTs.some(likedNFT => {
+      const mediaKeyMatch = likedNFTs.some((likedNFT) => {
         const likedMediaKey = likedNFT.mediaKey || getMediaKey(likedNFT);
         return likedMediaKey === mediaKey;
       });
-      
       if (mediaKeyMatch) return true;
     }
-    
-    // Fallback to contract-tokenId only if mediaKey matching fails
+
     if (nftToCheck.contract && nftToCheck.tokenId) {
       const nftKey = `${nftToCheck.contract}-${nftToCheck.tokenId}`.toLowerCase();
-      return likedNFTs.some(likedNFT => 
+      return likedNFTs.some((likedNFT) =>
         likedNFT.contract && likedNFT.tokenId &&
         `${likedNFT.contract}-${likedNFT.tokenId}`.toLowerCase() === nftKey
       );
     }
-    
+
     return false;
   };
 
@@ -114,23 +89,19 @@ const HomeView: React.FC<HomeViewProps> = ({
     return (
       <>
         <NotificationHeader show={false} message="" onReset={onReset} />
-        <div className="space-y-8 animate-pulse pt-20">
-          <section>
-            <div className="h-8 w-48 bg-gray-800 rounded mb-4"></div>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {[...Array(4)].map((_, i) => (
-                <div key={i} className="aspect-square bg-gray-800 rounded-lg"></div>
-              ))}
-            </div>
-          </section>
-          <section>
-            <div className="h-8 w-48 bg-gray-800 rounded mb-4"></div>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {[...Array(4)].map((_, i) => (
-                <div key={i} className="aspect-square bg-gray-800 rounded-lg"></div>
-              ))}
-            </div>
-          </section>
+        <div className="space-y-8 animate-pulse pt-20 px-4 min-h-screen bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082]">
+          <div className="h-6 w-40 bg-purple-900/40 rounded" />
+          <div className="flex gap-4 overflow-hidden">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="w-[160px] aspect-square bg-purple-900/30 rounded-2xl flex-shrink-0" />
+            ))}
+          </div>
+          <div className="h-6 w-32 bg-purple-900/40 rounded" />
+          <div className="flex gap-4 overflow-hidden">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="w-[160px] aspect-square bg-purple-900/30 rounded-2xl flex-shrink-0" />
+            ))}
+          </div>
         </div>
       </>
     );
@@ -139,12 +110,9 @@ const HomeView: React.FC<HomeViewProps> = ({
   return (
     <>
       <NotificationHeader show={false} message="" onReset={onReset} />
-      <div 
-        className={`space-y-4 pt-20 pb-40 overflow-y-auto overscroll-y-contain min-h-screen bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082] h-[calc(100vh-130px)]`}
-      >
-        {/* Notifications are now handled by the global NFTNotification component */}
+      <NFTNotification onReset={onReset} />
 
-        {/* Recently Played Section - Now using dedicated component */}
+      <div className="space-y-6 pt-20 pb-40 overflow-y-auto overscroll-y-contain min-h-screen bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082] h-[calc(100vh-130px)] md:h-[calc(100vh-150px)]">
         <RecentlyPlayed
           userFid={fid ?? 0}
           onPlayNFT={onPlayNFT}
@@ -153,77 +121,62 @@ const HomeView: React.FC<HomeViewProps> = ({
           handlePlayPause={handlePlayPause}
           onLikeToggle={onLikeToggle}
           isNFTLiked={checkDirectlyLiked}
-          currentPlayingNFT={currentPlayingNFT} // Pass the currentPlayingNFT prop
-          recentlyAddedNFT={recentlyAddedNFT} // Pass the recentlyAddedNFT ref
+          currentPlayingNFT={currentPlayingNFT}
+          recentlyAddedNFT={recentlyAddedNFT}
         />
 
-        {/* Top Played Section */}
-        <section className="w-full py-4">
-          <div className="container mx-auto px-4">
-            {topPlayedNFTs.length > 0 && (
-              <div className="mb-6">
-                <h2 className="text-xl font-mono text-green-400 mb-4">Top Played</h2>
-                <div className="relative">
-                  <div className="overflow-x-auto pb-4 hide-scrollbar">
-                    <div className="flex gap-6">
-                      {topPlayedNFTs.map(({ nft, count }, index) => {
-                        // Generate strictly unique key that doesn't depend on content
-                        const uniqueKey = nft.contract && nft.tokenId 
-                          ? `top-${nft.contract}-${nft.tokenId}-${index}` 
-                          : `top-${index}-${Math.random().toString(36).substr(2, 9)}`;
-                        
-                        return (
-                          <div key={uniqueKey} className="flex-shrink-0 w-[200px]">
-                            <NFTCard
-                              key={nft.contract + '-' + nft.tokenId}
-                              nft={nft}
-                              onPlay={async (nft) => {
-                                homeLogger.debug(`Play button clicked for NFT in Top Played: ${nft.name}`);
-                                try {
-                                  // When playing from Top Played section
-                                  onPlayNFT(nft, { 
-                                    queue: topPlayedNFTs.map(item => item.nft), 
-                                    queueType: 'topPlayed' 
-                                  })
-                                } catch (error) {
-                                  homeLogger.error('Error playing NFT from Top Played:', error);
-                                }
-                              }}
-                              isPlaying={currentlyPlaying === nft.contract + '-' + nft.tokenId}
-                              currentlyPlaying={currentlyPlaying}
-                              handlePlayPause={handlePlayPause}
-                              onLikeToggle={onLikeToggle}
-                              userFid={(fid ?? 0).toString()}
-                              isNFTLiked={() => checkDirectlyLiked(nft)}
-                              animationDelay={index * 0.1}
-                            />
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
+        {topPlayedNFTs.length > 0 && (
+          <section className="w-full">
+            <div className="container mx-auto px-4">
+              <h2 className="text-lg font-semibold text-white/90 mb-3">Top played</h2>
+              <div className="overflow-x-auto pb-2 hide-scrollbar">
+                <div className="flex gap-4">
+                  {topPlayedNFTs.map(({ nft }, index) => {
+                    const uniqueKey = nft.contract && nft.tokenId
+                      ? `top-${nft.contract}-${nft.tokenId}-${index}`
+                      : `top-${getMediaKey(nft)}-${index}`;
+
+                    return (
+                      <div key={uniqueKey} className="flex-shrink-0 w-[180px]">
+                        <NFTCard
+                          nft={nft}
+                          onPlay={async (played) => {
+                            try {
+                              await onPlayNFT(played, {
+                                queue: topPlayedNFTs.map((item) => item.nft),
+                                queueType: 'topPlayed',
+                              });
+                            } catch (error) {
+                              homeLogger.error('Error playing NFT from Top Played:', error);
+                            }
+                          }}
+                          isPlaying={currentlyPlaying === `${nft.contract}-${nft.tokenId}` || currentlyPlaying === getMediaKey(nft)}
+                          currentlyPlaying={currentlyPlaying}
+                          handlePlayPause={handlePlayPause}
+                          onLikeToggle={onLikeToggle}
+                          userFid={(fid ?? 0).toString()}
+                          isNFTLiked={() => checkDirectlyLiked(nft)}
+                          animationDelay={index * 0.1}
+                        />
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
-            )}
-          </div>
-        </section>
+            </div>
+          </section>
+        )}
 
-        {/* Featured Section */}
-        <section>
-          <FeaturedSection
-            onPlayNFT={onPlayNFT}
-            handlePlayPause={handlePlayPause}
-            currentlyPlaying={currentlyPlaying}
-            isPlaying={isPlaying}
-            onLikeToggle={onLikeToggle}
-            isNFTLiked={checkDirectlyLiked}
-            userFid={(fid ?? 0).toString()}
-          />
-        </section>
+        <FeaturedSection
+          onPlayNFT={onPlayNFT}
+          handlePlayPause={handlePlayPause}
+          currentlyPlaying={currentlyPlaying}
+          isPlaying={isPlaying}
+          onLikeToggle={onLikeToggle}
+          isNFTLiked={checkDirectlyLiked}
+          userFid={(fid ?? 0).toString()}
+        />
       </div>
-      
-      {/* Add NFTNotification component to handle like/unlike notifications */}
-      <NFTNotification onReset={onReset} />
     </>
   );
 };
