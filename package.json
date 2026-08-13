@@ -37,7 +37,6 @@
     "firebase": "11.2.0",
     "firebase-admin": "^13.1.0",
     "framer-motion": "^12.4.7",
-    "hls.js": "^1.5.20",
     "lodash": "^4.17.21",
     "next": "15.5.23",
     "next-auth": "^4.24.11",

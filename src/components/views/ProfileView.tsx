@@ -3,7 +3,6 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { useToast } from '../../hooks/useToast';
 import Image from 'next/image';
-import { VirtualizedNFTGrid } from '../nft/VirtualizedNFTGrid';
 import type { NFT, FarcasterUser } from '../../types/user';
 import type { FarcasterUserContext, FarcasterClientContext, FarcasterLocationContext } from '../../app/providers';
 import { getLikedNFTs, getFollowersCount, getFollowingCount } from '../../lib/firebase';

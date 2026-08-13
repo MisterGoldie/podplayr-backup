@@ -32,12 +32,10 @@ import { usePlayer, PlayerProvider } from '../contexts/PlayerContext';
 import { useTopPlayedNFTs } from '../hooks/useTopPlayedNFTs';
 import { useFirebase } from '../contexts/FirebaseContext';
 import { UserDataLoader } from './data/UserDataLoader';
-import { VideoSyncManager } from './media/VideoSyncManager';
 import { videoPerformanceMonitor } from '../utils/videoPerformanceMonitor';
 import { AnimatePresence, motion } from 'framer-motion';
 import NotificationHeader from './NotificationHeader';
 import NFTNotification from './NFTNotification';
-import { shouldDelayOperation } from '../utils/videoFirstMode';
 import { logger } from '../utils/logger';
 import { useNFTLike } from '../hooks/useNFTLike';
 import { NFTCard } from './NFTCard';
@@ -424,8 +422,6 @@ const DemoBase: React.FC = () => {
     nftLogger.info(`Found ${filtered.length} media NFTs out of ${userNFTs.length} total NFTs`);
   }, [userNFTs]);
 
-  // Video synchronization is now handled by VideoSyncManager component
-
   useEffect(() => {
     // Remove or modify the problematic useEffect
     if (isInitialPlay) {
@@ -733,11 +729,6 @@ const DemoBase: React.FC = () => {
 
   // Add this effect to monitor for problematic NFTs
   const checkProblematicNFTs = useCallback(() => {
-    // Skip this check during video playback on cellular
-    if (shouldDelayOperation()) {
-      return;
-    }
-    
     // Original code...
   }, [userNFTs]);
 
