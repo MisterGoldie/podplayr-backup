@@ -3,7 +3,6 @@
 import React, { useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { NFTCard } from '../nft/NFTCard';
 import type { NFT } from '~/types/nft';
-import Image from 'next/image';
 import FeaturedSection from '../sections/FeaturedSection';
 import RecentlyPlayed from '../RecentlyPlayed';
 import { getMediaKey } from '../../utils/media';
@@ -114,21 +113,7 @@ const HomeView: React.FC<HomeViewProps> = ({
   if (isLoading) {
     return (
       <>
-        <header className="fixed top-0 left-0 right-0 h-16 bg-black border-b border-black flex items-center justify-center z-50">
-          <button 
-            onClick={onReset}
-            className="cursor-pointer"
-          >
-            <Image
-              src="/fontlogo.png"
-              alt="PODPlayr Logo"
-              width={120}
-              height={30}
-              className="w-[120px] h-[30px]"
-              priority={true}
-            />
-          </button>
-        </header>
+        <NotificationHeader show={false} message="" onReset={onReset} />
         <div className="space-y-8 animate-pulse pt-20">
           <section>
             <div className="h-8 w-48 bg-gray-800 rounded mb-4"></div>
@@ -153,21 +138,7 @@ const HomeView: React.FC<HomeViewProps> = ({
 
   return (
     <>
-      <header className="fixed top-0 left-0 right-0 h-16 bg-black border-b border-black flex items-center justify-center z-50">
-        <button 
-          onClick={onReset}
-          className="cursor-pointer"
-        >
-            <Image
-              src="/fontlogo.png"
-              alt="PODPlayr Logo"
-              width={120}
-              height={30}
-              className="logo-image"
-              priority={true}
-            />
-        </button>
-      </header>
+      <NotificationHeader show={false} message="" onReset={onReset} />
       <div 
         className={`space-y-4 pt-20 pb-40 overflow-y-auto overscroll-y-contain min-h-screen bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082] h-[calc(100vh-130px)]`}
       >

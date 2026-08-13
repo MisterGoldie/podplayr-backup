@@ -5,7 +5,6 @@ import type { NFT, UserContext } from '../../types/user';
 import { NFTImage } from '../media/NFTImage';
 import { NFTCard } from '../nft/NFTCard';
 import { getMediaKey } from '~/utils/media';
-import Image from 'next/image';
 import NotificationHeader from '../NotificationHeader';
 import { useNFTNotification } from '../../context/NFTNotificationContext';
 import NFTNotification from '../NFTNotification';
@@ -393,22 +392,7 @@ class LibraryView extends React.Component<LibraryViewProps> {
 
     return (
       <>
-        {/* Header - EXACTLY matching HomeView */}
-        <header className="fixed top-0 left-0 right-0 h-16 bg-black border-b border-black flex items-center justify-center z-50">
-          <button 
-            onClick={onReset}
-            className="cursor-pointer"
-          >
-            <Image
-              src="/fontlogo.png"
-              alt="PODPlayr Logo"
-              width={120}
-              height={30}
-              className="logo-image"
-              priority={true}
-            />
-          </button>
-        </header>
+        <NotificationHeader show={false} message="" onReset={onReset} />
         
         {/* Main content with EXACTLY matching HomeView styling */}
         <div 
