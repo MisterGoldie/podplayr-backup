@@ -536,13 +536,18 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
         showUnplayableToast();
       };
       
-      // Stream Arweave / PODs audio directly (avoid blobbing large files like ~100MB episodes)
-      // audio.onerror above walks fallbackUrls across turbo/permagate/raw gateways
-      audio.src = audioUrl;
-      audioLogger.info('Using Arweave gateway URL for audio playback:', audioUrl);
-      
-      // Set up event listeners before loading
-      audio.addEventListener('loadedmetadata', () => {
+      // Create a closure variable to track if this particular NFT play has been counted
+      let playTracked = false;
+      const nftKey = `${nft.contract}-${nft.tokenId}`;
+
+      // IMPORTANT: assign via on___ properties (not addEventListener) so each new
+      // handlePlayAudio call fully REPLACES the previous NFT's handlers instead of
+      // stacking alongside them. With addEventListener, a quick click from NFT A to
+      // NFT B left A's stale closure attached too — when B's metadata loaded, A's
+      // leftover listener fired as well and (among other things) mis-attributed
+      // gateway-memory / play-tracking to the wrong NFT, making rapid clicks appear
+      // to "play the previous NFT".
+      audio.onloadedmetadata = () => {
         audioLogger.info('Audio metadata loaded:', {
           duration: audio.duration,
           currentTime: audio.currentTime
@@ -552,14 +557,9 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
         // worked (whether it was the primary or one reached via the onerror fallback
         // cascade) — remember it so next time we skip straight past dead gateways.
         rememberWorkingMediaUrl(mediaKey, 'audio', audio.currentSrc || audio.src);
-      });
+      };
 
-      // Create a closure variable to track if this particular NFT play has been counted
-      let playTracked = false;
-      const mediaKey = getMediaKey(nft);
-      const nftKey = `${nft.contract}-${nft.tokenId}`;
-      
-      audio.addEventListener('timeupdate', () => {
+      audio.ontimeupdate = () => {
         setAudioProgress(audio.currentTime);
         
         // Check for 25% threshold without using component state
@@ -579,14 +579,19 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
             audioLogger.error('Error tracking NFT play after 25% threshold:', error);
           });
         }
-      });
+      };
 
-      audio.addEventListener('play', () => setIsPlaying(true));
-      audio.addEventListener('pause', () => setIsPlaying(false));
-      audio.addEventListener('ended', () => {
+      audio.onplay = () => setIsPlaying(true);
+      audio.onpause = () => setIsPlaying(false);
+      audio.onended = () => {
         setIsPlaying(false);
         setAudioProgress(0);
-      });
+      };
+
+      // Stream Arweave / PODs audio directly (avoid blobbing large files like ~100MB episodes)
+      // audio.onerror above walks fallbackUrls across turbo/permagate/raw gateways
+      audio.src = audioUrl;
+      audioLogger.info('Using Arweave gateway URL for audio playback:', audioUrl);
 
       // Replace the current audio reference
       audioRef.current = audio;

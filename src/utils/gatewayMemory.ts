@@ -7,7 +7,9 @@
  * naturally applies across duplicate mints and reconstructed NFT objects.
  */
 
-const STORAGE_KEY = 'podplayr:gatewayMemory:v1';
+// v2: bumped to discard any entries corrupted by the stale-listener bug where
+// rapid NFT switching could attribute one NFT's working URL to a different NFT's mediaKey.
+const STORAGE_KEY = 'podplayr:gatewayMemory:v2';
 const MAX_ENTRIES = 500;
 
 type MediaType = 'image' | 'audio' | 'video';
