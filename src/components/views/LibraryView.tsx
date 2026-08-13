@@ -32,7 +32,7 @@ interface LibraryViewProps {
   isPlaying: boolean;
   currentlyPlaying: string | null;
   currentPlayingNFT: NFT | null;
-  handlePlayAudio: (nft: NFT) => Promise<void>;
+  handlePlayAudio: (nft: NFT, context?: { queue?: NFT[]; queueType?: string }) => Promise<void>;
   handlePlayPause: () => void;
   onReset: () => void;
   userContext: UserContext;
@@ -411,7 +411,7 @@ class LibraryView extends React.Component<LibraryViewProps> {
                       key={uniqueKey}
                       nft={nft}
                       onPlay={async (nft: NFT) => {
-                        handlePlayAudio(nft);
+                        handlePlayAudio(nft, { queue: filteredNFTs, queueType: 'library' });
                       }}
                       isPlaying={isPlaying}
                       currentlyPlaying={currentlyPlaying}
@@ -428,8 +428,7 @@ class LibraryView extends React.Component<LibraryViewProps> {
                     key={uniqueKey}
                     nft={nft}
                     onPlay={async (nft: NFT) => {
-                      // Fix: Pass queue context when playing from library
-                      handlePlayAudio(nft);
+                      handlePlayAudio(nft, { queue: filteredNFTs, queueType: 'library' });
                     }}
                     isPlaying={isPlaying}
                     currentlyPlaying={currentlyPlaying}

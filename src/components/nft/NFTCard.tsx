@@ -38,7 +38,15 @@ export const NFTCard: React.FC<NFTCardProps> = ({
   // Use userFid prop if available, otherwise fall back to context fid
   const effectiveFid = userFid ? parseInt(userFid) : fid;
   
-  const { isLiked, likesCount, toggleLike } = useNFTLikeState(nft, effectiveFid);
+  // When the caller already tracks liked state itself (isNFTLiked prop), skip our
+  // own live "is this liked by me" subscription — it'd be a redundant listener,
+  // since displayIsLiked below prefers isNFTLiked() whenever it's provided.
+  // Like counts are read once rather than kept live to avoid piling up dozens of
+  // concurrent listeners in large grids (e.g. the Library view).
+  const { isLiked, likesCount, toggleLike } = useNFTLikeState(nft, effectiveFid, {
+    watchIsLiked: !isNFTLiked,
+    liveCount: false,
+  });
 
   // Use the NFT like hook
   const { handleLike, handleUnlike } = useNFTLike({
