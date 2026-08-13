@@ -6,7 +6,7 @@ import InfoPanel from './InfoPanel';
 import { logger } from '../../utils/logger';
 import { FEATURED_NFTS } from '../sections/FeaturedSection';
 import { triggerHaptic } from '../../utils/haptics';
-import { formatTime, safeProgressPercent } from '../../utils/media';
+import { formatTime, safeProgressPercent, getDisplayTimes } from '../../utils/media';
 
 // Create a dedicated logger for the MinimizedPlayer
 const playerLogger = logger.getModuleLogger('minimizedPlayer');
@@ -65,6 +65,10 @@ export const MinimizedPlayer: React.FC<MinimizedPlayerProps> = ({
   
   // Use a ref to track the image container
   const imageContainerRef = useRef<HTMLDivElement>(null);
+
+  // Keep elapsed/remaining derived from the same floored values so they never drift
+  // (floor(progress) + floor(duration - progress) can disagree by 1 second).
+  const { elapsed, remaining } = getDisplayTimes(progress, duration);
 
   // Add effects to find, control, and sync the video element
   useEffect(() => {
@@ -528,9 +532,9 @@ export const MinimizedPlayer: React.FC<MinimizedPlayerProps> = ({
               <div className="flex-1 min-w-0">
                 <h3 className="text-purple-400 font-mono text-sm truncate">{nft.name}</h3>
                 <div className="inline-flex items-center space-x-0.5">
-                  <span className="text-gray-400 text-xs font-mono">{formatTime(Math.floor(progress))}</span>
+                  <span className="text-gray-400 text-xs font-mono">{formatTime(elapsed)}</span>
                   <span className="text-gray-600 text-xs font-mono">/</span>
-                  <span className="text-gray-400 text-xs font-mono">-{formatTime(Math.floor(duration - progress))}</span>
+                  <span className="text-gray-400 text-xs font-mono">-{formatTime(remaining)}</span>
                 </div>
               </div>
             </div>

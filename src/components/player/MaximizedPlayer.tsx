@@ -2,7 +2,7 @@ import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { usePlayerState } from './hooks/usePlayerState';
 import { NFTImage } from '../media/NFTImage';
 // PlaybackButton is already imported below - removing duplicate import
-import { processMediaUrl, getMediaKey, formatTime, safeProgressPercent } from '../../utils/media';
+import { processMediaUrl, getMediaKey, formatTime, safeProgressPercent, getDisplayTimes } from '../../utils/media';
 import { applyPlaybackPlanToNft, getNftPlaybackPlan, mediaUrlNeedsMimeProbe, resolveNftPlaybackPlan } from '../../utils/isMediaNFT';
 import type { NFT } from '../../types/user';
 // Dynamic import for Farcaster SDK - will use miniapp-sdk in mini-app environment
@@ -83,6 +83,11 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
   // real video frames. Until then we keep the video element mounted (so it can load
   // in the background) but hidden, showing the card image instead of a blank box.
   const [speculativeVideoConfirmed, setSpeculativeVideoConfirmed] = useState(false);
+
+  // Keep elapsed/remaining derived from the same floored values so they never drift
+  // while scrubbing or during normal playback.
+  const displayProgress = isActivelyScrubbingBar && scrubPosition !== null ? scrubPosition : progress;
+  const { elapsed: displayElapsed, remaining: displayRemaining } = getDisplayTimes(displayProgress, duration);
   const syncPlan = getNftPlaybackPlan(nft);
   const [playbackPlan, setPlaybackPlan] = useState(syncPlan);
   // Extensionless sound URL may be a video file (Music Mondays) — try <video> until it errors
@@ -829,15 +834,15 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
                       left: `${safeProgressPercent(scrubPosition, duration)}%`,
                     }}
                   >
-                    {formatTime(Math.floor(scrubPosition))}
+                    {formatTime(getDisplayTimes(scrubPosition, duration).elapsed)}
                   </div>
                 )}
               </div>
 
               {/* Time Display - KEEP THIS */}
               <div className="flex justify-between text-gray-400 text-xs font-mono mb-2">
-                <span>{formatTime(Math.floor(isActivelyScrubbingBar && scrubPosition !== null ? scrubPosition : progress))}</span>
-                <span>-{formatTime(Math.floor(duration - (isActivelyScrubbingBar && scrubPosition !== null ? scrubPosition : progress)))}</span>
+                <span>{formatTime(displayElapsed)}</span>
+                <span>-{formatTime(displayRemaining)}</span>
               </div>
 
               {/* Playback Controls */}

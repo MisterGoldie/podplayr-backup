@@ -503,6 +503,25 @@ export const formatTime = (seconds: number): string => {
   return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
 };
 
+/**
+ * Derive display elapsed/remaining so the two numbers always stay in sync.
+ * Flooring progress and (duration - progress) separately can drift by 1s
+ * (e.g. 0:45 / -1:14 when total is 2:00). Remaining is derived from floored
+ * elapsed instead so elapsed + remaining === floor(duration).
+ */
+export const getDisplayTimes = (
+  progress: number,
+  duration: number
+): { elapsed: number; remaining: number; total: number } => {
+  const total = Number.isFinite(duration) && duration > 0 ? Math.floor(duration) : 0;
+  const rawProgress = Number.isFinite(progress) && progress > 0 ? progress : 0;
+  const elapsed = total > 0
+    ? Math.min(total, Math.floor(rawProgress))
+    : Math.floor(rawProgress);
+  const remaining = total > 0 ? Math.max(0, total - elapsed) : 0;
+  return { elapsed, remaining, total };
+};
+
 // Create a safe document ID from a URL by removing invalid characters
 const createSafeId = (url: string): string => {
   if (!url) return '';
