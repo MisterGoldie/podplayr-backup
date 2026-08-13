@@ -1741,8 +1741,10 @@ export const removeLikedNFT = async (fid: number, nft: NFT): Promise<void> => {
 
 // Fetch NFTs for a specific user by their fid
 export const fetchUserNFTs = async (fid: number): Promise<NFT[]> => {
+  const { pushDebugLog } = await import('../utils/debugReporter');
   try {
     firebaseLogger.info('=== START NFT FETCH for FID:', fid, ' ===');
+    pushDebugLog('nft-fetch', 'Other user profile: fetchUserNFTs started', { fid });
     
     // Handle ENS users (negative FID)
     if (fid < 0) {
@@ -1822,6 +1824,7 @@ export const fetchUserNFTs = async (fid: number): Promise<NFT[]> => {
     const userDoc = await getDoc(doc(db, 'searchedusers', fid.toString()));
     if (!userDoc.exists()) {
       firebaseLogger.error('User not found in searchedusers collection');
+      pushDebugLog('nft-fetch', 'Other user profile: user not found in searchedusers', { fid });
       return [];
     }
 
@@ -1910,16 +1913,28 @@ export const fetchUserNFTs = async (fid: number): Promise<NFT[]> => {
 
     // Fetch NFTs from Alchemy for all addresses
     firebaseLogger.info('Fetching NFTs from Alchemy...');
+    pushDebugLog('nft-fetch', 'Other user profile: addresses resolved', { fid, addresses: uniqueAddresses });
     const { fetchUserNFTsFromAlchemy } = await import('./nft');
     const alchemyPromises = uniqueAddresses.map(address => {
       firebaseLogger.info('Fetching NFTs for address:', address);
-      return fetchUserNFTsFromAlchemy(address);
+      return fetchUserNFTsFromAlchemy(address).catch((err) => {
+        pushDebugLog('nft-fetch', 'Other user profile: address fetch THREW', {
+          address,
+          name: err instanceof Error ? err.name : typeof err,
+          message: err instanceof Error ? err.message : String(err),
+        });
+        return [] as NFT[];
+      });
     });
     
     const alchemyResults = await Promise.all(alchemyPromises);
     firebaseLogger.info('Alchemy results by address:', alchemyResults.map((nfts, i) => ({
       address: uniqueAddresses[i],
       nftCount: nfts.length
+    })));
+    pushDebugLog('nft-fetch', 'Other user profile: alchemy results by address', alchemyResults.map((nfts, i) => ({
+      address: uniqueAddresses[i],
+      nftCount: nfts.length,
     })));
     
     // Deduplicate NFTs by contract+tokenId
@@ -1953,10 +1968,20 @@ export const fetchUserNFTs = async (fid: number): Promise<NFT[]> => {
     // Collect mediaKey stats
     const uniqueMediaKeys = new Set(uniqueNFTs.map(nft => nft.mediaKey).filter(Boolean));
     firebaseLogger.info(`MediaKey Stats: ${uniqueMediaKeys.size} unique mediaKeys generated for user ${fid}`);
+    pushDebugLog('nft-fetch', 'Other user profile: fetchUserNFTs complete', {
+      fid,
+      totalNfts: uniqueNFTs.length,
+      mediaNfts: mediaNFTs.length,
+    });
     
     return uniqueNFTs;
   } catch (error) {
     firebaseLogger.error('Error fetching user NFTs:', error);
+    pushDebugLog('nft-fetch', 'Other user profile: fetchUserNFTs THREW', {
+      fid,
+      name: error instanceof Error ? error.name : typeof error,
+      message: error instanceof Error ? error.message : String(error),
+    });
     return [];
   }
 };

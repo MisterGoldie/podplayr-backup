@@ -346,16 +346,34 @@ export const fetchOwnedNftsFromAlchemy = async (address: string): Promise<NFT[]>
 
 export const fetchUserNFTsFromAlchemy = async (address: string): Promise<NFT[]> => {
   if (typeof window !== 'undefined') {
+    const { pushDebugLog } = await import('../utils/debugReporter');
+    const url = `/api/nfts/owned?address=${encodeURIComponent(address)}`;
     try {
-      const res = await fetch(`/api/nfts/owned?address=${encodeURIComponent(address)}`);
+      pushDebugLog('nft-fetch', 'Client -> same-origin API request', { address, url });
+      const res = await fetch(url);
+      pushDebugLog('nft-fetch', 'Client <- same-origin API response', {
+        address,
+        status: res.status,
+        ok: res.ok,
+      });
       if (!res.ok) {
-        console.error(`Owned NFT API error ${res.status}:`, await res.text());
+        const errorText = await res.text();
+        console.error(`Owned NFT API error ${res.status}:`, errorText);
+        pushDebugLog('nft-fetch', 'Client: same-origin API NOT ok', { address, status: res.status, errorText });
         return [];
       }
       const data = await res.json();
-      return Array.isArray(data) ? data : [];
+      const list = Array.isArray(data) ? data : [];
+      pushDebugLog('nft-fetch', 'Client: same-origin API parsed', { address, count: list.length });
+      return list;
     } catch (error) {
       console.error(`Error fetching NFTs for address ${address}:`, error);
+      pushDebugLog('nft-fetch', 'Client: same-origin API fetch THREW', {
+        address,
+        url,
+        name: error instanceof Error ? error.name : typeof error,
+        message: error instanceof Error ? error.message : String(error),
+      });
       return [];
     }
   }

@@ -17,6 +17,8 @@ import { logger } from '../../utils/logger';
 import { useUserProfileBackground } from '../../hooks/useUserProfileBackground';
 import UserInfoPanel from '../user/UserInfoPanel';
 import { isENSUserObject } from '../../utils/ensUtils';
+import { DebugLogPanel } from '../debug/DebugLogPanel';
+import { pushDebugLog } from '../../utils/debugReporter';
 
 interface UserProfileViewProps {
   user: FarcasterUser;
@@ -104,8 +106,13 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
     if (!nfts || nfts.length === 0) return [];
     const filtered = filterPlayableMediaNFTs(nfts);
     nftLogger.info(`Showing ${filtered.length} media NFTs out of ${nfts.length} total NFTs on profile`);
+    pushDebugLog('nft-fetch', 'Other user profile: media filter applied', {
+      viewedFid: user?.fid,
+      totalNfts: nfts.length,
+      mediaNfts: filtered.length,
+    });
     return filtered;
-  }, [nfts]);
+  }, [nfts, user?.fid]);
   
   // Use a ref to track the current user FID for cancellation
   const currentLoadingFidRef = useRef<number | null>(null);
@@ -132,6 +139,14 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
       setIsFollowed(false);
       
       console.log(`User profile changed to: ${user?.username} (FID: ${user?.fid})`); 
+      if (typeof navigator !== 'undefined') {
+        pushDebugLog('nft-fetch', 'Other user profile: viewing user', {
+          viewedFid: user?.fid,
+          username: user?.username,
+          userAgent: navigator.userAgent,
+          online: navigator.onLine,
+        });
+      }
     }
   }, [user?.fid, user?.username]);
 
@@ -545,6 +560,7 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
 
         {/* NFT Gallery */}
         <div className="container mx-auto px-4">
+          <DebugLogPanel scope="nft-fetch" title="NFT Fetch Debug Log" />
           <h3 className="text-xl font-semibold mb-3 font-mono text-green-400">
             Media NFTs
           </h3>
