@@ -25,7 +25,6 @@ interface RecentlyPlayedProps {
 const RecentlyPlayed: React.FC<RecentlyPlayedProps> = ({ 
   userFid, 
   onPlayNFT,
-  recentlyAddedNFT,
   currentlyPlaying,
   isPlaying = false,
   handlePlayPause,
@@ -33,32 +32,11 @@ const RecentlyPlayed: React.FC<RecentlyPlayedProps> = ({
   isNFTLiked,
   currentPlayingNFT
 }) => {
-  const [recentlyPlayedNFTs, setRecentlyPlayedNFTs] = useState<NFT[]>([]);
   const [firebaseRecentlyPlayed, setFirebaseRecentlyPlayed] = useState<NFT[]>([]);
   const [localRecentlyPlayed, setLocalRecentlyPlayed] = useState<NFT[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const instanceId = useRef<string>(uuidv4().substring(0, 8));
-  const processedMediaKeys = useRef<Set<string>>(new Set());
-  
-  // ✅ KEEP ONLY ONE cleanup mechanism - make it more efficient
-  useEffect(() => {
-    const clearProcessedKeys = () => {
-      // Only clear and log if there are actually keys to clear
-      if (processedMediaKeys.current.size > 0) {
-        const clearedCount = processedMediaKeys.current.size;
-        processedMediaKeys.current.clear();
-        recentlyPlayedLogger.debug(`🧹 Cleared ${clearedCount} processed mediaKeys`);
-      }
-    };
-    
-    // Clear the set every 30 seconds instead of 5 seconds to reduce noise
-    const intervalId = setInterval(clearProcessedKeys, 30000);
-    
-    return () => {
-      clearInterval(intervalId);
-    };
-  }, []);
 
   // Initialize local recently played from localStorage if available
   useEffect(() => {
@@ -87,7 +65,7 @@ const RecentlyPlayed: React.FC<RecentlyPlayedProps> = ({
     }
   }, [userFid]);
 
-  // Set up Firebase subscription for recently played NFTs that have reached the 25% threshold
+  // Set up Firebase subscription for recently played NFTs
   useEffect(() => {
     recentlyPlayedLogger.info(`🎵 RecentlyPlayed component [${instanceId.current}] mounted with userFid:`, userFid);
     
@@ -98,7 +76,7 @@ const RecentlyPlayed: React.FC<RecentlyPlayedProps> = ({
     }
 
     try {
-      // Set up subscription to recently played NFTs from Firebase (25% threshold)
+      // Set up subscription to recently played NFTs from Firebase
       recentlyPlayedLogger.info(`🔄 Setting up subscription to recently played NFTs [instance: ${instanceId.current}]`);
       
       const unsubscribe = subscribeToRecentPlays(userFid, (nfts) => {
@@ -107,28 +85,6 @@ const RecentlyPlayed: React.FC<RecentlyPlayedProps> = ({
           firstNft: nfts.length > 0 ? `${nfts[0]?.name} (${nfts[0]?.mediaKey?.substring(0, 8) || 'no-mediaKey'})` : 'none'
         });
         
-        // Before setting, check if the first NFT is the same as our recently added one
-        if (nfts.length > 0 && recentlyAddedNFT?.current) {
-          const mediaKey = nfts[0]?.mediaKey || '';
-          
-          recentlyPlayedLogger.debug('🔍 Checking for duplicate with recentlyAddedNFT:', {
-            mediaKey: mediaKey.substring(0, 12) + '...',
-            recentlyAdded: recentlyAddedNFT.current
-          });
-          
-          // If the first NFT is one we just added manually, skip this update
-          if (mediaKey && mediaKey === recentlyAddedNFT.current) {
-            recentlyPlayedLogger.debug('⏭️ Skipping duplicate NFT update based on mediaKey match');
-            return;
-          }
-        }
-        
-        // Log each NFT being added to the recently played list
-        nfts.forEach((nft, index) => {
-          recentlyPlayedLogger.debug(`Firebase NFT ${index+1}: ${nft.name} (mediaKey: ${nft.mediaKey?.substring(0, 8) || 'no-mediaKey'})`);
-        });
-        
-        // Store Firebase NFTs separately
         setFirebaseRecentlyPlayed(nfts);
         setIsLoading(false);
       });
@@ -148,145 +104,66 @@ const RecentlyPlayed: React.FC<RecentlyPlayedProps> = ({
       recentlyPlayedLogger.error('❌ Error setting up recently played subscription:', error);
       setIsLoading(false);
     }
-  }, [userFid]); // ✅ REMOVE recentlyAddedNFT dependency
+  }, [userFid]);
   
-  // Update local recently played when props.recentlyAddedNFT changes
-  // Connect the localRecentlyPlayed state to the useAudioPlayer hook by watching the recentlyAddedNFT ref
+  // Instant local prepend so the row updates the moment playback starts.
   useEffect(() => {
-    if (recentlyAddedNFT?.current) {
-      const mediaKey = recentlyAddedNFT.current;
-      
-      // Skip if we've already processed this mediaKey to prevent infinite loops
-      if (processedMediaKeys.current.has(mediaKey)) {
-        return;
+    if (!currentPlayingNFT) return;
+    const mediaKey = getMediaKey(currentPlayingNFT);
+    if (!mediaKey) return;
+
+    setLocalRecentlyPlayed(prev => {
+      if (prev[0] && (prev[0].mediaKey || getMediaKey(prev[0])) === mediaKey) {
+        return prev;
       }
-      
-      // Mark this mediaKey as processed
-      processedMediaKeys.current.add(mediaKey);
-      
-      recentlyPlayedLogger.info(`🎮 Local recently played ref updated: ${mediaKey}`);
-      recentlyPlayedLogger.info(`🔑 Using mediaKey from ref: ${mediaKey.substring(0, 15)}...`);
-      
-      // Find the NFT in either the existing localRecentlyPlayed or in the firebase list
-      const existingLocalNFT = localRecentlyPlayed.find(nft => {
-        const nftMediaKey = nft.mediaKey || getMediaKey(nft);
-        return nftMediaKey === mediaKey;
-      });
-      
-      const firebaseNFT = firebaseRecentlyPlayed.find(nft => {
-        const nftMediaKey = nft.mediaKey || getMediaKey(nft);
-        return nftMediaKey === mediaKey;
-      });
-      
-      // Find the best source NFT to use (we don't have direct access to the current playing NFT)
-      const sourceNFT = existingLocalNFT || firebaseNFT || currentPlayingNFT;
-      
-      if (sourceNFT) {
-        setLocalRecentlyPlayed(prev => {
-          // Copy the NFT and ensure it has the right mediaKey and timestamp
-          const newNFT = { ...sourceNFT };
-          if (!newNFT.mediaKey) {
-            newNFT.mediaKey = mediaKey;
-          }
-          newNFT.addedToRecentlyPlayed = true;
-          newNFT.addedToRecentlyPlayedAt = new Date().getTime();
-          
-          // Filter out any existing version of this NFT
-          const filtered = prev.filter(nft => {
-            const nftMediaKey = nft.mediaKey || getMediaKey(nft);
-            return nftMediaKey !== mediaKey;
-          });
-          
-          // Create the updated list
-          const updatedList = [newNFT, ...filtered].slice(0, 8);
-          
-          // Save to localStorage using our helper function
-          saveToLocalStorage(updatedList);
-          
-          // Return the updated list for state update
-          return updatedList;
-        });
-      }
-    }
-  }, [recentlyAddedNFT, localRecentlyPlayed, firebaseRecentlyPlayed, saveToLocalStorage]);
-  
-  // CRITICAL: Update local recently played when currentPlayingNFT changes
-  useEffect(() => {
-    if (currentPlayingNFT && !processedMediaKeys.current.has(getMediaKey(currentPlayingNFT))) {
-      // ALWAYS use getMediaKey() - never use existing mediaKey property
-      const mediaKey = getMediaKey(currentPlayingNFT);
-      processedMediaKeys.current.add(mediaKey);
-      
-      setLocalRecentlyPlayed(prev => {
-        const newNFT = { ...currentPlayingNFT, mediaKey, addedToRecentlyPlayed: true, addedToRecentlyPlayedAt: Date.now() };
-        const filtered = prev.filter(nft => getMediaKey(nft) !== mediaKey);
-        const updatedList = [newNFT, ...filtered].slice(0, 8);
-        saveToLocalStorage(updatedList);
-        return updatedList;
-      });
-    }
+      const newNFT = {
+        ...currentPlayingNFT,
+        mediaKey,
+        addedToRecentlyPlayed: true,
+        addedToRecentlyPlayedAt: Date.now(),
+      };
+      const filtered = prev.filter(nft => (nft.mediaKey || getMediaKey(nft)) !== mediaKey);
+      const updatedList = [newNFT, ...filtered].slice(0, 12);
+      saveToLocalStorage(updatedList);
+      return updatedList;
+    });
   }, [currentPlayingNFT, saveToLocalStorage]);
 
-  // Add a cleanup effect to clear processed mediaKeys periodically
-  useEffect(() => {
-    const intervalId = setInterval(() => {
-      processedMediaKeys.current.clear();
-      recentlyPlayedLogger.debug('🧹 Cleared processed mediaKeys set');
-    }, 5000);
-    
-    return () => clearInterval(intervalId);
-  }, []);
+  const nftIdentity = (nft: NFT) => nft.mediaKey || getMediaKey(nft) || `${nft.contract}-${nft.tokenId}`.toLowerCase();
 
-  // Combine local and Firebase recently played NFTs with local taking priority
-  // and deduplicate them based on mediaKey
+  const isDisplayableNft = (nft: NFT | null | undefined): nft is NFT => {
+    if (!nft) return false;
+    const hasDisplayInfo = Boolean(nft.name || (nft.contract && nft.tokenId));
+    const hasMedia = Boolean(
+      nft.image ||
+      nft.metadata?.image ||
+      nft.audio ||
+      nft.metadata?.animation_url
+    );
+    return hasDisplayInfo && hasMedia;
+  };
+
+  // Local recency is the display order. Firebase only fills in older items
+  // that this session has not played yet. Replaying an NFT already in Firebase
+  // must still move it to the front immediately.
   const validRecentlyPlayedNFTs = useMemo(() => {
-    // First add all local recently played NFTs
-    let combined = [...localRecentlyPlayed];
-    
-    // Then add Firebase NFTs only if they don't already exist in the local list
-    firebaseRecentlyPlayed.forEach(firebaseNFT => {
-      const firebaseMediaKey = firebaseNFT.mediaKey || getMediaKey(firebaseNFT);
-      
-      // Skip if the NFT is already in the combined list (prioritize local state)
-      const existsInCombined = combined.some(localNFT => {
-        const localMediaKey = localNFT.mediaKey || getMediaKey(localNFT);
-        return localMediaKey === firebaseMediaKey;
-      });
-      
-      if (!existsInCombined) {
-        combined.push(firebaseNFT);
-      }
-    });
-    
-    // Filter out invalid NFTs
-    return combined.filter(nft => {
-      // Basic validation
-      if (!nft) return false;
-      
-      // Check for critical display properties
-      const hasDisplayInfo = Boolean(
-        nft.name || (nft.contract && nft.tokenId)
-      );
-      
-      // Check for media
-      const hasMedia = Boolean(
-        nft.image || 
-        nft.metadata?.image ||
-        nft.audio ||
-        nft.metadata?.animation_url
-      );
-      
-      // Log invalid NFTs
-      if (!hasDisplayInfo || !hasMedia) {
-        recentlyPlayedLogger.warn('Filtering invalid NFT from recently played:', {
-          nft,
-          reason: !hasDisplayInfo ? 'missing display info' : 'missing media'
-        });
-      }
-      
-      return hasDisplayInfo && hasMedia;
-    });
-  }, [localRecentlyPlayed, firebaseRecentlyPlayed]);
+    const seen = new Set<string>();
+    const ordered: NFT[] = [];
+
+    const push = (nft: NFT | null | undefined) => {
+      if (!isDisplayableNft(nft)) return;
+      const key = nftIdentity(nft);
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      ordered.push(nft);
+    };
+
+    if (currentPlayingNFT) push(currentPlayingNFT);
+    localRecentlyPlayed.forEach(push);
+    firebaseRecentlyPlayed.forEach(push);
+
+    return ordered;
+  }, [localRecentlyPlayed, firebaseRecentlyPlayed, currentPlayingNFT]);
 
   const uniqueRecentlyPlayedNFTs = useMemo(() => {
     return validRecentlyPlayedNFTs.filter((nft, index, self) => {
@@ -318,7 +195,7 @@ const RecentlyPlayed: React.FC<RecentlyPlayedProps> = ({
 
   // Handle empty state
   // Handle empty state
-  if (isLoading) {
+  if (isLoading && uniqueRecentlyPlayedNFTs.length === 0) {
   return (
     <section className="w-full py-8">
       <div className="container mx-auto px-4">
@@ -373,7 +250,12 @@ if (validRecentlyPlayedNFTs.length === 0) {
                             recentlyPlayedLogger.error('Error playing NFT from Recently Played:', error);
                           }
                         }}
-                        isPlaying={Boolean(isPlaying && currentlyPlaying === (nft.mediaKey || getMediaKey(nft)))}
+                        isPlaying={Boolean(
+                          isPlaying && (
+                            currentlyPlaying === `${nft.contract}-${nft.tokenId}` ||
+                            currentlyPlaying === (nft.mediaKey || getMediaKey(nft))
+                          )
+                        )}
                         currentlyPlaying={currentlyPlaying || null}
                         handlePlayPause={handlePlayPause || (() => {})}
                         onLikeToggle={onLikeToggle ? () => onLikeToggle(nft) : undefined}
@@ -396,47 +278,4 @@ if (validRecentlyPlayedNFTs.length === 0) {
 
 };
 
-// Wrap with React.memo to prevent unnecessary re-renders
-export default React.memo(RecentlyPlayed, (prevProps, nextProps) => {
-  // Return true if props are equal (component shouldn't re-render)
-  // Re-render if:
-  // 1. userFid changes (different user)
-  // 2. currentlyPlaying changes (different NFT playing)
-  // 3. isPlaying changes (play state changes)
-  // 4. recentlyAddedNFT changes (new NFT was added to the recently played list)
-  // 5. isNFTLiked function changes (liked NFTs updated)
-  
-  const userFidEqual = prevProps.userFid === nextProps.userFid;
-  const currentlyPlayingEqual = prevProps.currentlyPlaying === nextProps.currentlyPlaying;
-  const isPlayingEqual = prevProps.isPlaying === nextProps.isPlaying;
-  
-  // CRITICAL: For immediate updates to recently played, we need to check if the ref itself
-  // or its current value has changed. This ensures we re-render when a new NFT is played
-  // even before it reaches the 25% threshold.
-  const recentlyAddedNFTEqual = 
-    (!prevProps.recentlyAddedNFT && !nextProps.recentlyAddedNFT) || // both are null/undefined
-    (prevProps.recentlyAddedNFT && nextProps.recentlyAddedNFT && 
-     prevProps.recentlyAddedNFT.current === nextProps.recentlyAddedNFT.current); // same current value
-  
-  // NEW: Check if isNFTLiked function has changed (when liked NFTs are loaded)
-  const isNFTLikedEqual = prevProps.isNFTLiked === nextProps.isNFTLiked;
-  
-  // Return true if all are equal (no re-render needed)
-  const shouldSkipRender = userFidEqual && currentlyPlayingEqual && 
-                           isPlayingEqual && recentlyAddedNFTEqual && isNFTLikedEqual;
-  
-  // Log why we're re-rendering or not
-  if (!shouldSkipRender) {
-    recentlyPlayedLogger.debug('RecentlyPlayed will re-render due to prop changes:', {
-      userFidChanged: !userFidEqual,
-      currentlyPlayingChanged: !currentlyPlayingEqual,
-      isPlayingChanged: !isPlayingEqual,
-      recentlyAddedNFTChanged: !recentlyAddedNFTEqual,
-      isNFTLikedChanged: !isNFTLikedEqual,
-      recentlyAddedValue: nextProps.recentlyAddedNFT?.current?.substring(0, 8) || 'none'
-    });
-  }
-  
-  // Always return a boolean value to satisfy TypeScript
-  return shouldSkipRender === true;
-});
+export default RecentlyPlayed;

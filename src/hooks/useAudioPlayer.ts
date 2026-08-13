@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { NFT } from '../types/user';
-import { trackNFTPlay as originalTrackNFTPlay } from '../lib/firebase';
+import { trackNFTPlay as originalTrackNFTPlay, recordRecentPlay } from '../lib/firebase';
 import { v4 as uuidv4 } from 'uuid';
 
 // Wrapper for trackNFTPlay that respects the 25% threshold requirement
@@ -29,7 +29,7 @@ const trackNFTPlay = (nft: NFT, fid: number, options?: { forceTrack?: boolean, t
   if (options?.thresholdReached || options?.forceTrack) {
     // Actually track the play
     audioLogger.info(`${options?.thresholdReached ? '25% threshold reached' : 'Forced tracking'} - Recording play count for NFT: ${nft.name}`);
-    return originalTrackNFTPlay(nft, fid);
+    return originalTrackNFTPlay(nft, fid, options);
   }
   
   // Default case - shouldn't happen but included for completeness
@@ -431,6 +431,12 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
     
     // Make sure the NFT has mediaKey for proper deduplication
     const mediaKey = mediaKeyForMemory;
+    if (recentlyAddedNFT) {
+      recentlyAddedNFT.current = mediaKey;
+    }
+    recordRecentPlay(nft, fid).catch((error) => {
+      audioLogger.error('Error recording recent play:', error);
+    });
 
     // IMPORTANT: Do NOT use unmuted <video> as the sound source.
     // Audio element always owns sound. If there's a video layer, it stays muted
@@ -588,21 +594,22 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
       audio.ontimeupdate = () => {
         setAudioProgress(audio.currentTime);
         
-        // Check for 25% threshold without using component state
-        // This uses a closure variable that's specific to this audio instance
-        if (!playTracked && audio.duration > 0 && audio.currentTime >= (audio.duration * 0.25)) {
-          playTracked = true; // Mark as tracked to prevent duplicate counting
+        // Count a play at 25% when duration is known. Streams that never report
+        // a finite duration (common on Arweave) would otherwise never track.
+        const knownDuration = Number.isFinite(audio.duration) && audio.duration > 0;
+        const reachedPercent = knownDuration && audio.currentTime >= audio.duration * 0.25;
+        const reachedFallback = !knownDuration && audio.currentTime >= 15;
+        if (!playTracked && (reachedPercent || reachedFallback)) {
+          playTracked = true;
           
-          // Only log mediaKey if available
           if (mediaKey) {
-            audioLogger.info(`🎵 25% threshold reached for NFT: ${nft.name} (${Math.round(audio.currentTime)}s of ${Math.round(audio.duration)}s) [mediaKey: ${mediaKey.substring(0, 20)}...]`);
+            audioLogger.info(`🎵 Play count threshold reached for NFT: ${nft.name} (${Math.round(audio.currentTime)}s of ${knownDuration ? Math.round(audio.duration) : '?'}s) [mediaKey: ${mediaKey.substring(0, 20)}...]`);
           } else {
-            audioLogger.info(`🎵 25% threshold reached for NFT: ${nft.name} (${Math.round(audio.currentTime)}s of ${Math.round(audio.duration)}s)`);
+            audioLogger.info(`🎵 Play count threshold reached for NFT: ${nft.name}`);
           }
           
-          // Track the play in Firebase with threshold flag
           trackNFTPlay(nft, fid, { thresholdReached: true }).catch(error => {
-            audioLogger.error('Error tracking NFT play after 25% threshold:', error);
+            audioLogger.error('Error tracking NFT play after threshold:', error);
           });
         }
       };
@@ -729,7 +736,7 @@ export const useAudioPlayer = ({ fid = 1, setRecentlyPlayedNFTs, recentlyAddedNF
         // ignore
       }
     }
-  }, [currentlyPlaying, handlePlayPause, fid, setRecentlyPlayedNFTs]);
+  }, [currentlyPlaying, handlePlayPause, fid, setRecentlyPlayedNFTs, recentlyAddedNFT]);
   
   // Now define handlePlayNext and handlePlayPrevious which use handlePlayAudio
   const handlePlayNext = useCallback(async () => {
