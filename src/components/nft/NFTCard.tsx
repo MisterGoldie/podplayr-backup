@@ -151,8 +151,8 @@ export const NFTCard: React.FC<NFTCardProps> = ({
           {showLibraryBadge && displayIsLiked && (
             <div className="absolute bottom-2 left-2 z-10 pointer-events-none">
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-black/70 border border-green-400/40 text-green-400 font-mono text-[10px] leading-none shadow-lg shadow-black/40">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className={smallCard ? "w-3 h-3" : "w-3.5 h-3.5"}>
-                  <path d="M4 6.5A2.5 2.5 0 0 1 6.5 4H20v16H6.5A2.5 2.5 0 0 1 4 17.5v-11ZM6.5 6A.5.5 0 0 0 6 6.5v11a.5.5 0 0 0 .5.5H18V6H6.5Z" />
+                <svg xmlns="http://www.w3.org/2000/svg" height="12" viewBox="0 -960 960 960" width="12" fill="currentColor">
+                  <path d="M200-120v-665q0-24 18-42t42-18h440q24 0 42 18t18 42v665L480-240 200-120Z"/>
                 </svg>
                 In Library
               </span>

@@ -585,6 +585,7 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
                 publicCollections={[]}
                 scrollRoot={scrollRoot}
                 resetKey={user?.fid}
+                showLibraryBadge
               />
             </div>
           ) : nfts.length > 0 && filteredNFTs.length === 0 ? (

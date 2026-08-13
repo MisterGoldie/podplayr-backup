@@ -48,6 +48,7 @@ export const VirtualizedNFTGrid: React.FC<VirtualizedNFTGridProps> = ({
   userFid,
   scrollRoot,
   resetKey,
+  showLibraryBadge = false,
 }) => {
   const { visibleItems: visibleNFTs, hasMore, sentinelRef } = usePagedItems(nfts, {
     pageSize: PAGE_SIZE,
@@ -97,6 +98,7 @@ export const VirtualizedNFTGrid: React.FC<VirtualizedNFTGridProps> = ({
               userFid={userFid?.toString()}
               isNFTLiked={() => checkDirectlyLiked(nft)}
               animationDelay={staggerDelay}
+              showLibraryBadge={showLibraryBadge}
             />
           </ErrorBoundary>
         );
