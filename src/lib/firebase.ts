@@ -88,7 +88,7 @@ const nftFromPlayRecord = (data: DocumentData): NFT => {
     collection: {
       name: data.collection || 'Unknown Collection',
     },
-    network: data.network || 'ethereum',
+    network: data.network,
   };
 };
 const dataLogger = logger.getModuleLogger('data');
@@ -753,7 +753,7 @@ export const trackNFTPlay = async (nft: NFT, fid: number, options?: { forceTrack
         mediaMime: playbackStore.mediaMime || data.mediaMime || '',
         description: nft.description || nft.metadata?.description || data.description || '',
         collection: nft.collection?.name || data.collection || 'Unknown Collection',
-        network: nft.network || data.network || 'ethereum'
+        network: nft.network || data.network || 'base'
       });
     } else {
       // Ensure all required fields are present and have fallback values
@@ -770,7 +770,7 @@ export const trackNFTPlay = async (nft: NFT, fid: number, options?: { forceTrack
         playbackMode: playbackStore.playbackMode,
         mediaMime: playbackStore.mediaMime,
         collection: nft.collection?.name || 'Unknown Collection',
-        network: nft.network || 'ethereum',
+        network: nft.network || 'base',
         playCount: 1,
         firstPlayed: serverTimestamp(),
         lastPlayed: serverTimestamp()
@@ -834,7 +834,7 @@ export const trackNFTPlay = async (nft: NFT, fid: number, options?: { forceTrack
         mediaMime: playbackStore.mediaMime,
         description: nft.description || nft.metadata?.description || '',
         collection: nft.collection?.name || 'Unknown Collection',
-        network: nft.network || 'ethereum',
+        network: nft.network || 'base',
         firstTopPlayedAt: serverTimestamp(),
         lastPlayed: serverTimestamp(),
         playCount: newPlayCount
@@ -855,7 +855,7 @@ export const trackNFTPlay = async (nft: NFT, fid: number, options?: { forceTrack
         mediaMime: playbackStore.mediaMime || data.mediaMime || '',
         description: nft.description || nft.metadata?.description || data.description || '',
         collection: nft.collection?.name || data.collection || 'Unknown Collection',
-        network: nft.network || data.network || 'ethereum'
+        network: nft.network || data.network || 'base'
       });
     }
 
@@ -874,7 +874,7 @@ export const trackNFTPlay = async (nft: NFT, fid: number, options?: { forceTrack
       playbackMode: playbackStore.playbackMode,
       mediaMime: playbackStore.mediaMime,
       collection: nft.collection?.name || 'Unknown Collection',
-      network: nft.network || 'ethereum',
+      network: nft.network || 'base',
       timestamp: serverTimestamp(),
       playCount: currentPlayCount + 1, // Use the actual play count
       thresholdReached: options?.thresholdReached || false // Track if this was a threshold play
@@ -1231,7 +1231,7 @@ export const getLikedNFTs = (fid: number): Promise<NFT[]> => {
           image: nft.image || '',
           audioUrl: nft.audio || nft.metadata?.animation_url || '',
           collection: nft.collection?.name || 'Unknown Collection',
-          network: nft.network || 'ethereum',
+          network: nft.network || 'base',
           likeCount: 1,  // Start with 1 like (the current user)
           timestamp: serverTimestamp(),
           lastLiked: serverTimestamp()
@@ -1444,7 +1444,7 @@ export const toggleLikeNFT = async (nft: NFT, fid: number, forceUnlike: boolean 
           image: nft.image || nft.metadata?.image || '',
           audioUrl: nft.audio || nft.metadata?.animation_url || '',
           collection: nft.collection?.name || 'Unknown Collection',
-          network: nft.network || 'ethereum',
+          network: nft.network || 'base',
           timestamp: serverTimestamp()
         };
         
@@ -1465,7 +1465,7 @@ export const toggleLikeNFT = async (nft: NFT, fid: number, forceUnlike: boolean 
             image: nft.image || nft.metadata?.image || globalData?.image || '',
             audioUrl: nft.audio || nft.metadata?.animation_url || globalData?.audioUrl || '',
             collection: nft.collection?.name || globalData?.collection || 'Unknown Collection',
-            network: nft.network || globalData?.network || 'ethereum'
+            network: nft.network || globalData?.network || 'base'
           });
         } else {
           // Create new global like document with full NFT data
@@ -1478,7 +1478,7 @@ export const toggleLikeNFT = async (nft: NFT, fid: number, forceUnlike: boolean 
             image: nft.image || nft.metadata?.image || '',
             audioUrl: nft.audio || nft.metadata?.animation_url || '',
             collection: nft.collection?.name || 'Unknown Collection',
-            network: nft.network || 'ethereum',
+            network: nft.network || 'base',
             likeCount: 1,
             firstLiked: serverTimestamp(),
             lastLiked: serverTimestamp()
@@ -1715,7 +1715,7 @@ export const addLikedNFT = async (fid: number, nft: NFT): Promise<void> => {
       image: nft.image || nft.metadata?.image || '',
       audioUrl: nft.audio || nft.metadata?.animation_url || '',
       collection: nft.collection?.name || 'Unknown Collection',
-      network: nft.network || 'ethereum',
+      network: nft.network || 'base',
       timestamp: serverTimestamp()
     });
   } catch (error) {

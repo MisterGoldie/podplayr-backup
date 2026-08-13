@@ -171,7 +171,7 @@ export const trackNFTPlay = async (nft: NFT, fid: number) => {
         audioUrl: nft.audio || nft.metadata?.animation_url || '',
         image: nft.image || nft.metadata?.image || '',
         collection: nft.collection?.name || 'Unknown Collection',
-        network: nft.network || 'ethereum',
+        network: nft.network || 'base',
         fid: fid
       };
       
@@ -209,7 +209,7 @@ export const trackNFTPlay = async (nft: NFT, fid: number) => {
           audioUrl: nft.audio || nft.metadata?.animation_url || '',
           image: nft.image || nft.metadata?.image || '',
           collection: nft.collection?.name || 'Unknown Collection',
-          network: nft.network || 'ethereum',
+          network: nft.network || 'base',
           fid: fid
         };
         
@@ -334,7 +334,7 @@ export const getTopPlayedNFTs = async (): Promise<{ nft: NFT; count: number }[]>
         image: data.imageUrl || '',
         audio: data.audioUrl || '',
         metadata: data.metadata || {},
-        network: 'ethereum', // Default
+        network: data.network,
         isVideo: data.metadata?.animation_url && !data.audioUrl
       };
       
@@ -467,7 +467,7 @@ export const getUserPlayHistory = async (fid: number, maxResults = 50): Promise<
         description: data.description || '',
         image: data.image || '',
         audio: data.audioUrl,
-        network: data.network || 'ethereum',
+        network: data.network,
         mediaKey: data.mediaKey, // This is critical for consistent tracking
         playCount: data.playCount || 1,
         timestamp: data.timestamp
@@ -521,7 +521,7 @@ export const subscribeToUserPlayHistory = (fid: number, maxResults = 50, callbac
         description: data.description || '',
         image: data.image || '',
         audio: data.audioUrl,
-        network: data.network || 'ethereum',
+        network: data.network,
         mediaKey: data.mediaKey, // This is critical for consistent tracking
         playCount: data.playCount || 1,
         timestamp: data.timestamp

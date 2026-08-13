@@ -4,6 +4,7 @@ import { useNFTLikes } from '../../hooks/useNFTLikes';
 import { useNFTTopPlayed } from '../../hooks/useNFTTopPlayed';
 import type { NFT } from '../../types/user';
 import { getMediaKey } from '../../utils/media';
+import { getNftExplorerLinks } from '../../utils/nftExplorerLinks';
 import sdk from '@farcaster/miniapp-sdk';
 
 interface InfoPanelProps {
@@ -17,6 +18,7 @@ const InfoPanel: React.FC<InfoPanelProps> = ({ nft, onClose, isLiked = false }) 
   const { playCount, loading, realCountIncrease } = useNFTPlayCount(nft);
   const { likesCount, isLoading: likesLoading } = useNFTLikes(nft);
   const { hasBeenInTopPlayed, loading: topPlayedLoading } = useNFTTopPlayed(nft);
+  const explorerLinks = getNftExplorerLinks(nft);
   const [isClosing, setIsClosing] = useState(false);
 
   // State to track animation of play count
@@ -164,22 +166,20 @@ const InfoPanel: React.FC<InfoPanelProps> = ({ nft, onClose, isLiked = false }) 
           {/* Quick Actions */}
           <div className="bg-black/30 rounded-lg p-3 border border-purple-400/10">
             <h3 className="text-purple-300 font-mono text-xs uppercase tracking-wider mb-3">Quick Actions</h3>
-            <div className="flex gap-2">
-              <button 
-                onClick={() => handleOpenUrl(`https://opensea.io/assets/${nft.network || 'ethereum'}/${nft.contract}/${nft.tokenId}`)}
-                className="flex-1 bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 text-xs font-mono py-2 px-3 rounded-md transition-colors border border-purple-400/20"
-              >
-                View on OpenSea
-              </button>
-              {(nft.network === 'ethereum' || !nft.network) && (
-                <button 
-                  onClick={() => handleOpenUrl(`https://etherscan.io/token/${nft.contract}?a=${nft.tokenId}`)}
-                  className="flex-1 bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 text-xs font-mono py-2 px-3 rounded-md transition-colors border border-purple-400/20"
-                >
-                  Etherscan
-                </button>
-              )}
-            </div>
+            {!explorerLinks.valid ? (
+              <p className="text-gray-500 text-xs font-mono">Contract or token ID missing for this NFT.</p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {explorerLinks.explorerUrl && (
+                  <button
+                    onClick={() => handleOpenUrl(explorerLinks.explorerUrl!)}
+                    className="flex-1 min-w-[7.5rem] bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 text-xs font-mono py-2 px-3 rounded-md transition-colors border border-purple-400/20"
+                  >
+                    View on {explorerLinks.explorerName}
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Contract and Token ID */}

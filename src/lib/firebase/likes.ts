@@ -328,7 +328,7 @@ export const getLikedNFTs = async (userIdOrWallet: number | string): Promise<NFT
         image: data.image || '',
         audio: data.audioUrl || '',
         collection: data.collection ? { name: data.collection } : undefined,
-        network: data.network || 'ethereum',
+        network: data.network,
         metadata: data.metadata || {}, // Include all metadata
         // Add timestamp fields for sorting (never fall back to Date.now() —
         // that makes old likes without a stamp look like they were just liked)
@@ -541,7 +541,7 @@ export const getLikedNFTs = async (userIdOrWallet: number | string): Promise<NFT
             image: docData.image || '',
             audio: docData.audioUrl || '',
             collection: { name: docData.collection || 'Unknown Collection' },
-            network: docData.network || 'ethereum'
+            network: docData.network
           } as NFT;
         });
         
@@ -873,6 +873,7 @@ export const toggleLikeNFT = async (nft: NFT, fidOrWalletAddress: number | strin
         audioUrl: nft.audio || '',
         metadata: nft.metadata || {},
         timestamp: serverTimestamp(),
+        network: nft.network,
         // CRITICAL: Add explicit isLiked flag to ensure consistent state
         isLiked: true,
         // CRITICAL: Add user identifier information to help with debugging
@@ -1160,7 +1161,8 @@ export const addLikedNFT = async (fid: number, nft: NFT): Promise<void> => {
       image: nft.image || (typeof nft.metadata?.image === 'string' ? nft.metadata.image : '') || '',
       audioUrl: nft.audio || (typeof nft.metadata?.animation_url === 'string' ? nft.metadata.animation_url : '') || '',
       metadata: nft.metadata || {},
-      timestamp: serverTimestamp()
+      timestamp: serverTimestamp(),
+      network: nft.network,
     };
     
     // Create a batch for all operations

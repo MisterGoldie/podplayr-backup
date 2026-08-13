@@ -51,7 +51,7 @@ export const useTopPlayedNFTs = () => {
           collection: {
             name: data.collection || 'Unknown Collection'
           },
-          network: data.network || 'ethereum'
+          network: data.network
         };
 
         topPlayedNFTs.push({

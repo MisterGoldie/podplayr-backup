@@ -99,6 +99,7 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
       playbackMode: plan.mode,
       hasValidAudio: Boolean(audioUrl) || hasPlayableAudio({ audio: audioUrl, metadata: rawMeta }),
       isVideo: plan.mode !== 'audio-only',
+      network,
       collection: {
         name: metadata.contract?.name || '',
         image: metadata.contract?.openSeaMetadata?.imageUrl || ''
@@ -216,8 +217,7 @@ export const fetchUserNFTsFromAlchemy = async (address: string): Promise<NFT[]> 
       };
     }
 
-    const processedNFTs = (ownedNfts as AlchemyNFT[])
-      .map((nft) => {
+    const mapAlchemyNft = (nft: AlchemyNFT, network: 'ethereum' | 'base'): NFT | null => {
         const meta = nft.metadata || {};
         const plan = getNftPlaybackPlan({ metadata: meta });
         const soundRaw = plan.audioUrl || plan.videoUrl || '';
@@ -261,6 +261,7 @@ export const fetchUserNFTsFromAlchemy = async (address: string): Promise<NFT[]> 
           hasValidAudio: hasAudio,
           isVideo,
           isAnimation: false,
+          network,
           collection: {
             image: nft.contract.openSea?.imageUrl,
             name: nft.contract.name || ''
@@ -281,8 +282,12 @@ export const fetchUserNFTsFromAlchemy = async (address: string): Promise<NFT[]> 
         }
 
         return processedNFT;
-      })
-      .filter((nft): nft is NFT => !!nft && isPlayableMediaNFT(nft));
+    };
+
+    const processedNFTs = [
+      ...((ethData.ownedNfts || []) as AlchemyNFT[]).map((nft) => mapAlchemyNft(nft, 'ethereum')),
+      ...((baseData.ownedNfts || []) as AlchemyNFT[]).map((nft) => mapAlchemyNft(nft, 'base')),
+    ].filter((nft): nft is NFT => !!nft && isPlayableMediaNFT(nft));
 
     return processedNFTs.map((nft) => ({
       ...nft,

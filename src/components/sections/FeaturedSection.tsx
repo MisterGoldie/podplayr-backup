@@ -17,6 +17,7 @@ export const FEATURED_NFTS: NFT[] = [
     image: 'https://arweave.net/Wvad7CgtidFMH3mOBjRHOeV5_bKvvAR9zZH2BhQSl7M',
     contract: '0x27430c3ef4b04f7d223df7f280ae8fc0b3a407b7',
     tokenId: '50dc9fb449e1',
+    network: 'base',
     audio: 'https://arweave.net/qsVEbTD0FUZ8VebK4yxOrKWDQtW8BpNWj7o46HzKsV8',
     metadata: {
       animation_url: 'https://arweave.net/qsVEbTD0FUZ8VebK4yxOrKWDQtW8BpNWj7o46HzKsV8',
@@ -31,6 +32,7 @@ export const FEATURED_NFTS: NFT[] = [
     image: 'https://arweave.net/rGhe8lAX2D9hrbOKeoozySiZvVsSnJqblZ7ofZ2ADnY',
     contract: '0xA59Fa4555264B256fD43cd51B5794348F859dA51',
     tokenId: '8',
+    network: 'base',
     audio: 'https://arweave.net/YV3PQYn-NAX3cC6t6yhlmMtSzZ_SxIcAb3Np6SKBCuQ',
     metadata: {
       animation_url: 'https://arweave.net/YV3PQYn-NAX3cC6t6yhlmMtSzZ_SxIcAb3Np6SKBCuQ',
@@ -45,6 +47,7 @@ export const FEATURED_NFTS: NFT[] = [
     image: 'https://amaranth-adequate-condor-278.mypinata.cloud/ipfs/bafybeige5xctxspzazd4colwtjydimuyhdkkygls33q374xiirg6ec46gy',
     contract: '0xA59Fa4555264B256fD43cd51B5794348F859dA51',
     tokenId: '3',
+    network: 'base',
     audio: 'https://arweave.net/FXMkBkgV79p3QIL8589uh68-sKuXbmuBzQwvWH10v74',
     metadata: {
       animation_url: 'https://arweave.net/FXMkBkgV79p3QIL8589uh68-sKuXbmuBzQwvWH10v74',
@@ -59,6 +62,7 @@ export const FEATURED_NFTS: NFT[] = [
     image: 'https://amaranth-adequate-condor-278.mypinata.cloud/ipfs/bafybeibfkcb4emmqxhjoux3hz33pohw3slfonk5hyxw6i62nzj7vovg4ta',
     contract: '0xA59Fa4555264B256fD43cd51B5794348F859dA51',
     tokenId: '5',
+    network: 'base',
     audio: 'https://arweave.net/GujXDFCEk4FmJl9b_TlofLEmx_YnY_LRSB2aSY8AcRg',
     metadata: {
       animation_url: 'https://arweave.net/GujXDFCEk4FmJl9b_TlofLEmx_YnY_LRSB2aSY8AcRg',
@@ -73,6 +77,7 @@ export const FEATURED_NFTS: NFT[] = [
     image: 'https://arweave.net/QxJXPOfv_BXT3m2-o75f_x5wOssE7xE5seTVeKB1PI4',
     contract: '0xA59Fa4555264B256fD43cd51B5794348F859dA51',
     tokenId: '6',
+    network: 'base',
     audio: 'https://arweave.net/Df6hOV1--hsJBtTL1cEbhBkRZuggxSpR9eM0DXsdcv0',
     metadata: {
       animation_url: 'https://arweave.net/Df6hOV1--hsJBtTL1cEbhBkRZuggxSpR9eM0DXsdcv0',
@@ -87,6 +92,7 @@ export const FEATURED_NFTS: NFT[] = [
     image: 'https://arweave.net/F_5sg4RBg3kKQnuvHFhbX8fh4eB7xdlsk_VaTJNK7EI',
     contract: '0xA59Fa4555264B256fD43cd51B5794348F859dA51',
     tokenId: '7',
+    network: 'base',
     audio: 'https://arweave.net/KPKrKgdACqggYesQqRCR4MeLWDlpR6i16xL-Q_e35q4',
     metadata: {
       animation_url: 'https://arweave.net/KPKrKgdACqggYesQqRCR4MeLWDlpR6i16xL-Q_e35q4',
