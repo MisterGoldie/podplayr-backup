@@ -419,7 +419,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
           muted={true}
           autoPlay={isPlaying}
           preload="auto"
-          className="w-auto h-auto object-contain rounded-lg max-h-[60vh] min-h-[40vh] min-w-[60%] max-w-full"
+          className="w-auto h-auto object-contain rounded-3xl max-h-[58vh] min-h-[36vh] min-w-[60%] max-w-full shadow-2xl shadow-purple-900/40"
           style={{
             opacity: 1,
             willChange: 'transform',
@@ -491,24 +491,16 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
     );
   };
 
-  // Keep the essential minimize toggle function but remove the alert
   const handleMinimizeToggle = () => {
-    console.log('Minimize toggle clicked. Current state: maximized');
     onMinimizeToggle();
-    console.log('After toggle called. New state will be: minimized');
   };
 
-  // For the minimize button at the bottom of the page, make it extremely visible for testing
-  const minimizeButtonStyle = {
-    backgroundColor: '#6366F1', // Indigo color
-    color: 'white',
-    padding: '10px 15px',
-    borderRadius: '8px',
-    fontWeight: 'bold',
-    cursor: 'pointer',
-    zIndex: 9999, // Ensure it's on top of everything
-    position: 'relative' as 'relative'
-  };
+  const iconButtonClass =
+    'p-2 rounded-full bg-black/45 backdrop-blur-md border border-white/10 text-white/90 active:scale-95 transition-transform touch-manipulation';
+  const progressPercent = safeProgressPercent(
+    scrubPosition !== null ? scrubPosition : progress,
+    duration
+  );
 
   // When maximizing mid-playback, isPlaying may already be true — force companion video to start
   useEffect(() => {
@@ -669,257 +661,228 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
   // Keep the exact same JSX as the original Player component for the maximized state
   return (
     <>
-      <div className="fixed inset-0 z-[100] bg-black will-change-transform flex flex-col" style={{ backfaceVisibility: 'hidden' }}>
-        {/* Remove the minimize button above BottomNav */}
-        
-        {/* Main Content */}
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <div className="flex-1 flex items-center justify-center max-h-[70vh] px-4 py-4 overflow-hidden">
-            {/* Remove the old title bar that was at the bottom */}
-            {/* NFT Image/Video Container */}
-            <div className="relative w-full h-full flex items-center justify-center">
-              {/* Action Icons Overlay */}
-              <div className={`absolute top-4 left-4 right-4 flex justify-between z-10 transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
-                <div className="flex gap-2">
-                  {onLikeToggle && (
-                    <button 
-                      onClick={() => onLikeToggle(nft)}
-                      className={`${isLiked ? 'text-red-500' : 'text-purple-400'} hover:text-purple-300 transition-all duration-300 hover:scale-125`}
-                    >
-                      {isLiked ? (
-                        <svg xmlns="http://www.w3.org/2000/svg" height="26" viewBox="0 -960 960 960" width="26" fill="currentColor">
-                          <path d="m480-120-58-52q-101-91-167-157T150-447.5Q111-500 95.5-544T80-634q0-94 63-157t157-63q52 0 99 22t81 62q34-40 81-62t99-22q94 0 157 63t63 157q0 46-15.5 90T810-447.5Q771-395 705-329T538-172l-58 52Z"/>
-                        </svg>
-                      ) : (
-                        <svg xmlns="http://www.w3.org/2000/svg" height="26" viewBox="0 -960 960 960" width="26" fill="currentColor">
-                          <path d="m480-120-58-52q-101-91-167-157T150-447.5Q111-500 95.5-544T80-634q0-94 63-157t157-63q52 0 99 22t81 62q34-40 81-62t99-22q94 0 157 63t63 157q0 46-15.5 90T810-447.5Q771-395 705-329T538-172l-58 52Zm0-108q96-86 158-147.5t98-107q36-45.5 50-81t14-70.5q0-60-40-100t-100-40q-47 0-87 26.5T518-680h-76q-15-41-55-67.5T300-774q-60 0-100 40t-40 100q0 35 14 70.5t50 81q36 45.5 98 107T480-228Zm0-273Z"/>
-                        </svg>
-                      )}
-                    </button>
-                  )}
-                  <button
-                    onClick={() => setShowInfo(true)}
-                    className="text-purple-400 hover:text-purple-300 transition-all duration-300 hover:scale-125"
-                    aria-label="Show NFT Information"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" height="26" viewBox="0 -960 960 960" width="26" fill="currentColor">
-                      <path d="M440-280h80v-240h-80v240Zm40-320q17 0 28.5-11.5T520-640q0-17-11.5-28.5T480-680q-17 0-28.5 11.5T440-640q0 17 11.5 28.5T480-600Zm0 520q-83 0-156-31.5T197-197q-54-54-85.5-127T80-480q0-83 31.5-156T197-763q54-54 127-85.5T480-880q83 0 156 31.5T763-763q54 54 85.5 127T880-480q0 83-31.5 156T763-197q-54 54-127 85.5T480-80Zm0-80q134 0 227-93t93-227q0-134-93-227t-227-93q-134 0-227 93t-93 227q0 134 93 227t227 93Zm0-320Z"/>
-                    </svg>
-                  </button>
-                  {nft && (
-                    <button
-                      onClick={async () => {
-                        // Personalize the share message with the NFT name
-                        const shareText = `Check out "${nft.name}" on @podplayr! ▶️`;
-                        const shareUrl = 'podplayr.xyz';
-                        
-                        // Build the base share URL without image
-                        let shareUrlWithEmbeds = `https://warpcast.com/~/compose?text=${encodeURIComponent(shareText)}&embeds[]=${encodeURIComponent(shareUrl)}`;
-                        
-                        let shareImage = resolvedImageUrl;
-                        logger.debug('player', 'Resolved image URL for sharing:', shareImage);
-
-                        // Only include the image if it exists
-                        if (shareImage) {
-                          shareUrlWithEmbeds += `&embeds[]=${encodeURIComponent(shareImage)}`;
-                        }
-                        
-                        // Use the imported SDK directly with the appropriate share URL
-                        try {
-                          const { sdk } = await import('@farcaster/miniapp-sdk');
-                          await sdk.actions.openUrl(shareUrlWithEmbeds);
-                        } catch (error) {
-                          console.error('Error opening URL:', error);
-                        }
-                      }}
-                      className="text-purple-400 hover:text-purple-300 p-2"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24" fill="currentColor">
-                        <path d="M680-80q-50 0-85-35t-35-85q0-6 3-28L282-392q-16 15-37 23.5t-45 8.5q-50 0-85-35t-35-85q0-50 35-85t85-35q24 0 45 8.5t37 23.5l281-164q-2-7-2.5-13.5T560-760q0-50 35-85t85-35q50 0 85 35t35 85q0 50-35 85t-85 35q-24 0-45-8.5T598-672L317-508q2 7 2.5 13.5t.5 14.5q0 8-.5 14.5T317-452l281 164q16-15 37-23.5t45-8.5q50 0 85 35t35 85q0 50-35 85t-85 35Z"/>
-                      </svg>
-                    </button>
-                  )}
-                </div>
-                {showVideoVisually && (
-                  <button
-                    onClick={handlePictureInPicture}
-                    className="text-white hover:text-white/80 p-2"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="currentColor">
-                      <path d="M160-160q-33 0-56.5-23.5T80-240v-480q0-33 23.5-56.5T160-800h640q33 0 56.5 23.5T880-720v480q0 33-23.5 56.5T800-160H160Zm0-80h640v-480H160v480Zm0 0v-480 480Zm280-200h320v-240H440v240Zm80-80v-80h160l-80-80-80 80Z"/>
-                    </svg>
-                  </button>
-                )}
-              </div>
-
-              <div className={`transition-transform duration-500 ease-in-out transform ${isPlaying ? 'scale-100' : 'scale-90'} max-h-[60vh] flex items-center justify-center`}>
-                {/* Mounted (and loading/playing muted) as soon as there's any video candidate, but
-                    only made visible once we're sure it's really video — see showVideoVisually. */}
-                {hasVideoLayer && (
-                  <div style={{ display: showVideoVisually ? 'contents' : 'none' }}>
-                    {renderVideo()}
-                  </div>
-                )}
-                {!showVideoVisually && (
-                  <div className="relative rounded-lg overflow-hidden max-h-[60vh]">
-                    {/* Special handling for GIF images */}
-                    {(nft.name === 'ACYL RADIO - Hidden Tales' || nft.name === 'ACYL RADIO - WILL01' || nft.name === 'ACYL RADIO - Chili Sounds 🌶️') ? (
-                      <img
-                        src={resolvedImageUrl}
-                        alt={nft.name}
-                        className="w-auto h-auto object-contain rounded-lg max-h-[60vh]"
-                        width={400}
-                        height={400}
-                        style={{ 
-                          maxWidth: '90vw', 
-                          maxHeight: '60vh',
-                          willChange: 'transform', 
-                          transform: 'translateZ(0)'
-                        }}
-                      />
-                    ) : (
-                      <NFTImage
-                        src={resolvedImageUrl}
-                        alt={nft.name}
-                        className="w-auto h-auto object-contain rounded-lg max-h-[60vh]"
-                        width={400}
-                        height={400}
-                        priority={true}
-                        nft={nft}
-                        key={`thumb-${nft.contract}-${nft.tokenId}`}
-                      />
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Controls */}
-          <div className="relative flex-none">
-            <div className="container mx-auto px-4 pt-4 pb-16">
-              {/* Progress Bar - slimmer version */}
-              <div 
-                ref={progressBarRef}
-                className={`relative ${isActivelyScrubbingBar ? 'h-4 -mt-1 mb-3' : 'h-2'} bg-gray-800 rounded-full mb-4 transition-all duration-150 touch-none`}
-                onTouchStart={handleTouchStart}
-                onTouchMove={handleTouchMove}
-                onTouchEnd={handleTouchEnd}
-                onTouchCancel={handleTouchEnd}
-                onClick={async (e) => {
-                  // Trigger haptic for seek
-                  await triggerHaptic('light', 'MaximizedPlayer-Seek');
-                  // For standard click handling (non-mobile)
-                  if (!e.currentTarget) {
-                    // Touch events already handled the seek, ignore this click
-                    return;
-                  }
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  const percent = (e.clientX - rect.left) / rect.width;
-                  if (Number.isFinite(duration) && duration > 0) {
-                    onSeek(duration * percent);
-                  }
-                }}
-              >
-                {/* Background progress */}
-                <div 
-                  className="absolute inset-y-0 left-0 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full"
-                  style={{ width: `${safeProgressPercent(scrubPosition !== null ? scrubPosition : progress, duration)}%` }}
-                />
-                
-                {/* Scrubber handle - only shows during active scrubbing */}
-                {isActivelyScrubbingBar && (
-                  <div 
-                    className="absolute top-1/2 h-8 w-8 rounded-full bg-white shadow-lg transform -translate-y-1/2 opacity-100 scale-100"
-                    style={{ 
-                      left: `calc(${safeProgressPercent(scrubPosition !== null ? scrubPosition : progress, duration)}% - 16px)`,
-                    }}
-                  />
-                )}
-
-                {/* Time Preview bubble - only shows during active scrubbing - KEEP THIS */}
-                {isActivelyScrubbingBar && scrubPosition !== null && (
-                  <div 
-                    className="absolute -top-10 py-1 px-3 bg-black/90 text-white text-sm font-medium rounded-md transform -translate-x-1/2 shadow-lg"
-                    style={{ 
-                      left: `${safeProgressPercent(scrubPosition, duration)}%`,
-                    }}
-                  >
-                    {formatTime(getDisplayTimes(scrubPosition, duration).elapsed)}
-                  </div>
-                )}
-              </div>
-
-              {/* Time Display - KEEP THIS */}
-              <div className="flex justify-between text-gray-400 text-xs font-mono mb-2">
-                <span>{formatTime(displayElapsed)}</span>
-                <span>-{formatTime(displayRemaining)}</span>
-              </div>
-
-              {/* Playback Controls */}
-              <div className="flex justify-center items-center gap-12 mb-8 transform -translate-y-4">
-                {/* Previous Track */}
-                <button
-                  onClick={async () => {
-                    await triggerHaptic('light', 'MaximizedPlayer-Previous');
-                    if (onPrevious) onPrevious(); // Fixed: was calling onNext
-                  }}
-                  className="text-white hover:scale-110 transition-transform"
-                  disabled={!onPrevious} // Fixed: was checking !onNext
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" height="32px" viewBox="0 -960 960 960" width="32px" fill="currentColor">
-                    <path d="M220-240v-480h80v480h-80Zm440 0v-480l-360 240 360 240Z"/>
-                  </svg>
-                </button>
-
-                {/* Play/Pause Button */}
-                <PlaybackButton
-                  isPlaying={isPlaying}
-                  onClick={onPlayPause}
-                  size="xlarge"
-                  className="bg-purple-500 hover:scale-105 transition-transform"
-                  hapticLabel="MaximizedPlayer"
-                />
-
-                {/* Next Track */}
-                <button
-                  onClick={async () => {
-                    await triggerHaptic('light', 'MaximizedPlayer-Next');
-                    if (onNext) { // Fixed: was checking onPrevious
-                      onNext(); // Fixed: was calling onPrevious
-                    }
-                  }}
-                  className="text-white hover:scale-110 transition-transform"
-                  disabled={!onNext} // Fixed: was checking !onPrevious
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" height="32px" viewBox="0 -960 960 960" width="32px" fill="currentColor">
-                    <path d="M660-240v-480h80v480h-80ZM220-240v-480l360 240-360 240Z"/>
-                  </svg>
-                </button>
-              </div>
-
-              {/* Secondary Controls - REMOVED THE PIP BUTTON FROM HERE */}
-              <div className="flex justify-center items-center gap-8">
-                {/* No buttons here - removed the redundant PIP button */}
-              </div>
-            </div>
-          </div>
+      <div className="fixed inset-0 z-[100] bg-black will-change-transform flex flex-col overflow-hidden" style={{ backfaceVisibility: 'hidden' }}>
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          {resolvedImageUrl && (
+            <img
+              src={resolvedImageUrl}
+              alt=""
+              className="w-full h-full object-cover scale-125 blur-3xl opacity-35"
+            />
+          )}
+          <div className="absolute inset-0 bg-gradient-to-b from-black/55 via-black/70 to-black" />
         </div>
 
-        {/* Now Playing Bar */}
-        <div className="fixed bottom-0 left-0 right-0 bg-black/80 backdrop-blur-sm border-t border-purple-400/20">
-          <div className="container mx-auto flex items-center justify-between px-4 py-5">
-            <div className="flex-1 min-w-0 mr-4">
-              <div className="text-sm font-mono text-purple-400 truncate">{nft.name}</div>
-            </div>
-            <div className="flex-shrink-0">
-              <button 
-                onClick={handleMinimizeToggle} // Use our working function
-                className="text-purple-400 hover:text-purple-300 p-1 transition-colors"
-                style={{position: 'relative', zIndex: 1000}} // Add z-index to ensure clickability
+        <div
+          className="relative flex-1 flex flex-col overflow-hidden"
+          style={{
+            paddingTop: 'max(0.75rem, env(safe-area-inset-top))',
+            paddingBottom: 'max(1rem, env(safe-area-inset-bottom))',
+          }}
+        >
+          <div className={`px-4 flex justify-between items-center z-10 transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
+            <div className="flex items-center gap-2">
+              {onLikeToggle && (
+                <button
+                  type="button"
+                  onClick={() => onLikeToggle(nft)}
+                  className={`${iconButtonClass} ${isLiked ? 'text-red-500' : ''}`}
+                  aria-label={isLiked ? 'Unlike' : 'Like'}
+                >
+                  {isLiked ? (
+                    <svg xmlns="http://www.w3.org/2000/svg" height="22" viewBox="0 -960 960 960" width="22" fill="currentColor">
+                      <path d="m480-120-58-52q-101-91-167-157T150-447.5Q111-500 95.5-544T80-634q0-94 63-157t157-63q52 0 99 22t81 62q34-40 81-62t99-22q94 0 157 63t63 157q0 46-15.5 90T810-447.5Q771-395 705-329T538-172l-58 52Z"/>
+                    </svg>
+                  ) : (
+                    <svg xmlns="http://www.w3.org/2000/svg" height="22" viewBox="0 -960 960 960" width="22" fill="currentColor">
+                      <path d="m480-120-58-52q-101-91-167-157T150-447.5Q111-500 95.5-544T80-634q0-94 63-157t157-63q52 0 99 22t81 62q34-40 81-62t99-22q94 0 157 63t63 157q0 46-15.5 90T810-447.5Q771-395 705-329T538-172l-58 52Zm0-108q96-86 158-147.5t98-107q36-45.5 50-81t14-70.5q0-60-40-100t-100-40q-47 0-87 26.5T518-680h-76q-15-41-55-67.5T300-774q-60 0-100 40t-40 100q0 35 14 70.5t50 81q36 45.5 98 107T480-228Zm0-273Z"/>
+                    </svg>
+                  )}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setShowInfo(true)}
+                className={iconButtonClass}
+                aria-label="Show NFT information"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" height="20" viewBox="0 -960 960 960" width="20" fill="currentColor">
+                <svg xmlns="http://www.w3.org/2000/svg" height="22" viewBox="0 -960 960 960" width="22" fill="currentColor">
+                  <path d="M440-280h80v-240h-80v240Zm40-320q17 0 28.5-11.5T520-640q0-17-11.5-28.5T480-680q-17 0-28.5 11.5T440-640q0 17 11.5 28.5T480-600Zm0 520q-83 0-156-31.5T197-197q-54-54-85.5-127T80-480q0-83 31.5-156T197-763q54-54 127-85.5T480-880q83 0 156 31.5T763-763q54 54 85.5 127T880-480q0 83-31.5 156T763-197q-54 54-127 85.5T480-80Zm0-80q134 0 227-93t93-227q0-134-93-227t-227-93q-134 0-227 93t-93 227q0 134 93 227t227 93Zm0-320Z"/>
+                </svg>
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const shareText = `Check out "${nft.name}" on @podplayr! ▶️`;
+                  const shareUrl = 'podplayr.xyz';
+                  let shareUrlWithEmbeds = `https://warpcast.com/~/compose?text=${encodeURIComponent(shareText)}&embeds[]=${encodeURIComponent(shareUrl)}`;
+                  if (resolvedImageUrl) {
+                    shareUrlWithEmbeds += `&embeds[]=${encodeURIComponent(resolvedImageUrl)}`;
+                  }
+                  try {
+                    const { sdk } = await import('@farcaster/miniapp-sdk');
+                    await sdk.actions.openUrl(shareUrlWithEmbeds);
+                  } catch (error) {
+                    console.error('Error opening URL:', error);
+                  }
+                }}
+                className={iconButtonClass}
+                aria-label="Share"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" height="22" viewBox="0 -960 960 960" width="22" fill="currentColor">
+                  <path d="M680-80q-50 0-85-35t-35-85q0-6 3-28L282-392q-16 15-37 23.5t-45 8.5q-50 0-85-35t-35-85q0-50 35-85t85-35q24 0 45 8.5t37 23.5l281-164q-2-7-2.5-13.5T560-760q0-50 35-85t85-35q50 0 85 35t35 85q0 50-35 85t-85 35q-24 0-45-8.5T598-672L317-508q2 7 2.5 13.5t.5 14.5q0 8-.5 14.5T317-452l281 164q16-15 37-23.5t45-8.5q50 0 85 35t35 85q0 50-35 85t-85 35Z"/>
+                </svg>
+              </button>
+            </div>
+            <div className="flex items-center gap-2">
+              {showVideoVisually && (
+                <button
+                  type="button"
+                  onClick={handlePictureInPicture}
+                  className={iconButtonClass}
+                  aria-label="Picture in picture"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" height="22" viewBox="0 -960 960 960" width="22" fill="currentColor">
+                    <path d="M160-160q-33 0-56.5-23.5T80-240v-480q0-33 23.5-56.5T160-800h640q33 0 56.5 23.5T880-720v480q0 33-23.5 56.5T800-160H160Zm0-80h640v-480H160v480Zm0 0v-480 480Zm280-200h320v-240H440v240Zm80-80v-80h160l-80-80-80 80Z"/>
+                  </svg>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={handleMinimizeToggle}
+                className={iconButtonClass}
+                aria-label="Minimize player"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" height="22" viewBox="0 -960 960 960" width="22" fill="currentColor">
                   <path d="M480-345 240-585l56-56 184 184 184-184 56 56-240 240Z"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <div className="flex-1 flex items-center justify-center px-5 py-3 overflow-hidden min-h-0">
+            <div className="max-h-full flex items-center justify-center">
+              {hasVideoLayer && (
+                <div style={{ display: showVideoVisually ? 'contents' : 'none' }}>
+                  {renderVideo()}
+                </div>
+              )}
+              {!showVideoVisually && (
+                <div className="relative rounded-3xl overflow-hidden max-h-[58vh] shadow-2xl shadow-purple-900/40 ring-1 ring-white/10">
+                  {(nft.name === 'ACYL RADIO - Hidden Tales' || nft.name === 'ACYL RADIO - WILL01' || nft.name === 'ACYL RADIO - Chili Sounds 🌶️') ? (
+                    <img
+                      src={resolvedImageUrl}
+                      alt={nft.name}
+                      className="w-auto h-auto object-contain rounded-3xl max-h-[58vh]"
+                      width={400}
+                      height={400}
+                      style={{
+                        maxWidth: '90vw',
+                        maxHeight: '58vh',
+                        willChange: 'transform',
+                        transform: 'translateZ(0)',
+                      }}
+                    />
+                  ) : (
+                    <NFTImage
+                      src={resolvedImageUrl}
+                      alt={nft.name}
+                      className="w-auto h-auto object-contain rounded-3xl max-h-[58vh]"
+                      width={400}
+                      height={400}
+                      priority={true}
+                      nft={nft}
+                      key={`thumb-${nft.contract}-${nft.tokenId}`}
+                    />
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="relative flex-none px-6 pt-1">
+            <div className="mb-4 text-center min-w-0">
+              <h2 className="text-white text-lg font-semibold truncate">{nft.name}</h2>
+            </div>
+
+            <div
+              ref={progressBarRef}
+              className={`relative ${isActivelyScrubbingBar ? 'h-3' : 'h-1.5'} bg-white/10 rounded-full mb-2 transition-all duration-150 touch-none`}
+              onTouchStart={handleTouchStart}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
+              onTouchCancel={handleTouchEnd}
+              onClick={async (e) => {
+                await triggerHaptic('light', 'MaximizedPlayer-Seek');
+                if (!e.currentTarget) return;
+                const rect = e.currentTarget.getBoundingClientRect();
+                const percent = (e.clientX - rect.left) / rect.width;
+                if (Number.isFinite(duration) && duration > 0) {
+                  onSeek(duration * percent);
+                }
+              }}
+            >
+              <div
+                className="absolute inset-y-0 left-0 bg-gradient-to-r from-purple-500 to-fuchsia-400 rounded-full"
+                style={{ width: `${progressPercent}%` }}
+              />
+              <div
+                className={`absolute top-1/2 rounded-full bg-white shadow-md shadow-black/40 transform -translate-y-1/2 ${
+                  isActivelyScrubbingBar ? 'h-5 w-5' : 'h-3.5 w-3.5'
+                }`}
+                style={{ left: `calc(${progressPercent}% - ${isActivelyScrubbingBar ? 10 : 7}px)` }}
+              />
+              {isActivelyScrubbingBar && scrubPosition !== null && (
+                <div
+                  className="absolute -top-10 py-1 px-3 bg-black/90 text-white text-sm font-medium rounded-full transform -translate-x-1/2 shadow-lg border border-white/10"
+                  style={{ left: `${safeProgressPercent(scrubPosition, duration)}%` }}
+                >
+                  {formatTime(getDisplayTimes(scrubPosition, duration).elapsed)}
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-between text-white/50 text-xs tabular-nums mb-5">
+              <span>{formatTime(displayElapsed)}</span>
+              <span>-{formatTime(displayRemaining)}</span>
+            </div>
+
+            <div className="flex justify-center items-center gap-10 pb-2">
+              <button
+                type="button"
+                onClick={async () => {
+                  await triggerHaptic('light', 'MaximizedPlayer-Previous');
+                  onPrevious?.();
+                }}
+                className="text-white active:scale-95 transition-transform disabled:opacity-30 touch-manipulation"
+                disabled={!onPrevious}
+                aria-label="Previous"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" height="32" viewBox="0 -960 960 960" width="32" fill="currentColor">
+                  <path d="M220-240v-480h80v480h-80Zm440 0v-480l-360 240 360 240Z"/>
+                </svg>
+              </button>
+
+              <PlaybackButton
+                isPlaying={isPlaying}
+                onClick={onPlayPause}
+                size="xlarge"
+                className="bg-purple-500 shadow-lg shadow-purple-500/40 ring-4 ring-purple-400/25"
+                hapticLabel="MaximizedPlayer"
+              />
+
+              <button
+                type="button"
+                onClick={async () => {
+                  await triggerHaptic('light', 'MaximizedPlayer-Next');
+                  onNext?.();
+                }}
+                className="text-white active:scale-95 transition-transform disabled:opacity-30 touch-manipulation"
+                disabled={!onNext}
+                aria-label="Next"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" height="32" viewBox="0 -960 960 960" width="32" fill="currentColor">
+                  <path d="M660-240v-480h80v480h-80ZM220-240v-480l360 240-360 240Z"/>
                 </svg>
               </button>
             </div>
