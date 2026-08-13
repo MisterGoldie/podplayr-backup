@@ -4,7 +4,7 @@ import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { useToast } from '../../hooks/useToast';
 import Image from 'next/image';
 import type { NFT, UserContext, FarcasterUser, NFTFile } from '../../types/user';
-import { getFollowersCount, getFollowingCount, isUserFollowed, toggleFollowUser, updatePodplayrFollowerCount, PODPLAYR_ACCOUNT, getUserTotalPlays, getUserLikedNFTsCount } from '../../lib/firebase';
+import { getFollowersCount, getFollowingCount, isUserFollowed, toggleFollowUser, PODPLAYR_ACCOUNT, getUserTotalPlays, getUserLikedNFTsCount } from '../../lib/firebase';
 import { optimizeImage } from '../../utils/imageOptimizer';
 import NotificationHeader from '../NotificationHeader';
 import FollowsModal from '../FollowsModal';
@@ -189,16 +189,10 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
       }
       
       try {
-        let followerCount;
-        
-        // Special handling for PODPlayr account
-        if (targetFid === PODPLAYR_ACCOUNT.fid) {
-          // Update and get the accurate follower count for PODPlayr
-          followerCount = await updatePodplayrFollowerCount();
-        } else {
-          // Regular follower count for other users
-          followerCount = await getFollowersCount(targetFid);
-        }
+        // getFollowersCount now reads a cached counter (O(1) after the first
+        // computation) for every user, PODPlayr included — no more special-cased
+        // full recount on every profile view.
+        const followerCount = await getFollowersCount(targetFid);
         
         // Check if user changed during this async operation
         if (targetFid !== currentLoadingFidRef.current) {

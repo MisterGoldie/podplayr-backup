@@ -2092,23 +2092,16 @@ export const followUser = async (currentUserFid: number, userToFollow: Farcaster
       timestamp: serverTimestamp()
     };
     
-    // FIRST ensure the user document exists before attempting to update it
+    // Read the current user's own cached profile (if any) to populate the follower doc.
+    // No existence check needed here — this is a plain read, and every write below
+    // uses setDoc+merge so it's safe regardless of whether these docs exist yet.
     const currentUserSnapshot = await getDoc(currentUserRef);
-    if (!currentUserSnapshot.exists()) {
-      // Create the user document if it doesn't exist yet
-      await setDoc(currentUserRef, {
-        fid: currentUserFid,
-        following_count: 0,
-        follower_count: 0,
-        last_updated: serverTimestamp(),
-        // Add any other default fields needed for a new user
-      });
-      firebaseLogger.info(`Created new user document for FID: ${currentUserFid}`);
-    }
     const currentUserData = currentUserSnapshot.exists() ? currentUserSnapshot.data() : {};
     
-    // Before creating the follower document, fetch fresh profile data
-    let followerData = {
+    // Best-available synchronous data — good enough to commit immediately.
+    // If it's not great (auto-generated username), we refine it in the background below
+    // rather than blocking the whole follow action on a Neynar round trip.
+    const followerData = {
       fid: currentUserFid,
       username: currentUserData.username || `user${currentUserFid}`,
       display_name: currentUserData.display_name || currentUserData.username || `User ${currentUserFid}`,
@@ -2116,99 +2109,81 @@ export const followUser = async (currentUserFid: number, userToFollow: Farcaster
       timestamp: serverTimestamp()
     };
     
-    // IMPORTANT: If username isn't available, fetch it from Neynar
-    if (!followerData.username || followerData.username.startsWith('user')) {
-      try {
-        const neynarKey = process.env.NEXT_PUBLIC_NEYNAR_API_KEY;
-        const profileResponse = await fetchWithRetry(
-          `https://api.neynar.com/v2/farcaster/user/bulk?fids=${currentUserFid}`,
-          {
-            headers: {
-              'accept': 'application/json',
-              'api_key': neynarKey || ''
-            }
-          }
-        );
-        
-        if (profileResponse.ok) {
-          const profileData = await profileResponse.json();
-          if (profileData.users && profileData.users[0]) {
-            const userData = profileData.users[0];
-            followerData = {
-              ...followerData,
-              username: userData.username,
-              display_name: userData.display_name || userData.username,
-              pfp_url: userData.pfp_url || `https://avatar.vercel.sh/${userData.username}`
-            };
-          }
-        }
-      } catch (error) {
-        console.error('Error fetching follower profile:', error);
-        // Continue with basic data if we can't get better data
-      }
-    }
-    
-    // Use a batch write to ensure all operations succeed or fail together
+    // Use a batch write to ensure all operations succeed or fail together.
+    // set()+merge is used for the counters so this never fails just because
+    // the searchedusers doc hasn't been created yet.
     const batch = writeBatch(db);
     batch.set(followingRef, followData);
-    batch.set(followerRef, followerData); // Use the enhanced follower data
-    
-    // Update the following count for the current user
-    batch.update(currentUserRef, {
-      following_count: increment(1)
-    });
-    
-    // Update the follower count for the target user
-    batch.update(targetUserRef, {
-      follower_count: increment(1)
-    });
+    batch.set(followerRef, followerData);
+    batch.set(currentUserRef, { followingCount: increment(1) }, { merge: true });
+    batch.set(targetUserRef, { followerCount: increment(1) }, { merge: true });
     
     // Commit the batch
     await batch.commit();
     firebaseLogger.info(`Successfully followed user ${userToFollow.username}`);
+    
+    // Refine the follower doc's profile info in the background if it looked incomplete.
+    // Doesn't block the follow action on an external API round trip.
+    if (!currentUserData.username || followerData.username.startsWith('user')) {
+      refreshFollowerProfileInBackground(currentUserFid, followerRef);
+    }
   } catch (error) {
     firebaseLogger.error('Error following user:', error);
     throw error;
   }
 };
 
-// Update PODPlayr follower count based on total users in the system
+/** Fire-and-forget: fetch fresher Neynar profile data for a follower doc after the follow already committed. */
+const refreshFollowerProfileInBackground = (fid: number, followerRef: ReturnType<typeof doc>): void => {
+  (async () => {
+    try {
+      const neynarKey = process.env.NEXT_PUBLIC_NEYNAR_API_KEY;
+      const profileResponse = await fetchWithRetry(
+        `https://api.neynar.com/v2/farcaster/user/bulk?fids=${fid}`,
+        {
+          headers: {
+            'accept': 'application/json',
+            'api_key': neynarKey || ''
+          }
+        }
+      );
+      
+      if (profileResponse.ok) {
+        const profileData = await profileResponse.json();
+        const userData = profileData?.users?.[0];
+        if (userData) {
+          await setDoc(followerRef, {
+            username: userData.username,
+            display_name: userData.display_name || userData.username,
+            pfp_url: userData.pfp_url || `https://avatar.vercel.sh/${userData.username}`
+          }, { merge: true });
+        }
+      }
+    } catch (error) {
+      // Non-critical background refresh — the follow itself already succeeded
+      console.error('Error refreshing follower profile in background:', error);
+    }
+  })();
+};
+
+// Manual repair utility for the PODPlayr account specifically: forces a fresh full
+// recount (bypassing the cache) and ensures its searchedusers doc has base profile
+// fields. NOT called on any hot path anymore — followUser/unfollowUser already keep
+// PODPlayr's followerCount correctly incremented for free on every mandatory-follow.
+// Call this by hand only if drift is ever suspected.
 export const updatePodplayrFollowerCount = async (): Promise<number> => {
   try {
-    console.log('Updating PODPlayr follower count based on total users');
+    const followerCount = await recomputeFollowerCount(PODPLAYR_ACCOUNT.fid);
     
-    // Get the actual follower count from the followers subcollection
-    const followerCount = await getFollowersCount(PODPLAYR_ACCOUNT.fid);
-    console.log(`Found ${followerCount} followers in PODPlayr's followers subcollection`);
+    // Make sure the base profile fields exist (harmless no-op merge if they already do)
+    await setDoc(doc(db, 'searchedusers', PODPLAYR_ACCOUNT.fid.toString()), {
+      fid: PODPLAYR_ACCOUNT.fid,
+      username: PODPLAYR_ACCOUNT.username,
+      display_name: PODPLAYR_ACCOUNT.display_name,
+      pfp_url: PODPLAYR_ACCOUNT.pfp_url,
+    }, { merge: true });
     
-    // Update the PODPlayr account document with the accurate follower count
-    const podplayrDocRef = doc(db, 'searchedusers', PODPLAYR_ACCOUNT.fid.toString());
-    const podplayrDoc = await getDoc(podplayrDocRef);
-    
-    if (podplayrDoc.exists()) {
-      // Update the existing document with the correct follower count
-      await updateDoc(podplayrDocRef, {
-        follower_count: followerCount,
-        pfp_url: PODPLAYR_ACCOUNT.pfp_url // Ensure profile image is up to date
-      });
-      console.log(`Updated PODPlayr follower count to ${followerCount}`);
-    } else {
-      // Create the PODPlayr account document if it doesn't exist
-      await setDoc(podplayrDocRef, {
-        fid: PODPLAYR_ACCOUNT.fid,
-        username: PODPLAYR_ACCOUNT.username,
-        display_name: PODPLAYR_ACCOUNT.display_name,
-        pfp_url: PODPLAYR_ACCOUNT.pfp_url,
-        follower_count: followerCount,
-        following_count: 0,
-        timestamp: serverTimestamp()
-      });
-      console.log(`Created PODPlayr account with follower count ${followerCount}`);
-    }
-    
-    // We don't need to update the followers subcollection here anymore
-    // since we're using the actual followers subcollection count
-    
+    console.log(`Updated PODPlayr follower count to ${followerCount}`);
     return followerCount;
   } catch (error) {
     console.error('Error updating PODPlayr follower count:', error);
@@ -2300,11 +2275,9 @@ export const ensurePodplayrFollow = async (userFid: number): Promise<void> => {
         following_count: 0
       };
       
-      // Force follow the PODPlayr account
+      // Force follow the PODPlayr account. followUser() already atomically
+      // increments PODPlayr's cached followerCount — no separate recompute needed.
       await followUser(userFid, podplayrUser);
-      
-      // Update the PODPlayr follower count to reflect all users
-      await updatePodplayrFollowerCount();
       
       console.log(`Successfully added mandatory follow to PODPlayr for user ${userFid}`);
     } else {
@@ -2315,12 +2288,6 @@ export const ensurePodplayrFollow = async (userFid: number): Promise<void> => {
       await updateDoc(followingRef, {
         pfp_url: PODPLAYR_ACCOUNT.pfp_url
       });
-      
-      // Periodically update the PODPlayr follower count (do this occasionally to keep it accurate)
-      // We use a random check to avoid doing this on every login for performance reasons
-      if (Math.random() < 0.2) { // 20% chance to update on login if already following
-        await updatePodplayrFollowerCount();
-      }
     }
   } catch (error) {
     console.error('Error ensuring PODPlayr follow:', error);
@@ -2350,15 +2317,11 @@ export const unfollowUser = async (currentUserFid: number, userToUnfollow: Farca
     batch.delete(followingRef);
     batch.delete(followerRef);
     
-    // Update the following count for the current user
-    batch.update(currentUserRef, {
-      following_count: increment(-1)
-    });
-    
-    // Update the follower count for the target user
-    batch.update(targetUserRef, {
-      follower_count: increment(-1)
-    });
+    // set()+merge (not update()) so this never fails just because the
+    // searchedusers doc doesn't exist yet — previously this could throw and
+    // abort the whole batch (including the actual unfollow) in that case.
+    batch.set(currentUserRef, { followingCount: increment(-1) }, { merge: true });
+    batch.set(targetUserRef, { followerCount: increment(-1) }, { merge: true });
     
     // Commit the batch
     await batch.commit();
@@ -2448,59 +2411,94 @@ export const getFollowingUsers = async (currentUserFid: number): Promise<Followe
   }
 };
 
-// Get the count of users that the current user is following
-export const getFollowingCount = async (userFid: number): Promise<number> => {
+/** Paginated full count of a users/{fid}/{subcollection} — expensive, only meant to be called once per fid to seed the cached counter. */
+const countSubcollection = async (fid: number, subcollection: 'following' | 'followers'): Promise<number> => {
+  const colRef = collection(db, 'users', fid.toString(), subcollection);
+  let q = query(colRef, limit(500));
+  let lastDoc = null;
+  let total = 0;
+  let hasMoreDocs = true;
+  
+  while (hasMoreDocs) {
+    if (lastDoc) {
+      q = query(colRef, startAfter(lastDoc), limit(500));
+    }
+    
+    const querySnapshot = await getDocs(q);
+    const batchSize = querySnapshot.size;
+    total += batchSize;
+    
+    if (batchSize < 500) {
+      hasMoreDocs = false;
+    } else {
+      lastDoc = querySnapshot.docs[querySnapshot.docs.length - 1];
+    }
+  }
+  
+  return total;
+};
+
+/** Manual repair utility: force a fresh full recount and re-cache it. Not on any hot path — call by hand if drift is ever suspected. */
+export const recomputeFollowingCount = async (userFid: number): Promise<number> => {
   try {
-    const followingRef = collection(db, 'users', userFid.toString(), 'following');
-    const querySnapshot = await getDocs(followingRef);
-    return querySnapshot.size;
+    const total = await countSubcollection(userFid, 'following');
+    await setDoc(doc(db, 'searchedusers', userFid.toString()), { followingCount: total }, { merge: true });
+    return total;
   } catch (error) {
-    console.error('Error getting following count:', error);
+    console.error('Error recomputing following count:', error);
     return 0;
   }
 };
 
-// Get the count of users that follow the current user
-export const getFollowersCount = async (userFid: number): Promise<number> => {
+/** Manual repair utility: force a fresh full recount and re-cache it. Not on any hot path — call by hand if drift is ever suspected. */
+export const recomputeFollowerCount = async (userFid: number): Promise<number> => {
   try {
-    // For ALL accounts (including PODPlayr) - count followers subcollection with pagination
-    const followersRef = collection(db, 'users', userFid.toString(), 'followers');
-    
-    // Use pagination for followers to ensure accurate count
-    let q = query(followersRef, limit(500));
-    let lastDoc = null;
-    let totalFollowers = 0;
-    let hasMoreDocs = true;
-    
-    while (hasMoreDocs) {
-      if (lastDoc) {
-        q = query(followersRef, startAfter(lastDoc), limit(500));
-      }
-      
-      const querySnapshot = await getDocs(q);
-      const batchSize = querySnapshot.size;
-      totalFollowers += batchSize;
-      
-      if (batchSize < 500) {
-        hasMoreDocs = false;
-      } else {
-        lastDoc = querySnapshot.docs[querySnapshot.docs.length - 1];
-      }
-      
-      // Log progress for debugging
-      firebaseLogger.info(`Fetched batch of ${batchSize} followers for user ${userFid}, running total: ${totalFollowers}`);
-    }
-    
-    // Special logging for PODPlayr account
-    if (userFid === PODPLAYR_ACCOUNT.fid) {
-      firebaseLogger.info(`PODPlayr followers count from subcollection: ${totalFollowers}`);
-    }
-    
-    return totalFollowers;
+    const total = await countSubcollection(userFid, 'followers');
+    await setDoc(doc(db, 'searchedusers', userFid.toString()), { followerCount: total }, { merge: true });
+    firebaseLogger.info(`Recomputed follower count for ${userFid}: ${total}`);
+    return total;
   } catch (error) {
-    console.error('Error getting followers count:', error);
+    console.error('Error recomputing follower count:', error);
     return 0;
   }
+};
+
+// Get the count of users that the current user is following
+export const getFollowingCount = async (userFid: number): Promise<number> => {
+  if (!userFid) return 0;
+  return deduplicateCall(`followingCount-${userFid}`, async () => {
+    try {
+      const userDoc = await getDoc(doc(db, 'searchedusers', userFid.toString()));
+      const cached = userDoc.exists() ? userDoc.data().followingCount : undefined;
+      if (typeof cached === 'number') {
+        return cached;
+      }
+      // Never computed under the current scheme yet — scan once and cache for next time.
+      return await recomputeFollowingCount(userFid);
+    } catch (error) {
+      console.error('Error getting following count:', error);
+      return 0;
+    }
+  });
+};
+
+// Get the count of users that follow the current user
+export const getFollowersCount = async (userFid: number): Promise<number> => {
+  if (!userFid) return 0;
+  return deduplicateCall(`followerCount-${userFid}`, async () => {
+    try {
+      const userDoc = await getDoc(doc(db, 'searchedusers', userFid.toString()));
+      const cached = userDoc.exists() ? userDoc.data().followerCount : undefined;
+      if (typeof cached === 'number') {
+        return cached;
+      }
+      // Never computed under the current scheme yet — scan once and cache for next time.
+      return await recomputeFollowerCount(userFid);
+    } catch (error) {
+      console.error('Error getting followers count:', error);
+      return 0;
+    }
+  });
 };
 
 // Get all users that follow the current user
@@ -3139,6 +3137,11 @@ export const searchUsers = async (queryString: string): Promise<FarcasterUser[]>
   }
 };
 
+// Short TTL cache so reopening the same Followers modal shortly after doesn't
+// repeat the whole Firestore + Neynar refresh dance.
+const followerProfilesCache = new Map<number, { data: FollowedUser[]; timestamp: number }>();
+const FOLLOWER_PROFILES_CACHE_TTL = 2 * 60 * 1000; // 2 minutes
+
 // Enhance the getFollowerProfiles function to always fetch complete profiles
 export async function getFollowerProfiles(targetFid: number): Promise<FollowedUser[]> {
   if (!targetFid) {
@@ -3146,98 +3149,123 @@ export async function getFollowerProfiles(targetFid: number): Promise<FollowedUs
     return [];
   }
   
-  try {
-    // Fetch followers from Firestore first
-    const followersRef = collection(db, 'users', targetFid.toString(), 'followers');
-    const snapshot = await getDocs(followersRef);
-    
-    // Create a Map to maintain unique FIDs and their basic profile data
-    const followersMap = new Map<number, FollowedUser>();
-    const followerFids: number[] = [];
-    
-    // Process followers from the database
-    snapshot.forEach(doc => {
-      const data = doc.data();
-      if (data.fid) {
-        followersMap.set(data.fid, {
-          fid: data.fid,
-          username: data.username || `user${data.fid}`,
-          display_name: data.display_name || data.username || `User ${data.fid}`,
-          pfp_url: data.pfp_url || `https://avatar.vercel.sh/${data.username || data.fid}`,
-          timestamp: data.timestamp?.toDate() || new Date()
-        });
-        followerFids.push(data.fid);
-      }
-    });
-    
-    // CRITICAL: Always fetch latest profiles from Neynar API to ensure we have current data
-    if (followerFids.length > 0) {
-      try {
-        const neynarKey = process.env.NEXT_PUBLIC_NEYNAR_API_KEY;
-        if (!neynarKey) throw new Error('Neynar API key not found');
-        
-        // Batch profiles in groups of 50 (Neynar API limit)
-        const batchSize = 50;
-        for (let i = 0; i < followerFids.length; i += batchSize) {
-          const batch = followerFids.slice(i, i + batchSize);
-          const fidsParam = batch.join(',');
+  const cached = followerProfilesCache.get(targetFid);
+  if (cached && Date.now() - cached.timestamp < FOLLOWER_PROFILES_CACHE_TTL) {
+    return cached.data;
+  }
+  
+  return deduplicateCall(`followerProfiles-${targetFid}`, async () => {
+    try {
+      // Fetch followers from Firestore first
+      const followersRef = collection(db, 'users', targetFid.toString(), 'followers');
+      const snapshot = await getDocs(followersRef);
+      
+      // Create a Map to maintain unique FIDs and their basic profile data
+      const followersMap = new Map<number, FollowedUser>();
+      const followerFids: number[] = [];
+      
+      // Process followers from the database
+      snapshot.forEach(doc => {
+        const data = doc.data();
+        if (data.fid) {
+          followersMap.set(data.fid, {
+            fid: data.fid,
+            username: data.username || `user${data.fid}`,
+            display_name: data.display_name || data.username || `User ${data.fid}`,
+            pfp_url: data.pfp_url || `https://avatar.vercel.sh/${data.username || data.fid}`,
+            timestamp: data.timestamp?.toDate() || new Date()
+          });
+          followerFids.push(data.fid);
+        }
+      });
+      
+      // CRITICAL: Always fetch latest profiles from Neynar API to ensure we have current data
+      if (followerFids.length > 0) {
+        try {
+          const neynarKey = process.env.NEXT_PUBLIC_NEYNAR_API_KEY;
+          if (!neynarKey) throw new Error('Neynar API key not found');
           
-          // Fetch the latest profiles from Neynar API
-          const profileResponse = await fetchWithRetry(
-            `https://api.neynar.com/v2/farcaster/user/bulk?fids=${fidsParam}`,
-            {
-              headers: {
-                'accept': 'application/json',
-                'api_key': neynarKey
-              }
-            }
-          );
-
-          if (profileResponse.ok) {
-            const profileData = await profileResponse.json();
-            
-            // Update the followers Map with complete profile data
-            if (profileData && profileData.users) {
-              for (const user of profileData.users) {
-                if (followersMap.has(user.fid)) {
-                  console.log(`Updating follower profile for FID ${user.fid}: ${user.username}`);
-                  
-                  // Get the existing data so we preserve the timestamp
-                  const existingData = followersMap.get(user.fid)!;
-                  
-                  // Update with fresh data from API
-                  followersMap.set(user.fid, {
-                    ...existingData,
-                    username: user.username,
-                    display_name: user.display_name || user.username,
-                    pfp_url: user.pfp_url || `https://avatar.vercel.sh/${user.username}`
-                  });
-                  
-                  // IMPORTANT: Also update the stored follower data in Firestore
-                  // This ensures future queries have the latest profile info
-                  const followerRef = doc(db, 'users', targetFid.toString(), 'followers', user.fid.toString());
-                  await updateDoc(followerRef, {
-                    username: user.username,
-                    display_name: user.display_name || user.username,
-                    pfp_url: user.pfp_url || `https://avatar.vercel.sh/${user.username}`
-                  });
+          // Batch profiles in groups of 50 (Neynar API limit) — fetched in parallel
+          // instead of sequentially, since each batch is independent.
+          const batchSize = 50;
+          const fidBatches: number[][] = [];
+          for (let i = 0; i < followerFids.length; i += batchSize) {
+            fidBatches.push(followerFids.slice(i, i + batchSize));
+          }
+          
+          const batchResults = await Promise.all(
+            fidBatches.map(async (batch) => {
+              try {
+                const profileResponse = await fetchWithRetry(
+                  `https://api.neynar.com/v2/farcaster/user/bulk?fids=${batch.join(',')}`,
+                  {
+                    headers: {
+                      'accept': 'application/json',
+                      'api_key': neynarKey
+                    }
+                  }
+                );
+                if (profileResponse.ok) {
+                  const profileData = await profileResponse.json();
+                  return profileData?.users || [];
                 }
+                return [];
+              } catch (batchError) {
+                console.error('Error fetching Neynar profile batch:', batchError);
+                return [];
               }
+            })
+          );
+          
+          // Update the followers Map with complete profile data, and collect
+          // the writes needed to refresh Firestore's cached copies.
+          const refreshedFids: number[] = [];
+          for (const user of batchResults.flat()) {
+            if (followersMap.has(user.fid)) {
+              const existingData = followersMap.get(user.fid)!;
+              followersMap.set(user.fid, {
+                ...existingData,
+                username: user.username,
+                display_name: user.display_name || user.username,
+                pfp_url: user.pfp_url || `https://avatar.vercel.sh/${user.username}`
+              });
+              refreshedFids.push(user.fid);
             }
           }
+          
+          // Persist the refreshed profiles back to Firestore in batched writes
+          // (Firestore batches cap at 500 operations) instead of one sequential
+          // updateDoc per follower.
+          const writeChunkSize = 450;
+          for (let i = 0; i < refreshedFids.length; i += writeChunkSize) {
+            const chunk = refreshedFids.slice(i, i + writeChunkSize);
+            const writeBatchOp = writeBatch(db);
+            for (const fid of chunk) {
+              const followerData = followersMap.get(fid)!;
+              const followerRef = doc(db, 'users', targetFid.toString(), 'followers', fid.toString());
+              writeBatchOp.set(followerRef, {
+                username: followerData.username,
+                display_name: followerData.display_name,
+                pfp_url: followerData.pfp_url
+              }, { merge: true });
+            }
+            await writeBatchOp.commit();
+          }
+        } catch (apiError) {
+          console.error('Error fetching complete profiles from Neynar:', apiError);
+          // Continue with the basic profiles we have as fallback
         }
-      } catch (apiError) {
-        console.error('Error fetching complete profiles from Neynar:', apiError);
-        // Continue with the basic profiles we have as fallback
       }
+      
+      // Sort by display name or username for consistent order
+      const result = Array.from(followersMap.values()).sort((a, b) => 
+        (a.display_name || a.username).localeCompare(b.display_name || b.username)
+      );
+      followerProfilesCache.set(targetFid, { data: result, timestamp: Date.now() });
+      return result;
+    } catch (error) {
+      console.error('Error getting follower profiles:', error);
+      return [];
     }
-    
-    // Sort by display name or username for consistent order
-    return Array.from(followersMap.values()).sort((a, b) => 
-      (a.display_name || a.username).localeCompare(b.display_name || b.username)
-    );
-  } catch (error) {
-    console.error('Error getting follower profiles:', error);
-    return [];
-  }
+  });
 }

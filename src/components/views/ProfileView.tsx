@@ -6,7 +6,7 @@ import Image from 'next/image';
 import { VirtualizedNFTGrid } from '../nft/VirtualizedNFTGrid';
 import type { NFT, FarcasterUser } from '../../types/user';
 import type { FarcasterUserContext, FarcasterClientContext, FarcasterLocationContext } from '../../app/providers';
-import { getLikedNFTs, getFollowersCount, getFollowingCount, updatePodplayrFollowerCount } from '../../lib/firebase';
+import { getLikedNFTs, getFollowersCount, getFollowingCount } from '../../lib/firebase';
 import { uploadProfileBackground } from '../../firebase';
 import { optimizeImage } from '../../utils/imageOptimizer';
 import { getMediaKey } from '../../utils/media';

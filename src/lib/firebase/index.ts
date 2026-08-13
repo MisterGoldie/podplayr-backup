@@ -31,22 +31,6 @@ export {
   subscribeToLikedNFTs
 } from './likes';
 
-// Export from social module
-export {
-  followUser,
-  unfollowUser,
-  isUserFollowed,
-  toggleFollowUser,
-  getFollowingUsers,
-  getFollowingCount,
-  getFollowersCount,
-  getFollowers,
-  subscribeToFollowingUsers,
-  subscribeToFollowers,
-  ensurePodplayrFollow,
-  updatePodplayrFollowerCount
-} from './social';
-
 // Export from storage module
 export {
   uploadFile,

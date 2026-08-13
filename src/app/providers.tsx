@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { isFarcasterMiniApp } from '../utils/platform';
-import { updatePodplayrFollowerCount, ensurePodplayrFollow } from '../lib/firebase';
+import { ensurePodplayrFollow } from '../lib/firebase';
 import { VideoPlayProvider } from '../contexts/VideoPlayContext';
 import { NFTNotificationProvider } from '../context/NFTNotificationContext';
 import { PlayerProvider } from '../contexts/PlayerContext';
@@ -90,21 +90,12 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
   const { context: miniKitContext } = useMiniKit();
   const [isMiniKit, setIsMiniKit] = useState(false);
 
-  // Update PODPLAYR follower count when the app starts
-  useEffect(() => {
-    const updatePodplayrCount = async () => {
-      try {
-        console.log('App started - updating PODPlayr follower count');
-        const totalUsers = await updatePodplayrFollowerCount();
-        console.log(`PODPlayr follower count updated to ${totalUsers}`);
-      } catch (error) {
-        console.error('Error updating PODPlayr follower count on app start:', error);
-      }
-    }
-    
-    updatePodplayrCount();
-  }, []);
-  
+  // Note: PODPlayr's follower count used to be force-recomputed with a full
+  // subcollection scan on every single app start here. followUser/unfollowUser
+  // now keep the cached counter correct incrementally, and getFollowersCount
+  // reads it in O(1), so this hot-path scan was removed entirely. Use
+  // updatePodplayrFollowerCount() by hand if drift is ever suspected.
+
   // Initialize environment detection.
   // Farcaster's own SDK is checked FIRST and is authoritative: Farcaster
   // clients can also populate a MiniKit-shaped context (they share the same
