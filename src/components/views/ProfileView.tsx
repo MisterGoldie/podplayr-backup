@@ -206,7 +206,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({
       const cached = profileDataCache.get(userFid);
       const now = Date.now();
       
-      if (cached && (now - cached.timestamp) < CACHE_DURATION) {
+      if (cached && cached.nfts.length > 0 && (now - cached.timestamp) < CACHE_DURATION) {
         console.log('✅ Using cached profile data for FID:', userFid);
         setAllUserNFTs(cached.nfts);
         setLikedNFTs(cached.likedNFTs);
@@ -238,15 +238,16 @@ const ProfileView: React.FC<ProfileViewProps> = ({
           mediaKey: nft.mediaKey || getMediaKey(nft)
         }));
         
-        // After successful loading, cache the results
-        profileDataCache.set(userFid, {
-          nfts: nftsWithMediaKey,
-          likedNFTs: [], // Will be populated by liked NFTs effect
-          followerCount: 0, // Will be populated by follow counts effect
-          followingCount: 0, // Will be populated by follow counts effect
-          timestamp: now
-        });
-        
+        if (nftsWithMediaKey.length > 0) {
+          profileDataCache.set(userFid, {
+            nfts: nftsWithMediaKey,
+            likedNFTs: [],
+            followerCount: 0,
+            followingCount: 0,
+            timestamp: now
+          });
+        }
+
         setAllUserNFTs(nftsWithMediaKey);
         setHasCompletedInitialLoad(true);
         

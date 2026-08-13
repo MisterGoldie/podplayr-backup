@@ -1,5 +1,6 @@
 import type { NFT } from '../types/user';
 import { Alchemy, Network } from 'alchemy-sdk';
+import { createHash } from 'crypto';
 import { processMediaUrl, getMediaKey } from '../utils/media';
 import {
   hasPlayableAudio,
@@ -8,6 +9,28 @@ import {
 } from '../utils/isMediaNFT';
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+const PINATA_IPFS = 'https://gateway.pinata.cloud/ipfs/';
+
+/** Server-safe URL rewrite. `processMediaUrl` lives in a client module and throws in API routes. */
+function normalizeOwnedNftUrl(url: string): string {
+  if (!url || typeof url !== 'string') return '';
+  if (url.startsWith('ipfs://')) {
+    return `${PINATA_IPFS}${url.slice(7).replace(/^ipfs\//, '')}`;
+  }
+  if (url.startsWith('ar://')) {
+    return `https://arweave.net/${url.slice(5)}`;
+  }
+  return url.replace(/\/ipfs\/ipfs\//g, '/ipfs/');
+}
+
+function ownedNftMediaKey(contract: string, tokenId: string): string {
+  const normalizedTokenId = tokenId?.toString().replace(/^0x+/, '0x') || '';
+  return createHash('sha256')
+    .update(`${contract}-${normalizedTokenId}`)
+    .digest('hex')
+    .substring(0, 32);
+}
 
 // Initialize Alchemy clients for both networks
 const ethAlchemy = new Alchemy({
@@ -189,9 +212,10 @@ export const fetchOwnedNftsFromAlchemy = async (address: string): Promise<NFT[]>
           imageUrl?: string;
         };
       };
-      id: {
+      id?: {
         tokenId: string;
       };
+      tokenId?: string;
       title?: string;
       description?: string;
       metadata?: {
@@ -226,19 +250,17 @@ export const fetchOwnedNftsFromAlchemy = async (address: string): Promise<NFT[]>
         const meta = nft.metadata || {};
         const plan = getNftPlaybackPlan({ metadata: meta });
         const soundRaw = plan.audioUrl || plan.videoUrl || '';
-        const audioUrl = processMediaUrl(soundRaw, '', 'audio');
-        const videoUrl = plan.videoUrl ? processMediaUrl(plan.videoUrl, '', 'audio') : '';
-        const imageUrl = processMediaUrl(
+        const audioUrl = normalizeOwnedNftUrl(soundRaw);
+        const videoUrl = plan.videoUrl ? normalizeOwnedNftUrl(plan.videoUrl) : '';
+        const imageUrl = normalizeOwnedNftUrl(
           meta.image ||
           meta.image_url ||
           meta.properties?.image ||
           meta.properties?.visual?.url ||
-          '',
-          '',
-          'image'
+          ''
         );
 
-        const tokenId = nft.id?.tokenId?.toString()?.replace(/^0x/, '');
+        const tokenId = nft.id?.tokenId?.toString()?.replace(/^0x/, '') || nft.tokenId?.toString()?.replace(/^0x/, '');
         if (!tokenId) {
           console.warn('Missing tokenId for NFT:', nft);
           return null;
@@ -283,15 +305,29 @@ export const fetchOwnedNftsFromAlchemy = async (address: string): Promise<NFT[]>
         };
 
         if (hasAudio || isVideo) {
-          processedNFT.mediaKey = getMediaKey(processedNFT);
+          processedNFT.mediaKey = ownedNftMediaKey(processedNFT.contract, processedNFT.tokenId);
         }
 
         return processedNFT;
     };
 
     const processedNFTs = [
-      ...((ethData.ownedNfts || []) as AlchemyNFT[]).map((nft) => mapAlchemyNft(nft, 'ethereum')),
-      ...((baseData.ownedNfts || []) as AlchemyNFT[]).map((nft) => mapAlchemyNft(nft, 'base')),
+      ...((ethData.ownedNfts || []) as AlchemyNFT[]).map((nft) => {
+        try {
+          return mapAlchemyNft(nft, 'ethereum');
+        } catch (error) {
+          console.warn('Skipped ETH NFT during map:', error);
+          return null;
+        }
+      }),
+      ...((baseData.ownedNfts || []) as AlchemyNFT[]).map((nft) => {
+        try {
+          return mapAlchemyNft(nft, 'base');
+        } catch (error) {
+          console.warn('Skipped Base NFT during map:', error);
+          return null;
+        }
+      }),
     ].filter((nft): nft is NFT => !!nft && isPlayableMediaNFT(nft));
 
     return processedNFTs.map((nft) => ({
