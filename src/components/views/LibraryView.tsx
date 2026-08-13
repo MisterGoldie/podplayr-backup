@@ -82,22 +82,33 @@ interface SimpleNFTCardProps {
 
 // Compact horizontal row layout used only for Library's "list" view mode.
 // Grid view mode renders the shared NFTCard instead (see LibraryView.render).
-class SimpleNFTCard extends React.Component<SimpleNFTCardProps> {
-  render() {
-    const { nft, onPlay, isPlaying, currentlyPlaying, animationDelay = 0 } = this.props;
-    const isCurrentTrack = currentlyPlaying === getMediaKey(nft);
+class SimpleNFTCard extends React.Component<SimpleNFTCardProps, { hasEntered: boolean }> {
+  state = { hasEntered: false };
+  private enterTimer: number | undefined;
+  private enterStyle = this.props.animationDelay
+    ? { animationDelay: `${this.props.animationDelay}s` }
+    : undefined;
 
-    // Add animation styles
-    const animationStyle = {
-      opacity: 0,
-      transform: 'translateY(20px)',
-      animation: `fadeInUp 0.5s ease-out ${animationDelay}s forwards`
-    };
+  componentDidMount() {
+    const delayMs = (this.props.animationDelay || 0) * 1000 + 500;
+    this.enterTimer = window.setTimeout(() => this.setState({ hasEntered: true }), delayMs);
+  }
+
+  componentWillUnmount() {
+    if (this.enterTimer) window.clearTimeout(this.enterTimer);
+  }
+
+  render() {
+    const { nft, onPlay, isPlaying, currentlyPlaying } = this.props;
+    const isCurrentTrack = currentlyPlaying === getMediaKey(nft);
 
     return (
       <div 
-        className="bg-gray-800/30 rounded-lg p-3 flex items-center gap-4 group hover:bg-gray-800/50 transition-colors"
-        style={animationStyle}
+        className={`bg-gray-800/30 rounded-lg p-3 flex items-center gap-4 group hover:bg-gray-800/50 transition-colors${this.state.hasEntered ? '' : ' nft-card-enter'}`}
+        style={this.state.hasEntered ? undefined : this.enterStyle}
+        onAnimationEnd={(event) => {
+          if (event.target === event.currentTarget) this.setState({ hasEntered: true });
+        }}
       >
         {/* Thumbnail */}
         <div className="w-12 h-12 rounded-md overflow-hidden flex-shrink-0">
@@ -380,24 +391,8 @@ class LibraryView extends React.Component<LibraryViewProps> {
     const uniqueNFTs = this.getUniqueNFTs();
     const filteredNFTs = this.getFilteredNFTs();
 
-    // Add the keyframes style to the component
-    const animationKeyframes = `
-      @keyframes fadeInUp {
-        from {
-          opacity: 0;
-          transform: translateY(20px);
-        }
-        to {
-          opacity: 1;
-          transform: translateY(0);
-        }
-      }
-    `;
-
     return (
       <>
-        <style>{animationKeyframes}</style>
-  
         {/* Header - EXACTLY matching HomeView */}
         <header className="fixed top-0 left-0 right-0 h-16 bg-black border-b border-black flex items-center justify-center z-50">
           <button 

@@ -24,18 +24,7 @@ interface VirtualizedNFTGridProps {
   showLibraryBadge?: boolean;
 }
 
-const animationKeyframes = `
-  @keyframes fadeInUp {
-    from {
-      opacity: 0;
-      transform: translateY(20px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-`;
+const gridLogger = logger.getModuleLogger('virtualizedNFTGrid');
 
 export const VirtualizedNFTGrid: React.FC<VirtualizedNFTGridProps> = ({
   nfts,
@@ -61,12 +50,24 @@ export const VirtualizedNFTGrid: React.FC<VirtualizedNFTGridProps> = ({
     return isNFTLiked(nftToCheck, true);
   }, [isNFTLiked]);
 
-  const gridLogger = logger.getModuleLogger('virtualizedNFTGrid');
+  const handlePlay = useCallback(async (played: NFT) => {
+    const currentIndex = nfts.findIndex(
+      (item) => getMediaKey(item) === getMediaKey(played)
+    );
+
+    if (currentIndex !== -1) {
+      gridLogger.info('Predictively preloading next NFTs', {
+        currentNFT: played.name || 'Unknown NFT',
+        currentIndex,
+      });
+      predictivePreload(nfts, currentIndex);
+    }
+
+    await onPlayNFT(played);
+  }, [nfts, onPlayNFT]);
 
   return (
     <>
-      <style>{animationKeyframes}</style>
-
       {visibleNFTs.map((nft, index) => {
         const staggerDelay = 0.05 * (index % 8) + 0.2;
         const uniqueKey = nft.mediaKey || `${nft.contract}-${nft.tokenId}`;
@@ -76,21 +77,7 @@ export const VirtualizedNFTGrid: React.FC<VirtualizedNFTGridProps> = ({
           <ErrorBoundary key={`boundary-${stableKey}`}>
             <NFTCard
               nft={nft}
-              onPlay={async (played) => {
-                const currentIndex = nfts.findIndex(
-                  (item) => getMediaKey(item) === getMediaKey(played)
-                );
-
-                if (currentIndex !== -1) {
-                  gridLogger.info('Predictively preloading next NFTs', {
-                    currentNFT: played.name || 'Unknown NFT',
-                    currentIndex,
-                  });
-                  predictivePreload(nfts, currentIndex);
-                }
-
-                await onPlayNFT(played);
-              }}
+              onPlay={handlePlay}
               isPlaying={isPlaying}
               currentlyPlaying={currentlyPlaying}
               handlePlayPause={handlePlayPause}

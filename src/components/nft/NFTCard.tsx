@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useFarcasterContext } from '~/app/providers';
 import { NFT } from '~/types/nft';
 import { useNFTLikeState } from '~/hooks/useNFTLikeState';
@@ -23,16 +23,12 @@ interface NFTCardProps {
   showLibraryBadge?: boolean;
 }
 
-export const NFTCard: React.FC<NFTCardProps> = ({ 
+const NFTCardInner: React.FC<NFTCardProps> = ({ 
   nft,
   onPlay,
-  isPlaying,
-  currentlyPlaying,
-  handlePlayPause,
   onLikeToggle,
   userFid,
   isNFTLiked,
-  playCountBadge,
   animationDelay = 0,
   smallCard,
   showLibraryBadge = false
@@ -67,6 +63,18 @@ export const NFTCard: React.FC<NFTCardProps> = ({
   });
 
   const rawImageUrl = nft.image || nft.metadata?.image || '';
+  const [hasEntered, setHasEntered] = useState(false);
+  const enterStyleRef = useRef(
+    animationDelay ? { animationDelay: `${animationDelay}s` } : undefined
+  );
+
+  useEffect(() => {
+    const timeout = window.setTimeout(
+      () => setHasEntered(true),
+      (animationDelay || 0) * 1000 + 500
+    );
+    return () => window.clearTimeout(timeout);
+  }, [animationDelay]);
 
   const handlePlay = () => {
     if (onPlay) {
@@ -91,9 +99,12 @@ export const NFTCard: React.FC<NFTCardProps> = ({
 
   return (
     <div 
-      className="relative group cursor-pointer nft-card-enter" 
+      className={`relative group cursor-pointer${hasEntered ? '' : ' nft-card-enter'}`} 
       onClick={handlePlay}
-      style={animationDelay ? { animationDelay: `${animationDelay}s` } : undefined}
+      onAnimationEnd={(event) => {
+        if (event.target === event.currentTarget) setHasEntered(true);
+      }}
+      style={hasEntered ? undefined : enterStyleRef.current}
     >
         <div className="aspect-square rounded-lg overflow-hidden bg-gray-800/20 shadow-lg relative">
           <NFTImage
@@ -144,3 +155,18 @@ export const NFTCard: React.FC<NFTCardProps> = ({
     </div>
   );
 };
+
+function areNftCardsEqual(prev: NFTCardProps, next: NFTCardProps) {
+  return (
+    prev.nft === next.nft &&
+    prev.userFid === next.userFid &&
+    prev.smallCard === next.smallCard &&
+    prev.showLibraryBadge === next.showLibraryBadge &&
+    prev.animationDelay === next.animationDelay &&
+    prev.onPlay === next.onPlay &&
+    prev.onLikeToggle === next.onLikeToggle &&
+    prev.isNFTLiked === next.isNFTLiked
+  );
+}
+
+export const NFTCard = React.memo(NFTCardInner, areNftCardsEqual);
