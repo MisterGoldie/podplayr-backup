@@ -1,11 +1,17 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNFTPlayCount } from '../../hooks/useNFTPlayCount';
 import { useNFTLikes } from '../../hooks/useNFTLikes';
 import { useNFTTopPlayed } from '../../hooks/useNFTTopPlayed';
 import type { NFT } from '../../types/user';
 import { getMediaKey } from '../../utils/media';
+import {
+  getNftExplorerLinks,
+  normalizeContractAddress,
+  normalizeNftChain,
+  toDecimalTokenId,
+} from '../../utils/nftExplorerLinks';
 import { NFTImage } from '../media/NFTImage';
 
 interface InfoPanelProps {
@@ -15,14 +21,71 @@ interface InfoPanelProps {
   isLiked?: boolean;
 }
 
+const SKIPPED_PROPERTY_KEYS = new Set([
+  'files',
+  'soundContent',
+  'visual',
+  'audio',
+  'audio_url',
+  'audio_file',
+  'image',
+  'animation_url',
+  'video',
+  'mimeType',
+]);
+
+const DESCRIPTION_CLAMP_CHARS = 160;
+
+function truncateAddress(address: string): string {
+  if (!address) return '';
+  if (address.length <= 13) return address;
+  return `${address.slice(0, 6)}…${address.slice(-4)}`;
+}
+
+function isSimpleValue(value: unknown): value is string | number | boolean {
+  return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean';
+}
+
 const InfoPanel: React.FC<InfoPanelProps> = ({ nft, onClose, isLiked = false }) => {
   const { playCount, loading, realCountIncrease } = useNFTPlayCount(nft);
   const { likesCount, isLoading: likesLoading } = useNFTLikes(nft);
   const { hasBeenInTopPlayed, loading: topPlayedLoading } = useNFTTopPlayed(nft);
   const [isClosing, setIsClosing] = useState(false);
-
   const [isPlayCountAnimating, setIsPlayCountAnimating] = useState(false);
+  const [descriptionExpanded, setDescriptionExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
+
   const imageSrc = nft.image || nft.metadata?.image || nft.collection?.image || '';
+  const description = nft.description || nft.metadata?.description || '';
+  const descriptionIsLong = description.length > DESCRIPTION_CLAMP_CHARS;
+  const collectionName = nft.collection?.name;
+  const mediaKey = nft.mediaKey || getMediaKey(nft);
+
+  const chain = normalizeNftChain(nft.network);
+  const chainLabel = chain === 'ethereum' ? 'Ethereum' : chain === 'base' ? 'Base' : null;
+
+  const explorer = useMemo(() => getNftExplorerLinks(nft), [nft]);
+  const contract = normalizeContractAddress(nft.contract) || nft.contract || '';
+  const tokenDisplay = toDecimalTokenId(nft.tokenId) || nft.tokenId || '';
+
+  const attributes = useMemo(() => {
+    const attrs = nft.metadata?.attributes;
+    if (!Array.isArray(attrs)) return [];
+    return attrs.filter(
+      (attr) => attr?.trait_type && isSimpleValue(attr.value) && String(attr.value).trim() !== ''
+    );
+  }, [nft.metadata?.attributes]);
+
+  const simpleProperties = useMemo(() => {
+    if (attributes.length > 0) return [];
+    const properties = nft.metadata?.properties;
+    if (!properties || typeof properties !== 'object') return [];
+    return Object.entries(properties).filter(
+      ([key, value]) => !SKIPPED_PROPERTY_KEYS.has(key) && isSimpleValue(value)
+    );
+  }, [attributes.length, nft.metadata?.properties]);
+
+  const showTopPlayed = !topPlayedLoading && hasBeenInTopPlayed;
 
   useEffect(() => {
     if (realCountIncrease) {
@@ -43,148 +106,219 @@ const InfoPanel: React.FC<InfoPanelProps> = ({ nft, onClose, isLiked = false }) 
 
   useEffect(() => {
     setIsClosing(false);
+    setDescriptionExpanded(false);
+    setCopied(false);
   }, [nft]);
+
+  const handleCopyContract = async () => {
+    if (!contract) return;
+    try {
+      await navigator.clipboard.writeText(contract);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    } catch {
+      setCopied(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-[101] flex items-center justify-center px-4 pointer-events-none">
-      <div 
-        className={`absolute inset-0 bg-black/40 backdrop-blur-sm pointer-events-auto ${
+      <div
+        className={`absolute inset-0 bg-black/50 backdrop-blur-sm pointer-events-auto ${
           isClosing ? 'animate-fade-out' : 'animate-fade-in'
         }`}
         onClick={handleClose}
-      ></div>
-      
-      <div 
-        className={`relative bg-gray-900/95 backdrop-blur-lg rounded-xl p-5 shadow-2xl border border-purple-400/30 w-full max-w-sm pointer-events-auto ${
+      />
+
+      <div
+        className={`relative bg-gray-900/95 backdrop-blur-lg rounded-3xl overflow-hidden shadow-2xl shadow-purple-900/40 border border-purple-400/30 w-full max-w-sm pointer-events-auto ${
           isClosing ? 'animate-slide-down' : 'animate-slide-up'
         }`}
       >
-        <div className="flex items-start gap-3 mb-4">
-          <div className="w-12 h-12 rounded-lg overflow-hidden border border-purple-400/30 flex-shrink-0 bg-gray-800">
-            <NFTImage
-              nft={nft}
-              src={imageSrc}
-              alt={nft.name}
-              className="w-full h-full object-cover"
-              width={48}
-              height={48}
-              priority
-              loading="eager"
-            />
-          </div>
-          <div className="flex-1 min-w-0">
-            <h2 className="text-purple-300 font-mono text-base font-semibold truncate">{nft.name}</h2>
-            <div className="flex items-center gap-2 mt-1">
-              <div 
-                className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full transition-all duration-300 ${isPlayCountAnimating ? 'animate-count-updated' : 'bg-purple-500/10'}`}
-                data-media-key={nft.mediaKey || getMediaKey(nft)}
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" height="14" viewBox="0 -960 960 960" width="14" fill="#4ADE80" className="text-green-400">
-                  <path d="M320-200v-560l440 280-440 280Z"/>
-                </svg>
-                <span className={`text-purple-300 text-xs font-mono ${isPlayCountAnimating ? 'animate-text-count-updated' : ''}`}>
-                  {loading ? '...' : `${playCount} plays`}
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className={`flex items-center gap-1.5 ${isLiked ? 'bg-purple-500/20' : 'bg-purple-500/10'} px-2 py-0.5 rounded-full`}>
-                  {isLiked ? (
-                    <svg xmlns="http://www.w3.org/2000/svg" height="14" viewBox="0 -960 960 960" width="14" fill="red" className="text-red-500" data-media-key={nft.mediaKey || getMediaKey(nft)} data-liked="true">
-                      <path d="m480-120-58-52q-101-91-167-157T150-447.5Q111-500 95.5-544T80-634q0-94 63-157t157-63q52 0 99 22t81 62q34-40 81-62t99-22q94 0 157 63t63 157q0 46-15.5 90T810-447.5Q771-395 705-329T538-172l-58 52Z"/>
-                    </svg>
-                  ) : (
-                    <svg xmlns="http://www.w3.org/2000/svg" height="14" viewBox="0 -960 960 960" width="14" fill="currentColor" className="text-purple-400" data-media-key={nft.mediaKey || getMediaKey(nft)} data-liked="false">
-                      <path d="m480-120-58-52q-101-91-167-157T150-447.5Q111-500 95.5-544T80-634q0-94 63-157t157-63q52 0 99 22t81 62q34-40 81-62t99-22q94 0 157 63t63 157q0 46-15.5 90T810-447.5Q771-395 705-329T538-172l-58 52Zm0-108q96-86 158-147.5t98-107q36-45.5 50-81t14-70.5q0-60-40-100t-100-40q-47 0-87 26.5T518-680h-76q-15-41-55-67.5T300-774q-60 0-100 40t-40 100q0 35 14 70.5t50 81q36 45.5 98 107T480-228Zm0-273Z"/>
-                    </svg>
-                  )}
-                  <span className="text-purple-300 text-xs font-mono">
-                    {likesLoading ? '...' : `${likesCount} likes`}
-                  </span>
-                </div>
-                {!topPlayedLoading && hasBeenInTopPlayed && (
-                  <div className="flex items-center gap-1.5 bg-purple-500/10 px-2 py-0.5 rounded-full">
-                    <svg xmlns="http://www.w3.org/2000/svg" height="14" viewBox="0 -960 960 960" width="14" fill="#FFD700" className="text-yellow-400">
-                      <path d="m233-80 65-281L80-550l288-25 112-265 112 265 288 25-218 189 65 281-247-149L233-80Z"/>
-                    </svg>
-                    <span className="text-purple-300 text-xs font-mono">Top Played</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-          <button 
+        <div className="relative h-40 bg-gray-800">
+          <NFTImage
+            nft={nft}
+            src={imageSrc}
+            alt={nft.name}
+            className="w-full h-full object-cover"
+            width={400}
+            height={160}
+            sizes="(max-width: 420px) 100vw, 384px"
+            priority
+            loading="eager"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-gray-900 via-gray-900/55 to-black/10" />
+          <button
             onClick={handleClose}
-            className="text-gray-400 hover:text-purple-300 active:scale-95 transition-all p-3 -mr-3 touch-manipulation rounded-full bg-black/20 backdrop-blur-sm"
+            className="absolute top-3 right-3 z-10 text-white/80 hover:text-white active:scale-95 transition-all p-2 touch-manipulation rounded-full bg-black/50 backdrop-blur-sm border border-white/10"
             style={{ touchAction: 'manipulation' }}
             aria-label="Close info panel"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24" fill="currentColor">
-              <path d="M480-424 284-228q-11 11-28 11t-28-11q-11-11-11-28t11-28l196-196-196-196q-11-11-11-28t11-28q11-11 28-11t28 11l196 196 196-196q11-11 28-11t28 11q11 11 11 28t-11 28L536-480l196 196q11 11 11 28t-11 28q-11 11-28 11t-28-11L480-424Z"/>
+            <svg xmlns="http://www.w3.org/2000/svg" height="20" viewBox="0 -960 960 960" width="20" fill="currentColor">
+              <path d="M480-424 284-228q-11 11-28 11t-28-11q-11-11-11-28t11-28l196-196-196-196q-11-11-11-28t11-28q11-11 28-11t28 11l196 196 196-196q11 11 28-11t28 11q11 11 11 28t-11 28L536-480l196 196q11 11 11 28t-11 28q-11 11-28 11t-28-11L480-424Z"/>
             </svg>
           </button>
         </div>
 
-        <div 
-          className="space-y-4 max-h-[50vh] overflow-y-auto overscroll-contain will-change-scroll pr-2"
-          style={{
-            scrollbarWidth: 'thin',
-            scrollbarColor: 'rgba(168, 85, 247, 0.4) rgba(0, 0, 0, 0.2)',
-            WebkitOverflowScrolling: 'touch',
-            transform: 'translateZ(0)',
-            backfaceVisibility: 'hidden'
-          }}
-        >
-          {(nft.description || nft.metadata?.description) && (
-            <div className="bg-black/30 rounded-lg p-3 border border-purple-400/10">
-              <h3 className="text-purple-300 font-mono text-xs uppercase tracking-wider mb-2">Description</h3>
-              <p className="text-gray-300 text-sm leading-relaxed break-words">{nft.description || nft.metadata?.description}</p>
-            </div>
-          )}
+        <div className="px-5 pt-3 pb-5">
+          <h2 className="text-white text-lg font-semibold leading-snug tracking-tight line-clamp-2">
+            {nft.name}
+          </h2>
+          <div className="mt-1.5 flex items-center gap-2 min-w-0">
+            {collectionName && (
+              <p className="text-purple-200/80 text-sm truncate">{collectionName}</p>
+            )}
+            {collectionName && chainLabel && (
+              <span className="text-purple-400/50 flex-shrink-0">·</span>
+            )}
+            {chainLabel && (
+              <span className="flex-shrink-0 text-[11px] font-medium uppercase tracking-wider text-purple-200 bg-purple-500/20 border border-purple-400/20 rounded-full px-2 py-0.5">
+                {chainLabel}
+              </span>
+            )}
+          </div>
 
-          {nft.metadata?.properties && Object.keys(nft.metadata.properties).length > 0 && (
-            <div className="bg-black/30 rounded-lg p-3 border border-purple-400/10">
-              <h3 className="text-purple-300 font-mono text-xs uppercase tracking-wider mb-3">Properties</h3>
-              <div className="space-y-2">
-                {Object.entries(nft.metadata.properties).map(([key, value]) => (
-                  <div key={key} className="flex justify-between items-center">
-                    <span className="text-purple-400 text-xs font-mono capitalize">{key}</span>
-                    <span className="text-gray-300 text-xs">{String(value)}</span>
-                  </div>
+          <div className={`mt-4 grid gap-2 ${showTopPlayed ? 'grid-cols-3' : 'grid-cols-2'}`}>
+            <div
+              className={`rounded-2xl border px-3 py-2.5 text-center transition-all duration-300 ${
+                isPlayCountAnimating
+                  ? 'animate-count-updated border-purple-400/40'
+                  : 'bg-black/40 border-purple-400/15'
+              }`}
+              data-media-key={mediaKey}
+            >
+              <p className={`text-white text-lg font-semibold tabular-nums leading-none ${isPlayCountAnimating ? 'animate-text-count-updated' : ''}`}>
+                {loading ? '—' : playCount.toLocaleString()}
+              </p>
+              <p className="mt-1.5 text-[10px] uppercase tracking-wider text-purple-300/80">Plays</p>
+            </div>
+            <div
+              className={`rounded-2xl border px-3 py-2.5 text-center ${
+                isLiked ? 'bg-purple-500/15 border-purple-400/25' : 'bg-black/40 border-purple-400/15'
+              }`}
+            >
+              <p className="text-white text-lg font-semibold tabular-nums leading-none flex items-center justify-center gap-1">
+                {isLiked ? (
+                  <svg xmlns="http://www.w3.org/2000/svg" height="16" viewBox="0 -960 960 960" width="16" fill="red" className="text-red-500" data-media-key={mediaKey} data-liked="true">
+                    <path d="m480-120-58-52q-101-91-167-157T150-447.5Q111-500 95.5-544T80-634q0-94 63-157t157-63q52 0 99 22t81 62q34-40 81-62t99-22q94 0 157 63t63 157q0 46-15.5 90T810-447.5Q771-395 705-329T538-172l-58 52Z"/>
+                  </svg>
+                ) : (
+                  <svg xmlns="http://www.w3.org/2000/svg" height="16" viewBox="0 -960 960 960" width="16" fill="currentColor" className="text-purple-400" data-media-key={mediaKey} data-liked="false">
+                    <path d="m480-120-58-52q-101-91-167-157T150-447.5Q111-500 95.5-544T80-634q0-94 63-157t157-63q52 0 99 22t81 62q34-40 81-62t99-22q94 0 157 63t63 157q0 46-15.5 90T810-447.5Q771-395 705-329T538-172l-58 52Zm0-108q96-86 158-147.5t98-107q36-45.5 50-81t14-70.5q0-60-40-100t-100-40q-47 0-87 26.5T518-680h-76q-15-41-55-67.5T300-774q-60 0-100 40t-40 100q0 35 14 70.5t50 81q36 45.5 98 107T480-228Zm0-273Z"/>
+                  </svg>
+                )}
+                <span>{likesLoading ? '—' : likesCount.toLocaleString()}</span>
+              </p>
+              <p className="mt-1.5 text-[10px] uppercase tracking-wider text-purple-300/80">Likes</p>
+            </div>
+            {showTopPlayed && (
+              <div className="rounded-2xl bg-amber-500/10 border border-amber-400/25 px-3 py-2.5 text-center">
+                <p className="flex justify-center">
+                  <svg xmlns="http://www.w3.org/2000/svg" height="18" viewBox="0 -960 960 960" width="18" fill="#FFD700" className="text-yellow-400">
+                    <path d="m233-80 65-281L80-550l288-25 112-265 112 265 288 25-218 189 65 281-247-149L233-80Z"/>
+                  </svg>
+                </p>
+                <p className="mt-1.5 text-[10px] uppercase tracking-wider text-amber-200/90">Top Played</p>
+              </div>
+            )}
+          </div>
+
+          <div
+            className="mt-4 space-y-4 max-h-[42vh] overflow-y-auto overscroll-contain will-change-scroll"
+            style={{
+              scrollbarWidth: 'thin',
+              scrollbarColor: 'rgba(168, 85, 247, 0.4) rgba(0, 0, 0, 0.2)',
+              WebkitOverflowScrolling: 'touch',
+              transform: 'translateZ(0)',
+              backfaceVisibility: 'hidden',
+            }}
+          >
+            {description && (
+              <div>
+                <p
+                  className={`text-gray-300 text-sm leading-relaxed break-words ${
+                    !descriptionExpanded && descriptionIsLong ? 'line-clamp-4' : ''
+                  }`}
+                >
+                  {description}
+                </p>
+                {descriptionIsLong && (
+                  <button
+                    type="button"
+                    onClick={() => setDescriptionExpanded((open) => !open)}
+                    className="mt-1.5 text-purple-300 hover:text-purple-200 text-xs font-medium"
+                  >
+                    {descriptionExpanded ? 'Show less' : 'Show more'}
+                  </button>
+                )}
+              </div>
+            )}
+
+            {attributes.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {attributes.map((attr) => (
+                  <span
+                    key={`${attr.trait_type}-${attr.value}`}
+                    className="inline-flex flex-col rounded-xl bg-black/40 border border-purple-400/15 px-2.5 py-1.5 min-w-0"
+                  >
+                    <span className="text-[10px] uppercase tracking-wider text-purple-400/80 truncate">
+                      {attr.trait_type}
+                    </span>
+                    <span className="text-xs text-gray-200 truncate">{String(attr.value)}</span>
+                  </span>
                 ))}
               </div>
-            </div>
-          )}
+            )}
 
-          <div className="bg-black/30 rounded-lg p-3 border border-purple-400/10 overflow-hidden space-y-3">
-            <div>
-              <h3 className="text-purple-300 font-mono text-xs uppercase tracking-wider mb-2">Contract</h3>
-              <div className="flex items-center gap-2">
-                <p className="text-gray-300 text-sm font-mono break-all">{nft.contract}</p>
-                <button 
-                  className="text-purple-400 hover:text-purple-300 transition-colors"
-                  onClick={() => navigator.clipboard.writeText(nft.contract)}
-                  title="Copy to clipboard"
+            {simpleProperties.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {simpleProperties.map(([key, value]) => (
+                  <span
+                    key={key}
+                    className="inline-flex flex-col rounded-xl bg-black/40 border border-purple-400/15 px-2.5 py-1.5 min-w-0"
+                  >
+                    <span className="text-[10px] uppercase tracking-wider text-purple-400/80 truncate capitalize">
+                      {key}
+                    </span>
+                    <span className="text-xs text-gray-200 truncate">{String(value)}</span>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            <div className="rounded-2xl bg-black/40 border border-purple-400/15 px-3 py-3 space-y-3">
+              <div className="flex items-center justify-between gap-2 min-w-0">
+                <p className="text-gray-300 text-xs truncate">
+                  <span className="text-gray-200">{truncateAddress(contract)}</span>
+                  {tokenDisplay && (
+                    <>
+                      <span className="text-purple-400/50 mx-1.5">·</span>
+                      <span>#{tokenDisplay}</span>
+                    </>
+                  )}
+                </p>
+                <button
+                  type="button"
+                  onClick={handleCopyContract}
+                  className="flex-shrink-0 text-xs font-medium text-purple-300 hover:text-purple-200 transition-colors px-2 py-1 rounded-lg hover:bg-purple-500/10"
+                  title="Copy contract address"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" height="16" viewBox="0 -960 960 960" width="16" fill="currentColor">
-                    <path d="M360-240q-33 0-56.5-23.5T280-320v-480q0-33 23.5-56.5T360-880h360q33 0 56.5 23.5T800-800v480q0 33-23.5 56.5T720-240H360Zm0-80h360v-480H360v480ZM200-80q-33 0-56.5-23.5T120-160v-560h80v560h440v80H200Zm160-240v-480 480Z"/>
-                  </svg>
+                  {copied ? 'Copied' : 'Copy'}
                 </button>
               </div>
-            </div>
-            <div>
-              <h3 className="text-purple-300 font-mono text-xs uppercase tracking-wider mb-2">Token ID</h3>
-              <div className="flex items-center gap-2">
-                <p className="text-gray-300 text-sm font-mono break-all">{nft.tokenId}</p>
-                <button 
-                  className="text-purple-400 hover:text-purple-300 transition-colors"
-                  onClick={() => navigator.clipboard.writeText(nft.tokenId || '')}
-                  title="Copy to clipboard"
+              {explorer.explorerUrl && (
+                <a
+                  href={explorer.explorerUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-1.5 w-full bg-purple-600/80 hover:bg-purple-500 text-white text-sm font-medium py-2 rounded-xl transition-colors"
                 >
+                  View on {explorer.explorerName}
                   <svg xmlns="http://www.w3.org/2000/svg" height="16" viewBox="0 -960 960 960" width="16" fill="currentColor">
-                    <path d="M360-240q-33 0-56.5-23.5T280-320v-480q0-33 23.5-56.5T360-880h360q33 0 56.5 23.5T800-800v480q0 33-23.5 56.5T720-240H360Zm0-80h360v-480H360v480ZM200-80q-33 0-56.5-23.5T120-160v-560h80v560h440v80H200Zm160-240v-480 480Z"/>
+                    <path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h280v80H200v560h560v-280h80v280q0 33-23.5 56.5T760-120H200Zm188-212-56-56 372-372H560v-80h280v280h-80v-144L388-332Z"/>
                   </svg>
-                </button>
-              </div>
+                </a>
+              )}
             </div>
           </div>
         </div>
