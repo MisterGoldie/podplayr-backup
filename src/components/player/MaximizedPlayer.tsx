@@ -79,6 +79,10 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
   const [pipActive, setPipActive] = useState(false);
   const [resolvedImageUrl, setResolvedImageUrl] = useState<string>('');
   const [videoLayerFailed, setVideoLayerFailed] = useState(false);
+  // True once a speculative (extensionless-URL) video has empirically proven it has
+  // real video frames. Until then we keep the video element mounted (so it can load
+  // in the background) but hidden, showing the card image instead of a blank box.
+  const [speculativeVideoConfirmed, setSpeculativeVideoConfirmed] = useState(false);
   const syncPlan = getNftPlaybackPlan(nft);
   const [playbackPlan, setPlaybackPlan] = useState(syncPlan);
   // Extensionless sound URL may be a video file (Music Mondays) — try <video> until it errors
@@ -100,9 +104,15 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
           : null))) ||
     null;
   const hasVideoLayer = Boolean(rawVideoSrc);
+  // Only show the video instead of the image once we're sure: either the plan already
+  // knows definitively (non-speculative), or the speculative attempt has empirically
+  // confirmed real video frames. This avoids a blank/black box for extensionless
+  // audio-only files while probing.
+  const showVideoVisually = hasVideoLayer && (!speculativeVideoUrl || speculativeVideoConfirmed);
 
   useEffect(() => {
     setVideoLayerFailed(false);
+    setSpeculativeVideoConfirmed(false);
   }, [nft.contract, nft.tokenId, nft.audio, nft.videoUrl]);
 
   useEffect(() => {
@@ -464,6 +474,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
                 videoUrl: speculativeVideoUrl,
                 muteVideo: true,
               });
+              setSpeculativeVideoConfirmed(true);
             } else if (video.videoWidth === 0 && speculativeVideoUrl) {
               setVideoLayerFailed(true);
             }
@@ -719,7 +730,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
                     </button>
                   )}
                 </div>
-                {hasVideoLayer && (
+                {showVideoVisually && (
                   <button
                     onClick={handlePictureInPicture}
                     className="text-white hover:text-white/80 p-2"
@@ -732,9 +743,14 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
               </div>
 
               <div className={`transition-transform duration-500 ease-in-out transform ${isPlaying ? 'scale-100' : 'scale-90'} max-h-[60vh] flex items-center justify-center`}>
-                {hasVideoLayer ? (
-                  renderVideo()
-                ) : (
+                {/* Mounted (and loading/playing muted) as soon as there's any video candidate, but
+                    only made visible once we're sure it's really video — see showVideoVisually. */}
+                {hasVideoLayer && (
+                  <div style={{ display: showVideoVisually ? 'contents' : 'none' }}>
+                    {renderVideo()}
+                  </div>
+                )}
+                {!showVideoVisually && (
                   <div className="relative rounded-lg overflow-hidden max-h-[60vh]">
                     {/* Special handling for GIF images */}
                     {(nft.name === 'ACYL RADIO - Hidden Tales' || nft.name === 'ACYL RADIO - WILL01' || nft.name === 'ACYL RADIO - Chili Sounds 🌶️') ? (
