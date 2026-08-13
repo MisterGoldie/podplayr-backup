@@ -32,7 +32,6 @@ import { usePlayer, PlayerProvider } from '../contexts/PlayerContext';
 import { useTopPlayedNFTs } from '../hooks/useTopPlayedNFTs';
 import { useFirebase } from '../contexts/FirebaseContext';
 import { UserDataLoader } from './data/UserDataLoader';
-import { videoPerformanceMonitor } from '../utils/videoPerformanceMonitor';
 import { AnimatePresence, motion } from 'framer-motion';
 import NotificationHeader from './NotificationHeader';
 import NFTNotification from './NFTNotification';
@@ -635,15 +634,6 @@ const DemoBase: React.FC = () => {
     }
   }, [currentPlayingNFT, releaseVideoResources, handleDirectVideoPlayback]);
 
-  useEffect(() => {
-    // Initialize video performance monitor on mount
-    // Use a try-catch to prevent any errors from breaking the app
-    try {
-      videoPerformanceMonitor.init();
-    } catch (e) {
-      logger.error('Error initializing video performance monitor:', e);
-    }
-  }, []);
   // Add this near your NFT processing code to reduce redundant checks
   const processNFTs = useCallback((nfts: any[]) => {
     const processedMediaKeys = new Set();

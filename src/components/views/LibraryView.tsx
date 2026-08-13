@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import type { NFT, UserContext } from '../../types/user';
 import { NFTImage } from '../media/NFTImage';
 import { NFTCard } from '../nft/NFTCard';
@@ -126,8 +126,116 @@ class SimpleNFTCard extends React.Component<SimpleNFTCardProps> {
   }
 }
 
+const LIBRARY_PAGE_SIZE = 12;
+
+interface LibraryNFTFeedProps {
+  nfts: NFT[];
+  viewMode: 'grid' | 'list';
+  scrollRootRef: React.RefObject<HTMLDivElement | null>;
+  resetKey: string;
+  isPlaying: boolean;
+  currentlyPlaying: string | null;
+  handlePlayPause: () => void;
+  handlePlayAudio: (nft: NFT, context?: { queue?: NFT[]; queueType?: string }) => Promise<void>;
+  onLikeToggle: (nft: NFT) => Promise<void>;
+  parent: LibraryView;
+}
+
+/** Pages Library cards so mobile doesn't mount every NFTImage on first paint. */
+const LibraryNFTFeed: React.FC<LibraryNFTFeedProps> = ({
+  nfts,
+  viewMode,
+  scrollRootRef,
+  resetKey,
+  isPlaying,
+  currentlyPlaying,
+  handlePlayPause,
+  handlePlayAudio,
+  onLikeToggle,
+  parent,
+}) => {
+  const [visibleCount, setVisibleCount] = useState(() => Math.min(LIBRARY_PAGE_SIZE, nfts.length));
+  const sentinelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setVisibleCount(Math.min(LIBRARY_PAGE_SIZE, nfts.length));
+  }, [resetKey, nfts.length]);
+
+  const count = Math.min(visibleCount, nfts.length);
+  const visibleNFTs = nfts.slice(0, count);
+  const hasMore = count < nfts.length;
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    const root = scrollRootRef.current;
+    if (!sentinel || !root || !hasMore) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setVisibleCount((prev) => Math.min(prev + LIBRARY_PAGE_SIZE, nfts.length));
+        }
+      },
+      { root, rootMargin: '600px 0px', threshold: 0 }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, nfts.length, scrollRootRef]);
+
+  return (
+    <>
+      <div
+        className={`px-4 pb-16 ${viewMode === 'grid' ? 'grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4' : 'space-y-4'}`}
+      >
+        {visibleNFTs.map((nft, index) => {
+          const uniqueKey = nft.contract && nft.tokenId
+            ? `library-${nft.contract}-${nft.tokenId}-${index}`
+            : `library-${getMediaKey(nft)}-${index}`;
+          const staggerDelay = 0.05 * (index % 8);
+
+          if (viewMode === 'grid') {
+            return (
+              <NFTCard
+                key={uniqueKey}
+                nft={nft}
+                onPlay={async (played: NFT) => {
+                  handlePlayAudio(played, { queue: nfts, queueType: 'library' });
+                }}
+                isPlaying={isPlaying}
+                currentlyPlaying={currentlyPlaying}
+                handlePlayPause={handlePlayPause}
+                onLikeToggle={onLikeToggle}
+                isNFTLiked={() => true}
+                animationDelay={staggerDelay}
+              />
+            );
+          }
+
+          return (
+            <SimpleNFTCard
+              key={uniqueKey}
+              nft={nft}
+              onPlay={async (played: NFT) => {
+                handlePlayAudio(played, { queue: nfts, queueType: 'library' });
+              }}
+              isPlaying={isPlaying}
+              currentlyPlaying={currentlyPlaying}
+              onLikeToggle={onLikeToggle}
+              animationDelay={staggerDelay}
+              parent={parent}
+            />
+          );
+        })}
+      </div>
+      {hasMore && <div ref={sentinelRef} className="h-8" aria-hidden="true" />}
+    </>
+  );
+};
+
 // Main LibraryView component as a class component
 class LibraryView extends React.Component<LibraryViewProps> {
+  scrollRootRef = React.createRef<HTMLDivElement>();
+
   // State for the component including notification handling
   state = {
     viewMode: 'grid' as 'grid' | 'list',
@@ -308,6 +416,7 @@ class LibraryView extends React.Component<LibraryViewProps> {
         
         {/* Main content with EXACTLY matching HomeView styling */}
         <div 
+          ref={this.scrollRootRef}
           className={`space-y-4 pt-20 pb-40 overflow-y-auto overscroll-y-contain min-h-screen bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082] h-[calc(100vh-130px)]`}
         >
           {/* Add the NotificationHandler component to handle unlike notifications */}
@@ -391,54 +500,18 @@ class LibraryView extends React.Component<LibraryViewProps> {
               </p>
             </div>
           ) : (
-            <div 
-              className={`px-4 pb-16 ${viewMode === 'grid' ? 'grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4' : 'space-y-4'}`}
-            >
-              {filteredNFTs.map((nft, index) => {
-                const uniqueKey = nft.contract && nft.tokenId 
-                  ? `library-${nft.contract}-${nft.tokenId}-${index}` 
-                  : `library-${index}-${Math.random().toString(36).substr(2, 9)}`;
-                
-                // Calculate a staggered delay based on index
-                // This creates a wave-like appearance as cards animate in
-                const staggerDelay = 0.05 * (index % 8); // Reset every 8 items to keep delays reasonable
-
-                if (viewMode === 'grid') {
-                  // Every NFT here is already liked (it's the Library), so the
-                  // like button always acts as "remove from library".
-                  return (
-                    <NFTCard
-                      key={uniqueKey}
-                      nft={nft}
-                      onPlay={async (nft: NFT) => {
-                        handlePlayAudio(nft, { queue: filteredNFTs, queueType: 'library' });
-                      }}
-                      isPlaying={isPlaying}
-                      currentlyPlaying={currentlyPlaying}
-                      handlePlayPause={handlePlayPause}
-                      onLikeToggle={onLikeToggle}
-                      isNFTLiked={() => true}
-                      animationDelay={staggerDelay}
-                    />
-                  );
-                }
-
-                return (
-                  <SimpleNFTCard
-                    key={uniqueKey}
-                    nft={nft}
-                    onPlay={async (nft: NFT) => {
-                      handlePlayAudio(nft, { queue: filteredNFTs, queueType: 'library' });
-                    }}
-                    isPlaying={isPlaying}
-                    currentlyPlaying={currentlyPlaying}
-                    onLikeToggle={onLikeToggle}
-                    animationDelay={staggerDelay}
-                    parent={this}
-                  />
-                );
-              })}
-            </div>
+            <LibraryNFTFeed
+              nfts={filteredNFTs}
+              viewMode={viewMode}
+              scrollRootRef={this.scrollRootRef}
+              resetKey={`${searchFilter}|${filterSort}`}
+              isPlaying={isPlaying}
+              currentlyPlaying={currentlyPlaying}
+              handlePlayPause={handlePlayPause}
+              handlePlayAudio={handlePlayAudio}
+              onLikeToggle={onLikeToggle}
+              parent={this}
+            />
           )}
         </div>
         
