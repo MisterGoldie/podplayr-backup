@@ -1,7 +1,22 @@
+const path = require('path');
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: false, // ✅ DISABLE FOR NOW
   transpilePackages: ['@base-org/account', '@base-org/account-ui'],
+  // @base-org/account's Node entry pulls @coinbase/cdp-sdk (x402), which webpack
+  // cannot resolve. We only use the browser SDK for Sign in with Base.
+  serverExternalPackages: ['@coinbase/cdp-sdk'],
+  webpack: (config) => {
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      '@base-org/account$': path.resolve(
+        __dirname,
+        'node_modules/@base-org/account/dist/index.js'
+      ),
+    };
+    return config;
+  },
   images: {
     remotePatterns: [
       {

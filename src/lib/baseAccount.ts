@@ -1,4 +1,4 @@
-import { createBaseAccountSDK } from '@base-org/account';
+import { createBaseAccountSDK } from '@base-org/account/browser';
 
 const BASE_CHAIN_ID = '0x2105';
 const WALLET_STORAGE_KEY = 'podplyr_wallet_address';
