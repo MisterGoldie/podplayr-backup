@@ -3,24 +3,9 @@ import "./globals.css";
 import { Providers } from "~/app/providers";
 import { Space_Grotesk } from 'next/font/google';
 import { MiniKitContextProvider } from '../components/providers/MiniKitProvider';
+import { getAppUrl } from '~/lib/miniapp';
 
-const appUrl = process.env.NEXT_PUBLIC_URL;
-
-// Frame configuration following Farcaster Mini App spec
-const frameConfig = {
-  version: "next",
-  imageUrl: `${appUrl}/image.png`,
-  button: {
-    title: "▶️ Enter PODPLAYR",
-    action: {
-      type: "launch_frame",
-      name: "PODPLAYR",
-      url: appUrl,
-      splashImageUrl: `${appUrl}/splash.png`,
-      splashBackgroundColor: "#000000"
-    }
-  }
-};
+const appUrl = getAppUrl();
 
 export const viewport: Viewport = {
   width: 'device-width',
@@ -37,9 +22,6 @@ export const metadata: Metadata = {
     description: "Listen & Watch NFTs on PODPLAYR",
     images: [`${appUrl}/image.png`],
   },
-  other: {
-    'fc:frame': JSON.stringify(frameConfig)
-  }
 };
 
 const spaceGrotesk = Space_Grotesk({

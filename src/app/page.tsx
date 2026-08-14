@@ -1,48 +1,22 @@
-'use client';
+import type { Metadata } from 'next';
+import App from './app';
+import { getServerAppUrl, miniAppMetadataTags } from '~/lib/miniapp';
 
-import App from "./app";
-import { useEffect } from 'react';
-import { useMiniKit } from '@coinbase/onchainkit/minikit';
+export const dynamic = 'force-dynamic';
 
-const appUrl = process.env.NEXT_PUBLIC_URL;
-
-const frame = {
-  version: "next",
-  imageUrl: `${appUrl}/image.png`,
-  button: {
-    title: "Enter PODPLAYR",
-    action: {
-      type: "launch_frame",
-      name: "PODPLAYR",
-      url: appUrl,
-      splashImageUrl: `${appUrl}/splash.png`,
-      splashBackgroundColor: "#000000",
-    },
-  },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const appUrl = await getServerAppUrl();
+  return {
+    title: 'PODPLAYR',
+    other: miniAppMetadataTags({
+      imageUrl: `${appUrl}/image.png`,
+      buttonTitle: '▶️ Enter PODPLAYR',
+      launchUrl: appUrl,
+    }),
+  };
+}
 
 export default function Home() {
-  // Get full MiniKit context as per Base documentation
-  const { context, setFrameReady, isFrameReady } = useMiniKit();
-
-  // Log the MiniKit context for debugging
-  useEffect(() => {
-    if (context) {
-      console.log('🔍 MiniKit Context:', {
-        userFid: context.user?.fid,
-        clientAdded: context.client?.added,
-        location: context.location
-      });
-    }
-  }, [context]);
-
-  // The setFrameReady() function is called when your mini-app is ready to be shown
-  useEffect(() => {
-    if (!isFrameReady) {
-      setFrameReady();
-    }
-  }, [setFrameReady, isFrameReady]);
-
   return (
     <main>
       <App />

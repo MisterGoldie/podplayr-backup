@@ -22,6 +22,7 @@ import { isAcylMember, isOfficialAccount, isPodMember } from '../../constants/co
 import { getBioText } from '../../utils/format';
 import { UserFidContext } from '../../app/providers';
 import { BaseAppSignIn } from '../auth/BaseAppSignIn';
+import { ShareProfileButton } from '../ShareProfileButton';
 
 interface ProfileViewProps {
   farcasterContext: {
@@ -107,7 +108,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({
   isNFTLiked: isNFTLikedProp,
   onUserProfileClick
 }) => {
-  const { walletAddress } = useContext(UserFidContext);
+  const { walletAddress, fid: contextFid } = useContext(UserFidContext);
   const [likedNFTs, setLikedNFTs] = useState<NFT[]>([]);
   const toast = useToast();
   const [isLoading, setIsLoading] = useState(false);
@@ -186,7 +187,10 @@ const ProfileView: React.FC<ProfileViewProps> = ({
   };
 
   // Add this before the useEffect
-  const userFid = React.useMemo(() => farcasterContext.user?.fid, [farcasterContext.user?.fid]);
+  const userFid = React.useMemo(
+    () => farcasterContext.user?.fid || contextFid,
+    [farcasterContext.user?.fid, contextFid]
+  );
 
   // Replace the NFT loading useEffect with cached version:
   useEffect(() => {
@@ -432,6 +436,12 @@ const ProfileView: React.FC<ProfileViewProps> = ({
           <div className="absolute inset-0 bg-gradient-to-t from-[#1E1525] via-[#1E1525]/35 to-black/20" />
           {isUploading && <div className="absolute inset-0 bg-black/40" />}
 
+          {userFid ? (
+            <div className="absolute top-3 right-4 z-10">
+              <ShareProfileButton fid={userFid} username={farcasterContext.user?.username} />
+            </div>
+          ) : null}
+
           {error && (
             <div className="absolute top-4 left-4 right-16 p-2 bg-red-500/80 text-white text-sm rounded-lg z-20">
               {error}
@@ -535,7 +545,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({
             <BaseAppSignIn variant="profile" />
           </div>
 
-          {farcasterContext?.user?.fid && (
+          {userFid ? (
             <div className="flex items-center gap-2 mt-4">
               <button
                 type="button"
@@ -561,13 +571,18 @@ const ProfileView: React.FC<ProfileViewProps> = ({
                   <span className="text-white font-medium">{formatCount(appFollowingCount)}</span> Following
                 </span>
               </button>
+              <ShareProfileButton
+                fid={userFid}
+                username={farcasterContext.user?.username}
+                showLabel
+              />
               {!isLoading && isUserLoggedIn() && (
                 <span className="text-xs text-white/45 px-1">
                   {filteredNFTs.length} {filteredNFTs.length === 1 ? 'media NFT' : 'media NFTs'}
                 </span>
               )}
             </div>
-          )}
+          ) : null}
         </div>
 
         <div className="container mx-auto px-4">

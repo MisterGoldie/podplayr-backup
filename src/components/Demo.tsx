@@ -26,6 +26,7 @@ import { logger } from '../utils/logger';
 import { isNftMediaDead, subscribeToDeadNftUpdates } from '../utils/deadNftRegistry';
 import { UserImageProvider } from '../contexts/UserImageContext';
 import { BaseAppSignIn } from './auth/BaseAppSignIn';
+import { parseProfileFid } from '../lib/miniapp';
 
 const demoLogger = logger.getModuleLogger('demo');
 
@@ -73,7 +74,12 @@ const DemoBase: React.FC = () => {
   const { isFarcaster, user: farcasterUser, client: farcasterClient, location: farcasterLocation } = useContext(FarcasterContext);
   const { fid, isFidReady } = useContext(UserFidContext);
 
-  const [currentPage, setCurrentPage] = useState<PageState>(HOME_PAGE);
+  const [currentPage, setCurrentPage] = useState<PageState>(() => {
+    if (typeof window === 'undefined') return HOME_PAGE;
+    return parseProfileFid(window.location.pathname, window.location.search)
+      ? { ...HOME_PAGE, isHome: false, isUserProfile: true }
+      : HOME_PAGE;
+  });
   const [navigationSource, setNavigationSource] = useState<NavigationSource>({
     fromExplore: false,
     fromProfile: false
@@ -285,16 +291,45 @@ const DemoBase: React.FC = () => {
     }
   }, [handlePlayAudio, currentlyPlaying, currentPlayingNFT]);
 
-  const onReset = useCallback(() => {
-    setCurrentPage(HOME_PAGE);
+  const syncProfileUrl = useCallback((profileFid: number | null) => {
+    if (typeof window === 'undefined') return;
+    const nextPath = profileFid ? `/profile/${profileFid}` : '/';
+    if (window.location.pathname.replace(/\/$/, '') === nextPath.replace(/\/$/, '')) return;
+    window.history.pushState(profileFid ? { profileFid } : {}, '', nextPath);
   }, []);
+
+  const openUserProfile = useCallback((user: FarcasterUser, source: NavigationSource, updateUrl = true) => {
+    setSelectedUser(user);
+    setUserNFTs([]);
+    setUserNftsLoading(true);
+    setNavigationSource(source);
+    setCurrentPage({
+      ...HOME_PAGE,
+      isHome: false,
+      isUserProfile: true,
+    });
+    if (updateUrl) {
+      syncProfileUrl(user.fid);
+    }
+  }, [syncProfileUrl]);
+
+  const closeUserProfile = useCallback((nextPage: PageState = HOME_PAGE) => {
+    setSelectedUser(null);
+    setUserNFTs([]);
+    setUserNftsLoading(false);
+    setNavigationSource({ fromExplore: false, fromProfile: false });
+    setCurrentPage(nextPage);
+    syncProfileUrl(null);
+  }, [syncProfileUrl]);
+
+  const onReset = useCallback(() => {
+    closeUserProfile(HOME_PAGE);
+  }, [closeUserProfile]);
 
   const handleDirectUserSelect = useCallback(async (user: FarcasterUser) => {
     try {
       demoLogger.info(`Selected user: ${user.username}`);
-      setSelectedUser(user);
-      setUserNFTs([]);
-      setUserNftsLoading(true);
+      openUserProfile(user, { fromExplore: true, fromProfile: false });
 
       if (fid && user.fid) {
         try {
@@ -303,13 +338,6 @@ const DemoBase: React.FC = () => {
           demoLogger.error('Error tracking user search:', trackError);
         }
       }
-
-      setNavigationSource({ fromExplore: true, fromProfile: false });
-      setCurrentPage((prev) => ({
-        ...prev,
-        isExplore: false,
-        isUserProfile: true
-      }));
 
       fetchUserNFTs(user.fid).then((nfts) => {
         const deduplicatedNFTs = deduplicateNFTsByMediaKey(nfts);
@@ -324,7 +352,7 @@ const DemoBase: React.FC = () => {
     } catch (selectError) {
       demoLogger.error('Error selecting user:', selectError);
     }
-  }, [fid]);
+  }, [fid, openUserProfile]);
 
   const togglePictureInPicture = useCallback(async () => {
     try {
@@ -350,6 +378,7 @@ const DemoBase: React.FC = () => {
     setSelectedUser(null);
     setUserNFTs([]);
     setUserNftsLoading(false);
+    setNavigationSource({ fromExplore: false, fromProfile: false });
     setCurrentPage({
       isHome: view === 'home',
       isExplore: view === 'explore',
@@ -357,7 +386,60 @@ const DemoBase: React.FC = () => {
       isProfile: view === 'profile',
       isUserProfile: false
     });
-  }, []);
+    syncProfileUrl(null);
+  }, [syncProfileUrl]);
+
+  const loadProfileFromFid = useCallback(async (profileFid: number, updateUrl = false) => {
+    if (selectedUser?.fid === profileFid && currentPage.isUserProfile) return;
+
+    try {
+      const users = await searchUsers(String(profileFid));
+      const user = users[0];
+      if (!user) {
+        demoLogger.warn('No user found for profile fid:', profileFid);
+        setCurrentPage(HOME_PAGE);
+        syncProfileUrl(null);
+        return;
+      }
+
+      openUserProfile(user, { fromExplore: false, fromProfile: false }, updateUrl);
+
+      fetchUserNFTs(user.fid).then((nfts) => {
+        setUserNFTs(deduplicateNFTsByMediaKey(nfts));
+        setUserNftsLoading(false);
+      }).catch((fetchError) => {
+        demoLogger.error('Error loading NFTs for shared profile:', fetchError);
+        setUserNftsLoading(false);
+      });
+    } catch (error) {
+      demoLogger.error('Error loading profile from URL:', error);
+    }
+  }, [currentPage.isUserProfile, openUserProfile, selectedUser?.fid, syncProfileUrl]);
+
+  useEffect(() => {
+    const profileFid = parseProfileFid(window.location.pathname, window.location.search);
+    if (!profileFid) return;
+    void loadProfileFromFid(profileFid);
+  }, [loadProfileFromFid]);
+
+  useEffect(() => {
+    const onPopState = () => {
+      const profileFid = parseProfileFid(window.location.pathname, window.location.search);
+      if (profileFid) {
+        void loadProfileFromFid(profileFid);
+        return;
+      }
+
+      setSelectedUser(null);
+      setUserNFTs([]);
+      setUserNftsLoading(false);
+      setNavigationSource({ fromExplore: false, fromProfile: false });
+      setCurrentPage(HOME_PAGE);
+    };
+
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [loadProfileFromFid]);
 
   const currentViewKey = useMemo((): 'home' | 'explore' | 'library' | 'profile' => {
     if (currentPage.isExplore) return 'explore';
@@ -435,11 +517,14 @@ const DemoBase: React.FC = () => {
             isNFTLiked={isNFTLiked}
             onUserProfileClick={(user) => {
               demoLogger.info('Navigating to user profile from ProfileView modal:', user.username);
-              setSelectedUser(user);
-              setUserNFTs([]);
-              setUserNftsLoading(true);
-              setNavigationSource({ fromExplore: false, fromProfile: true });
-              setCurrentPage((prev) => ({ ...prev, isProfile: false, isUserProfile: true }));
+              openUserProfile(user, { fromExplore: false, fromProfile: true });
+              fetchUserNFTs(user.fid).then((nfts) => {
+                setUserNFTs(deduplicateNFTsByMediaKey(nfts));
+                setUserNftsLoading(false);
+              }).catch((fetchError) => {
+                demoLogger.error('Error loading NFTs for user:', fetchError);
+                setUserNftsLoading(false);
+              });
             }}
           />
         </UserImageProvider>
@@ -455,17 +540,21 @@ const DemoBase: React.FC = () => {
           handlePlayPause={handlePlayPause}
           onReset={onReset}
           onBack={() => {
-            setSelectedUser(null);
-            setUserNFTs([]);
-            setUserNftsLoading(false);
-
             if (navigationSource.fromProfile) {
-              setCurrentPage((prev) => ({ ...prev, isUserProfile: false, isProfile: true }));
+              closeUserProfile({
+                ...HOME_PAGE,
+                isHome: false,
+                isProfile: true,
+              });
+            } else if (navigationSource.fromExplore) {
+              closeUserProfile({
+                ...HOME_PAGE,
+                isHome: false,
+                isExplore: true,
+              });
             } else {
-              setCurrentPage((prev) => ({ ...prev, isUserProfile: false, isExplore: true }));
+              closeUserProfile(HOME_PAGE);
             }
-
-            setNavigationSource({ fromExplore: false, fromProfile: false });
           }}
           currentUserFid={fid || 0}
           onLikeToggle={onLikeToggle}
