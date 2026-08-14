@@ -45,6 +45,7 @@ import {
   PLAYBACK_STALL_MS,
   FIRST_BYTE_FAILOVER_MS,
 } from '../utils/media';
+import { resolveCdnPlaybackUrls } from '../lib/mediaCdn';
 
 function findNftInQueue(queue: NFT[], nft: NFT): number {
   const mediaKey = nft.mediaKey || getMediaKey(nft);
@@ -75,7 +76,7 @@ import { logger } from '../utils/logger';
 import { useToast } from './useToast';
 import { reviveNftMedia } from '../utils/deadNftRegistry';
 import { prioritizeRememberedUrl, rememberWorkingMediaUrl, forgetMediaUrl, getRememberedMediaUrl } from '../utils/gatewayMemory';
-import { playDebugStart, playDebug, audioDebugSnapshot } from '../utils/playDebug';
+import { playDebugStart, playDebug, playbackSpeedLog, shortUrl, audioDebugSnapshot } from '../utils/playDebug';
 
 // Create a dedicated logger for this module
 const audioLogger = logger.getModuleLogger('audioPlayer');
@@ -326,9 +327,18 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       audioLogger.info('Skipping non-playable media NFT', { name: nft.name, url: probeUrl });
       return;
     }
-    if (mediaUrlNeedsMimeProbe(probeUrl)) {
+    const knownMime = String(
+      nft.metadata?.mimeType || nft.metadata?.mime_type || ''
+    ).toLowerCase();
+    if (
+      mediaUrlNeedsMimeProbe(probeUrl) &&
+      !knownMime.startsWith('audio/') &&
+      !knownMime.startsWith('video/')
+    ) {
       playDebug('extensionless media — probing Content-Type');
       plan = await resolveNftPlaybackPlan(nft);
+    } else if (knownMime) {
+      playDebug('skipping MIME probe — metadata already has type', { knownMime });
     }
     applyPlaybackPlanToNft(nft, plan);
     audioLogger.info('NFT playback plan:', {
@@ -356,18 +366,38 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     }
 
     const mediaKeyForMemory = nft.mediaKey || getMediaKey(nft);
-    const playbackUrls = filterLivePlaybackUrls(
+    const cdnUrls = resolveCdnPlaybackUrls(rawAudioUrl, { mobile: isMobile });
+    let playbackUrls = filterLivePlaybackUrls(
       rawAudioUrl,
       prioritizeRememberedUrl(mediaKeyForMemory, 'audio', audioUrls)
         .map(canonicalizeArweaveGatewayUrl)
         .filter((url, index, list) => url && list.indexOf(url) === index)
     );
+    if (cdnUrls.length) {
+      playbackUrls = [
+        ...cdnUrls,
+        ...playbackUrls.filter((url) => !cdnUrls.includes(url)),
+      ];
+    }
+
+    playbackSpeedLog('play start', {
+      name: nft.name,
+      mobile: isMobile,
+      mode: plan.mode,
+      cdnBase: process.env.NEXT_PUBLIC_MEDIA_CDN_BASE || '(not set — using originals)',
+      cdnCount: cdnUrls.length,
+      cdnUrls: cdnUrls.map(shortUrl),
+      originCount: playbackUrls.length - cdnUrls.length,
+      failoverMs: FIRST_BYTE_FAILOVER_MS,
+      firstUrl: shortUrl(playbackUrls[0]),
+    });
 
     playDebug('URLs ready', {
       planMode: plan.mode,
       speculative: false,
       videoUrl: plan.videoUrl,
       raw: rawAudioUrl,
+      cdn: cdnUrls,
       count: playbackUrls.length,
       urls: playbackUrls,
       remembered: getRememberedMediaUrl(mediaKeyForMemory, 'audio'),
@@ -477,6 +507,9 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
           : ensurePlaybackVideoElement(nft.contract, nft.tokenId);
       media = videoEl;
       videoEl.muted = false;
+      videoEl.setAttribute('playsinline', 'true');
+      videoEl.setAttribute('webkit-playsinline', 'true');
+      videoEl.playsInline = true;
       videoEl.preload = 'auto';
       videoEl.loop = false;
       if (isMobile) videoEl.volume = 0.7;
@@ -610,6 +643,11 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
         assignedSrc: media.src,
         ...audioDebugSnapshot(media),
       });
+      playbackSpeedLog(`trying URL ${index + 1}/${playbackUrls.length}`, {
+        source: cdnUrls.includes(nextUrl) ? 'cdn' : 'origin',
+        failoverMs: FIRST_BYTE_FAILOVER_MS,
+        url: shortUrl(nextUrl),
+      });
 
       stallTimerRef.current = setTimeout(() => {
         if (playAttempt !== playAttemptRef.current || playbackStarted) return;
@@ -622,9 +660,24 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       failoverTimerRef.current = setTimeout(() => {
         if (playAttempt !== playAttemptRef.current || playbackStarted) return;
         if (media.readyState > 0) return;
+        // Huge Arweave MP4s stay at readyState 0 for a long time while bytes
+        // are in flight. networkState 2 = actually downloading — do not abort.
+        if (media.networkState === HTMLMediaElement.NETWORK_LOADING || !media.paused) {
+          playbackSpeedLog('failover skipped — still loading', {
+            networkState: media.networkState,
+            paused: media.paused,
+            url: shortUrl(playbackUrls[index]),
+          });
+          return;
+        }
         playDebug('no first byte — switching gateway', {
           url: playbackUrls[index],
           ...audioDebugSnapshot(media),
+        });
+        playbackSpeedLog('failover — no first byte', {
+          waitedMs: FIRST_BYTE_FAILOVER_MS,
+          from: shortUrl(playbackUrls[index]),
+          next: shortUrl(playbackUrls[index + 1]),
         });
         tryUrl(index + 1);
       }, FIRST_BYTE_FAILOVER_MS);
@@ -648,6 +701,11 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       }
 
       playDebug(playbackStarted ? 'stream died after start — next gateway' : 'media.onerror', audioDebugSnapshot(media));
+      playbackSpeedLog('media error — next URL', {
+        afterStart: playbackStarted,
+        failed: shortUrl(failedSrc),
+        next: shortUrl(playbackUrls[urlIndex + 1]),
+      });
       rememberDeadGateway(rawAudioUrl, failedSrc);
       playbackStarted = false;
 
@@ -702,6 +760,10 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       playbackStarted = true;
       clearStall();
       playDebug('PLAYING', audioDebugSnapshot(media));
+      playbackSpeedLog('PLAYING', {
+        url: shortUrl(media.currentSrc || media.src),
+        readyState: media.readyState,
+      });
       setIsPlaying(true);
       startCompanionVideo();
     };
@@ -749,6 +811,7 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
 
     tryUrl(0);
     playDebug('handlePlayAudio setup done — waiting on network/events');
+    playbackSpeedLog('no gateway race — extra Range probes steal bandwidth from the video download');
 
     // iOS audio unlock only — do not reset video to 0 (desyncs from Audio)
     const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);

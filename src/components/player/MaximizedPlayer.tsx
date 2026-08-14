@@ -352,6 +352,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
             id={`video-${nft.contract}-${nft.tokenId}`}
             data-podplayr-player="1"
             playsInline
+            webkit-playsinline="true"
             preload="auto"
             className="w-auto h-auto object-contain rounded-3xl max-h-[58vh] min-h-[36vh] min-w-[60%] max-w-full shadow-2xl shadow-purple-900/40"
             style={{

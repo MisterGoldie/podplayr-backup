@@ -1,6 +1,7 @@
-/** TEMP play diagnostics. Grep `[PLAY-DEBUG]` / `playDebug` and delete this file when done. */
+/** TEMP play diagnostics. Filter DevTools by `[PLAYBACK-SPEED]` or `[PLAY-DEBUG]`. */
 
 const PREFIX = '[PLAY-DEBUG]';
+const SPEED = '[PLAYBACK-SPEED]';
 
 let attempt = 0;
 let seq = 0;
@@ -21,6 +22,21 @@ export function playDebug(step: string, data?: Record<string, unknown>) {
   } else {
     console.log(`${PREFIX} #${attempt}.${seq} +${ms}ms ${step}`);
   }
+}
+
+/** Filter the console by PLAYBACK-SPEED to see CDN / race / failover only. */
+export function playbackSpeedLog(step: string, data?: Record<string, unknown>) {
+  const ms = t0 ? Math.round(performance.now() - t0) : 0;
+  if (data !== undefined) {
+    console.log(`${SPEED} +${ms}ms ${step}`, data);
+  } else {
+    console.log(`${SPEED} +${ms}ms ${step}`);
+  }
+}
+
+export function shortUrl(url?: string | null): string {
+  if (!url) return '';
+  return url.length > 120 ? `${url.slice(0, 117)}...` : url;
 }
 
 export function audioDebugSnapshot(audio: HTMLMediaElement) {

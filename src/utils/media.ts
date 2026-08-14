@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { NFT as UserNFT } from '../types/user';
 import { v4 as uuidv4 } from 'uuid';
 import { getRememberedMediaUrl } from './gatewayMemory';
+import { playbackSpeedLog, shortUrl } from './playDebug';
 
 // List of reliable IPFS gateways in order of preference
 // Helper function to clean IPFS URLs
@@ -422,9 +423,10 @@ export const processMediaUrl = (url: string, fallbackUrl: string = '/default-nft
 };
 
 export const PLAYBACK_STALL_MS = 2000;
-/** Switch gateway if the current URL never produces a byte (readyState 0). */
+/** Only abandon a URL that is not actually downloading (see failover guard). */
 export const FIRST_BYTE_FAILOVER_MS = 8000;
 export const MAX_PLAYBACK_CANDIDATES = 6;
+const GATEWAY_RACE_MS = 1400;
 
 const PLAYBACK_ARWEAVE_GATEWAYS = [
   'https://turbo-gateway.com/',
@@ -473,11 +475,13 @@ export const buildFastPlaybackUrls = (rawUrl: string): string[] => {
     }
     const { fileTxId, manifestId, filePath } = parseArweaveMediaPath(rawUrl);
     if (fileTxId) {
-      for (const gateway of PLAYBACK_ARWEAVE_GATEWAYS) {
-        push(toArweaveRawUrl(fileTxId, gateway));
-      }
+      // Path URLs first. /raw/ often returns 206 on a Range probe but is not a
+      // playable <video> source (NotSupportedError) for these Featured MP4s.
       for (const gateway of PLAYBACK_ARWEAVE_GATEWAYS) {
         push(`${gateway}${fileTxId}`);
+      }
+      for (const gateway of PLAYBACK_ARWEAVE_GATEWAYS) {
+        push(toArweaveRawUrl(fileTxId, gateway));
       }
     }
     if (manifestId && filePath) {
@@ -497,6 +501,76 @@ export const buildFastPlaybackUrls = (rawUrl: string): string[] => {
   }
   return urls;
 };
+
+/**
+ * Probe first-byte TTFB across gateways in parallel. First success is promoted
+ * so we do not sit on a hung Arweave/IPFS host for the failover timeout.
+ * CORS failures are treated as "unknown" (keep original order).
+ */
+export async function pickFastestPlaybackUrl(
+  urls: string[],
+  timeoutMs = GATEWAY_RACE_MS
+): Promise<string[]> {
+  if (urls.length <= 1) {
+    playbackSpeedLog('gateway race skipped', { reason: 'only one candidate', urls: urls.map(shortUrl) });
+    return urls;
+  }
+
+  playbackSpeedLog('gateway race start', {
+    timeoutMs,
+    count: urls.length,
+    urls: urls.map(shortUrl),
+  });
+
+  const probe = (url: string, signal: AbortSignal): Promise<number> =>
+    new Promise((resolve, reject) => {
+      const started = performance.now();
+      fetch(url, {
+        method: 'GET',
+        headers: { Range: 'bytes=0-1023' },
+        mode: 'cors',
+        signal,
+      })
+        .then((res) => {
+          const ms = Math.round(performance.now() - started);
+          if (res.ok || res.status === 206) {
+            playbackSpeedLog('gateway race probe OK', { ms, status: res.status, url: shortUrl(url) });
+            resolve(ms);
+            return;
+          }
+          playbackSpeedLog('gateway race probe HTTP fail', { ms, status: res.status, url: shortUrl(url) });
+          reject(new Error(String(res.status)));
+        })
+        .catch((err: unknown) => {
+          const ms = Math.round(performance.now() - started);
+          const name = err instanceof Error ? err.name : 'error';
+          const message = err instanceof Error ? err.message : String(err);
+          playbackSpeedLog('gateway race probe fail', { ms, name, message, url: shortUrl(url) });
+          reject(err);
+        });
+    });
+
+  const controllers = urls.map(() => new AbortController());
+  const timer = window.setTimeout(() => {
+    playbackSpeedLog('gateway race timeout — aborting remaining probes', { timeoutMs });
+    controllers.forEach((c) => c.abort());
+  }, timeoutMs);
+
+  try {
+    const winner = await Promise.any(
+      urls.map((url, i) => probe(url, controllers[i].signal).then((ms) => ({ url, ms })))
+    );
+    controllers.forEach((c) => c.abort());
+    playbackSpeedLog('gateway race winner', { ms: Math.round(winner.ms), url: shortUrl(winner.url) });
+    return [winner.url, ...urls.filter((u) => u !== winner.url)];
+  } catch {
+    playbackSpeedLog('gateway race no winner — keeping original order (CORS or all failed)');
+    return urls;
+  } finally {
+    window.clearTimeout(timer);
+    controllers.forEach((c) => c.abort());
+  }
+}
 
 export const abortMediaElement = (el: HTMLMediaElement) => {
   el.pause();

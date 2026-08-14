@@ -13,5 +13,7 @@ declare namespace NodeJS {
     NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: string;
     NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: string;
     NEXT_PUBLIC_FIREBASE_APP_ID: string;
+    /** Origin that hosts transcoded {id}/480p.mp4 (and optional 720p / HLS). */
+    NEXT_PUBLIC_MEDIA_CDN_BASE?: string;
   }
 } 
