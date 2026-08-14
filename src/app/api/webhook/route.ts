@@ -2,7 +2,7 @@ import {
   ParseWebhookEvent,
   parseWebhookEvent,
   verifyAppKeyWithNeynar,
-} from "@farcaster/frame-node";
+} from "@farcaster/miniapp-node";
 import { NextRequest } from "next/server";
 import {
   deleteUserNotificationDetails,
@@ -86,20 +86,20 @@ export async function POST(request: NextRequest) {
 
   try {
     switch (event.event) {
-      case "frame_added":
+      case "miniapp_added":
         if (event.notificationDetails) {
           await setUserNotificationDetails(fid, event.notificationDetails);
           await sendFrameNotification({
             fid,
-            title: "Welcome to Frames v2",
-            body: "Frame is now added to your client",
+            title: "Welcome to PODPLAYR",
+            body: "Mini app is now added to your client",
           });
         } else {
           await deleteUserNotificationDetails(fid);
         }
         break;
 
-      case "frame_removed":
+      case "miniapp_removed":
         await deleteUserNotificationDetails(fid);
         break;
 
