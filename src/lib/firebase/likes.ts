@@ -28,6 +28,7 @@ import type { NFT } from '../../types/user';
 import { db, firebaseLogger } from './config';
 import { v4 as uuidv4 } from 'uuid';
 import { getMediaKey } from '../../utils/media';
+import { applyConfirmedPlayback, hydrateNftPlayback, restoreStoredAnimationUrl, isPlayableMediaNFT } from '../../utils/isMediaNFT';
 
 
 
@@ -198,22 +199,37 @@ export const subscribeToLikedNFTs = (fid: number, callback: (nfts: NFT[]) => voi
       const likedNFTs: NFT[] = snapshot.docs.map(doc => {
         const data = doc.data();
         const mediaKey = doc.id;
-        
-        return {
+        const animationUrl = restoreStoredAnimationUrl(data);
+        const nft = {
           mediaKey,
-          contract: data.contract,
+          contract: data.contract || data.nftContract,
           tokenId: data.tokenId,
           name: data.name || 'Untitled',
           description: data.description || '',
-          image: data.image || '',
-          audio: data.audioUrl || '',
-          metadata: data.metadata || {},
-          ...data
+          image: data.image || data.imageUrl || '',
+          audio: data.audioUrl || data.nft?.audio || '',
+          videoUrl: data.videoUrl || undefined,
+          isVideo: Boolean(data.isVideo),
+          playbackMode: data.playbackMode || undefined,
+          network: data.network,
+          metadata: {
+            ...(data.nft?.metadata || {}),
+            ...(data.metadata || {}),
+            animation_url: animationUrl || data.metadata?.animation_url,
+            ...(data.mediaMime ? { mimeType: data.mediaMime } : {}),
+          },
         } as NFT;
+        if (animationUrl) {
+          nft.metadata = { ...(nft.metadata || {}), animation_url: animationUrl };
+        }
+        hydrateNftPlayback(nft);
+        return nft;
       });
       
       firebaseLogger.info(`Found ${likedNFTs.length} liked NFTs for user ${fid}`);
-      callback(likedNFTs);
+      const playable = likedNFTs.filter(isPlayableMediaNFT);
+      callback(playable);
+      applyConfirmedPlayback(playable, callback);
     } catch (error) {
       firebaseLogger.error('Error in liked NFTs subscription:', error);
       callback([]);
@@ -329,7 +345,12 @@ export const getLikedNFTs = async (userIdOrWallet: number | string): Promise<NFT
         audio: data.audioUrl || '',
         collection: data.collection ? { name: data.collection } : undefined,
         network: data.network,
-        metadata: data.metadata || {}, // Include all metadata
+        metadata: {
+          ...(data.metadata || {}),
+          animation_url:
+            restoreStoredAnimationUrl(data) || data.metadata?.animation_url,
+          ...(data.mediaMime ? { mimeType: data.mediaMime } : {}),
+        },
         // Add timestamp fields for sorting (never fall back to Date.now() —
         // that makes old likes without a stamp look like they were just liked)
         likedAt: data.likedAt || data.timestampISO,
@@ -491,6 +512,7 @@ export const getLikedNFTs = async (userIdOrWallet: number | string): Promise<NFT
         }
       }
       
+      hydrateNftPlayback(nft);
       return nft;
     });
     
@@ -566,10 +588,10 @@ export const getLikedNFTs = async (userIdOrWallet: number | string): Promise<NFT
       }
     }
     
-    likedNFTs = Array.from(uniqueNFTs.values());
+    likedNFTs = Array.from(uniqueNFTs.values()).filter(isPlayableMediaNFT);
     
     // We no longer need to check for permanently removed NFTs
-    // Simply return all NFTs in the user's likes collection
+    // Simply return playable audio/video likes (3D models are excluded)
     
     firebaseLogger.info(`Processed ${likedNFTs.length} liked NFTs after deduplication`);
     return likedNFTs;
@@ -871,6 +893,10 @@ export const toggleLikeNFT = async (nft: NFT, fidOrWalletAddress: number | strin
         description: nft.description || '',
         image: nft.image || '',
         audioUrl: nft.audio || '',
+        animationUrl: nft.metadata?.animation_url || '',
+        videoUrl: nft.videoUrl || '',
+        isVideo: Boolean(nft.isVideo),
+        playbackMode: nft.playbackMode || '',
         metadata: nft.metadata || {},
         timestamp: serverTimestamp(),
         network: nft.network,
@@ -1160,6 +1186,10 @@ export const addLikedNFT = async (fid: number, nft: NFT): Promise<void> => {
       description: nft.description || (typeof nft.metadata?.description === 'string' ? nft.metadata.description : '') || '',
       image: nft.image || (typeof nft.metadata?.image === 'string' ? nft.metadata.image : '') || '',
       audioUrl: nft.audio || (typeof nft.metadata?.animation_url === 'string' ? nft.metadata.animation_url : '') || '',
+      animationUrl: typeof nft.metadata?.animation_url === 'string' ? nft.metadata.animation_url : '',
+      videoUrl: nft.videoUrl || '',
+      isVideo: Boolean(nft.isVideo),
+      playbackMode: nft.playbackMode || '',
       metadata: nft.metadata || {},
       timestamp: serverTimestamp(),
       network: nft.network,

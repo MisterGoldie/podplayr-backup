@@ -1,11 +1,10 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { NFTImage } from '../media/NFTImage';
-import { processMediaUrl, getMediaKey, formatTime, safeProgressPercent, getDisplayTimes, preloadNftMedia } from '../../utils/media';
-import { applyPlaybackPlanToNft, getNftPlaybackPlan, mediaUrlNeedsMimeProbe, resolveNftPlaybackPlan } from '../../utils/isMediaNFT';
+import { processMediaUrl, getMediaKey, formatTime, safeProgressPercent, getDisplayTimes } from '../../utils/media';
+import { applyPlaybackPlanToNft, getNftPlaybackPlan } from '../../utils/isMediaNFT';
 import type { NFT } from '../../types/user';
 import { logger } from '../../utils/logger';
 import { triggerHaptic } from '../../utils/haptics';
-import { ipfsGatewayManager } from '../../utils/ipfsGatewayManager';
 import { PlaybackButton } from '../buttons/PlaybackButton';
 import InfoPanel from './InfoPanel';
 
@@ -74,12 +73,10 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
   const [longPressTimer, setLongPressTimer] = useState<NodeJS.Timeout | null>(null);
   const progressBarRef = useRef<HTMLDivElement>(null);
   const [pipActive, setPipActive] = useState(false);
-  const [resolvedImageUrl, setResolvedImageUrl] = useState<string>('');
+  const [resolvedImageUrl, setResolvedImageUrl] = useState(() =>
+    nft.image ? processMediaUrl(nft.image, '', 'image') : ''
+  );
   const [videoLayerFailed, setVideoLayerFailed] = useState(false);
-  // True once a speculative (extensionless-URL) video has empirically proven it has
-  // real video frames. Until then we keep the video element mounted (so it can load
-  // in the background) but hidden, showing the card image instead of a blank box.
-  const [speculativeVideoConfirmed, setSpeculativeVideoConfirmed] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
 
   // Keep elapsed/remaining derived from the same floored values so they never drift
@@ -88,71 +85,39 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
   const { elapsed: displayElapsed, remaining: displayRemaining } = getDisplayTimes(displayProgress, duration);
   const syncPlan = getNftPlaybackPlan(nft);
   const [playbackPlan, setPlaybackPlan] = useState(syncPlan);
-  // Extensionless sound URL may be a video file (Music Mondays) — try <video> until it errors
-  const speculativeVideoUrl =
-    !playbackPlan.videoUrl &&
-    !nft.videoUrl &&
-    mediaUrlNeedsMimeProbe(playbackPlan.audioUrl || nft.audio || nft.metadata?.animation_url)
-      ? playbackPlan.audioUrl || nft.audio || nft.metadata?.animation_url || null
-      : null;
-  const rawVideoSrc =
-    (!videoLayerFailed &&
-      (playbackPlan.videoUrl ||
-        nft.videoUrl ||
-        speculativeVideoUrl ||
-        (nft.isVideo &&
-        nft.metadata?.animation_url &&
-        !/\.(mp3|wav|m4a|aac|ogg|flac)(?:\?|#|$)/i.test(nft.metadata.animation_url)
-          ? nft.metadata.animation_url
-          : null))) ||
-    null;
+  const planNftKey = `${nft.contract}-${nft.tokenId}`;
+  const [planForNft, setPlanForNft] = useState(planNftKey);
+  if (planForNft !== planNftKey) {
+    setPlanForNft(planNftKey);
+    setPlaybackPlan(syncPlan);
+  }
+  const rawVideoSrc = (!videoLayerFailed && playbackPlan.videoUrl) || null;
   const hasVideoLayer = Boolean(rawVideoSrc);
-  // Only show the video instead of the image once we're sure: either the plan already
-  // knows definitively (non-speculative), or the speculative attempt has empirically
-  // confirmed real video frames. This avoids a blank/black box for extensionless
-  // audio-only files while probing.
-  const showVideoVisually = hasVideoLayer && (!speculativeVideoUrl || speculativeVideoConfirmed);
+  const showVideoVisually = hasVideoLayer;
 
   useEffect(() => {
     setVideoLayerFailed(false);
-    setSpeculativeVideoConfirmed(false);
   }, [nft.contract, nft.tokenId, nft.audio, nft.videoUrl]);
 
   useEffect(() => {
-    let cancelled = false;
     const sync = getNftPlaybackPlan(nft);
     // Avoid a redundant re-render (and possible reload) when the plan hasn't actually changed
     setPlaybackPlan((prev) =>
-      prev.mode === sync.mode && prev.videoUrl === sync.videoUrl && prev.audioUrl === sync.audioUrl
+      prev.mode === sync.mode &&
+      prev.videoUrl === sync.videoUrl &&
+      prev.audioUrl === sync.audioUrl
         ? prev
         : sync
     );
     if (sync.videoUrl) {
       applyPlaybackPlanToNft(nft, sync);
-      return;
     }
-    resolveNftPlaybackPlan(nft).then((plan) => {
-      if (cancelled) return;
-      applyPlaybackPlanToNft(nft, plan);
-      setPlaybackPlan((prev) =>
-        prev.mode === plan.mode && prev.videoUrl === plan.videoUrl && prev.audioUrl === plan.audioUrl
-          ? prev
-          : plan
-      );
-    });
-    return () => {
-      cancelled = true;
-    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nft.contract, nft.tokenId, nft.audio, nft.videoUrl, nft.isVideo, nft.playbackMode, nft.metadata?.animation_url]);
 
   useEffect(() => {
-    if (nft?.image) {
-      ipfsGatewayManager.resolveIPFSUrl(nft.image).then(url => {
-        setResolvedImageUrl(url);
-      });
-    }
-  }, [nft]);
+    setResolvedImageUrl(nft.image ? processMediaUrl(nft.image, '', 'image') : '');
+  }, [nft.contract, nft.tokenId, nft.image]);
   
   // Auto-hide controls after inactivity
   useEffect(() => {
@@ -355,12 +320,6 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
   // Create a dedicated logger for player
   const playerLogger = logger.getModuleLogger('player');
   
-  useEffect(() => {
-    if (nft) {
-      preloadNftMedia(nft);
-    }
-  }, [nft?.contract, nft?.tokenId]);
-  
   // Track the last logged mediaKey to prevent duplicate logs
   const lastLoggedMediaKeyRef = useRef<string>('');
   
@@ -371,29 +330,60 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
 
     const videoUrl = processMediaUrl(rawVideo, '', 'audio');
     const currentMediaKey = getMediaKey(nft);
+    const videoIsClock = playbackPlan.mode === 'video-with-audio' && !playbackPlan.muteVideo;
 
     if (lastLoggedMediaKeyRef.current !== currentMediaKey) {
       playerLogger.info('Video playback source:', {
         nft: nft.name || 'Unknown NFT',
         mediaKey: currentMediaKey,
         mode: playbackPlan.mode,
+        videoIsClock,
         url: videoUrl,
       });
       lastLoggedMediaKeyRef.current = currentMediaKey;
     }
 
+    if (videoIsClock) {
+      return (
+        <div className="relative w-full h-full flex items-center justify-center">
+          <video
+            key={`${nft.contract}-${nft.tokenId}`}
+            ref={videoRef}
+            id={`video-${nft.contract}-${nft.tokenId}`}
+            data-podplayr-player="1"
+            playsInline
+            preload="auto"
+            className="w-auto h-auto object-contain rounded-3xl max-h-[58vh] min-h-[36vh] min-w-[60%] max-w-full shadow-2xl shadow-purple-900/40"
+            style={{
+              opacity: 1,
+              willChange: 'transform',
+              objectFit: 'contain',
+            }}
+            onLoadedMetadata={() => {
+              const video = videoRef.current;
+              if (!video) return;
+              if (video.videoWidth > 0 && video.videoHeight > 0) {
+                applyPlaybackPlanToNft(nft, playbackPlan);
+              }
+            }}
+          />
+        </div>
+      );
+    }
+
     return (
       <div className="relative w-full h-full flex items-center justify-center">
         <video
+          key={`${nft.contract}-${nft.tokenId}`}
           ref={videoRef}
           id={`video-${nft.contract}-${nft.tokenId}`}
           data-podplayr-player="1"
           src={videoUrl}
           playsInline
           loop
-          muted={true}
+          muted
           autoPlay={isPlaying}
-          preload="metadata"
+          preload="none"
           className="w-auto h-auto object-contain rounded-3xl max-h-[58vh] min-h-[36vh] min-w-[60%] max-w-full shadow-2xl shadow-purple-900/40"
           style={{
             opacity: 1,
@@ -405,11 +395,6 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
             const video = videoRef.current;
             if (!video) return;
             video.muted = true;
-            // NOTE: deliberately NOT seeking here. Many Arweave gateways don't support
-            // HTTP Range requests (confirmed: Range request returns 200, not 206), so
-            // setting currentTime forces a full re-fetch that stalls playback and looks
-            // like the video "skipping". This is a muted cosmetic loop — let it play
-            // from wherever it naturally starts instead of forcing sync to audio time.
             if (isPlaying) {
               video.play().catch((e) => {
                 playerLogger.warn('Video play after load failed:', e);
@@ -430,28 +415,12 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
               mediaKey: getMediaKey(nft),
               error: e.currentTarget.error?.message || 'Unknown error',
             });
-            // Speculative extensionless URL wasn't video — fall back to poster image
             setVideoLayerFailed(true);
           }}
           onLoadedMetadata={() => {
             const video = videoRef.current;
             if (!video) return;
-            // Real video frame (not an audio-only file mistaken as video)
-            if (video.videoWidth > 0 && video.videoHeight > 0 && speculativeVideoUrl) {
-              applyPlaybackPlanToNft(nft, {
-                mode: 'video-with-audio',
-                audioUrl: speculativeVideoUrl,
-                videoUrl: speculativeVideoUrl,
-                muteVideo: true,
-              });
-              setPlaybackPlan({
-                mode: 'video-with-audio',
-                audioUrl: speculativeVideoUrl,
-                videoUrl: speculativeVideoUrl,
-                muteVideo: true,
-              });
-              setSpeculativeVideoConfirmed(true);
-            } else if (video.videoWidth === 0 && speculativeVideoUrl) {
+            if (video.videoWidth === 0) {
               setVideoLayerFailed(true);
             }
           }}
@@ -477,9 +446,9 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
     duration
   );
 
-  // When maximizing mid-playback, isPlaying may already be true — force companion video to start
+  // Companion video only — when the <video> is the playback clock, useAudioPlayer owns play/mute.
   useEffect(() => {
-    if (!hasVideoLayer || !isPlaying) return;
+    if (!hasVideoLayer || !isPlaying || !playbackPlan.muteVideo) return;
 
     let cancelled = false;
     let attempts = 0;
@@ -515,10 +484,11 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [hasVideoLayer, isPlaying, nft.contract, nft.tokenId]);
+  }, [hasVideoLayer, isPlaying, nft.contract, nft.tokenId, playbackPlan.muteVideo]);
 
-  // Mirror play/pause only — do NOT seek here, audio owns the position
+  // Mirror play/pause for muted companion video only.
   useEffect(() => {
+    if (!playbackPlan.muteVideo) return;
     const video = videoRef.current;
     if (!video) return;
     video.muted = true;
@@ -527,7 +497,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
     } else {
       video.pause();
     }
-  }, [isPlaying]);
+  }, [isPlaying, playbackPlan.muteVideo]);
 
   // No drift-correction seeking here — many Arweave gateways don't support Range
   // requests, so any forced currentTime assignment stalls playback (looks like
@@ -713,9 +683,16 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
           </div>
 
           <div className="flex-1 flex items-center justify-center px-5 py-3 overflow-hidden min-h-0">
-            <div className="max-h-full flex items-center justify-center">
+            <div className="max-h-full flex items-center justify-center relative">
               {hasVideoLayer && (
-                <div style={{ display: showVideoVisually ? 'contents' : 'none' }}>
+                <div
+                  className={
+                    showVideoVisually
+                      ? 'contents'
+                      : 'absolute inset-0 opacity-0 pointer-events-none overflow-hidden'
+                  }
+                  aria-hidden={!showVideoVisually}
+                >
                   {renderVideo()}
                 </div>
               )}

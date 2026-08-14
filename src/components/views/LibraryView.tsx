@@ -9,6 +9,7 @@ import NotificationHeader from '../NotificationHeader';
 import NFTNotification from '../NFTNotification';
 import { PAGE_SIZE, usePagedItems } from '../../hooks/usePagedItems';
 import { useNFTLike } from '../../hooks/useNFTLike';
+import { isPlayableMediaNFT } from '../../utils/isMediaNFT';
 
 function getNftLikedTime(nft: NFT): number {
   if (typeof nft.likedTimestamp === 'number' && Number.isFinite(nft.likedTimestamp) && nft.likedTimestamp > 0) {
@@ -275,7 +276,10 @@ const LibraryView: React.FC<LibraryViewProps> = ({
   const [searchFilter, setSearchFilter] = useState('');
   const [filterSort, setFilterSort] = useState<'recent' | 'name'>('recent');
 
-  const uniqueNFTs = useMemo(() => getUniqueLikedNFTs(likedNFTs), [likedNFTs]);
+  const uniqueNFTs = useMemo(
+    () => getUniqueLikedNFTs(likedNFTs).filter(isPlayableMediaNFT),
+    [likedNFTs]
+  );
 
   const filteredNFTs = useMemo(() => {
     const query = searchFilter.trim().toLowerCase();

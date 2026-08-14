@@ -5,6 +5,7 @@ import { MinimizedPlayer } from './MinimizedPlayer';
 import { MaximizedPlayer } from './MaximizedPlayer';
 import type { NFT } from '../../types/user';
 import { UserFidContext } from '../../app/providers';
+import { getNftPlaybackPlan } from '../../utils/isMediaNFT';
 
 interface PlayerProps {
   nft: NFT;
@@ -52,10 +53,15 @@ export const Player: React.FC<PlayerProps> = ({
   // full refetch the next time it's maximized, which is what caused the
   // multi-second reload delay. Before the first maximize we skip mounting it
   // entirely so audio-only listening doesn't pay for video downloads.
-  const [hasMaximizedOnce, setHasMaximizedOnce] = useState(!isMinimized);
+  // Keep the <video> node mounted for video NFTs even while minimized so
+  // picture and sound share one element from the first play().
+  const keepVideoMounted = Boolean(
+    nft.isVideo || nft.videoUrl || getNftPlaybackPlan(nft).videoUrl
+  );
+  const [hasMaximizedOnce, setHasMaximizedOnce] = useState(!isMinimized || keepVideoMounted);
   useEffect(() => {
-    if (!isMinimized) setHasMaximizedOnce(true);
-  }, [isMinimized]);
+    if (!isMinimized || keepVideoMounted) setHasMaximizedOnce(true);
+  }, [isMinimized, keepVideoMounted]);
 
   return (
     <>

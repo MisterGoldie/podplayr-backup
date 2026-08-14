@@ -48,10 +48,7 @@ class IPFSGatewayManager {
   }
 
   private startPeriodicCheck() {
-    if (typeof window === 'undefined') return;
-    setInterval(() => {
-      this.checkGateways();
-    }, this.checkInterval);
+    // Health-check fetches hit CORS and steal bandwidth from playback. Skip them.
   }
 
   private async checkGateway(gateway: string): Promise<boolean> {

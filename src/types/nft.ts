@@ -3,9 +3,12 @@ export interface NFTMetadata {
   description?: string;
   image?: string;
   animation_url?: string;
+  mimeType?: string;
+  mime_type?: string;
   properties?: {
     files?: NFTFile[];
     category?: string;
+    mimeType?: string;
   };
   attributes?: Array<{
     trait_type: string;

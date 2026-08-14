@@ -9,7 +9,7 @@ import { getLikedNFTs, getFollowersCount, getFollowingCount } from '../../lib/fi
 import { uploadProfileBackground } from '../../firebase';
 import { optimizeImage } from '../../utils/imageOptimizer';
 import { getMediaKey } from '../../utils/media';
-import { filterPlayableMediaNFTs } from '../../utils/isMediaNFT';
+import { filterPlayableMediaNFTs, applyConfirmedPlayback, isPlayableMediaNFT } from '../../utils/isMediaNFT';
 import { useUserImages } from '../../contexts/UserImageContext';
 import NotificationHeader from '../NotificationHeader';
 import FollowsModal from '../FollowsModal';
@@ -212,7 +212,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({
       if (cached && cached.nfts.length > 0 && (now - cached.timestamp) < CACHE_DURATION) {
         console.log('✅ Using cached profile data for FID:', userFid);
         setAllUserNFTs(cached.nfts);
-        setLikedNFTs(cached.likedNFTs);
+        setLikedNFTs(cached.likedNFTs.filter(isPlayableMediaNFT));
         setAppFollowerCount(cached.followerCount);
         setAppFollowingCount(cached.followingCount);
         setHasCompletedInitialLoad(true);
@@ -278,7 +278,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({
       
       if (cached && cached.likedNFTs.length > 0 && (now - cached.timestamp) < CACHE_DURATION) {
         console.log('✅ Using cached liked NFTs for FID:', userFid);
-        setLikedNFTs(cached.likedNFTs);
+        setLikedNFTs(cached.likedNFTs.filter(isPlayableMediaNFT));
         return;
       }
       
@@ -287,6 +287,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({
         const liked = await getLikedNFTs(userFid);
         console.log('Loaded liked NFTs for profile view:', liked.length);
         setLikedNFTs(liked);
+        applyConfirmedPlayback(liked, setLikedNFTs);
         
         // Update cache
         if (cached) {

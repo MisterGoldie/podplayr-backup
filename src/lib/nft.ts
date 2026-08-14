@@ -92,7 +92,18 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
     }
 
     const rawMeta = metadata.raw.metadata || {};
-    const plan = getNftPlaybackPlan({ metadata: rawMeta });
+    const alchemyAnimation =
+      (typeof (metadata as { animation?: { originalUrl?: string; cachedUrl?: string } }).animation
+        ?.originalUrl === 'string' &&
+        (metadata as { animation?: { originalUrl?: string } }).animation?.originalUrl) ||
+      (typeof (metadata as { animation?: { cachedUrl?: string } }).animation?.cachedUrl === 'string' &&
+        (metadata as { animation?: { cachedUrl?: string } }).animation?.cachedUrl) ||
+      '';
+    const mergedMeta = {
+      ...rawMeta,
+      animation_url: rawMeta.animation_url || alchemyAnimation || '',
+    };
+    const plan = getNftPlaybackPlan({ metadata: mergedMeta });
     const soundRaw = plan.audioUrl || plan.videoUrl || '';
     const audioUrl = processMediaUrl(soundRaw, '', 'audio');
     const videoUrl = plan.videoUrl ? processMediaUrl(plan.videoUrl, '', 'audio') : '';
@@ -120,7 +131,7 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
       audio: audioUrl || '',
       videoUrl: videoUrl || undefined,
       playbackMode: plan.mode,
-      hasValidAudio: Boolean(audioUrl) || hasPlayableAudio({ audio: audioUrl, metadata: rawMeta }),
+      hasValidAudio: Boolean(audioUrl) || hasPlayableAudio({ audio: audioUrl, metadata: mergedMeta }),
       isVideo: plan.mode !== 'audio-only',
       network,
       collection: {
@@ -128,11 +139,11 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
         image: metadata.contract?.openSeaMetadata?.imageUrl || ''
       },
       metadata: {
-        ...rawMeta,
+        ...mergedMeta,
         image: imageUrl || '',
         // Preserve original animation_url; don't overwrite with audio-only pick
-        animation_url: rawMeta.animation_url || plan.videoUrl || plan.audioUrl || '',
-        audio: rawMeta.audio || (plan.mode === 'video-plus-audio' ? plan.audioUrl : rawMeta.audio) || undefined,
+        animation_url: mergedMeta.animation_url || plan.videoUrl || '',
+        audio: mergedMeta.audio || (plan.mode === 'video-plus-audio' ? plan.audioUrl : mergedMeta.audio) || undefined,
       }
     };
 
@@ -247,6 +258,8 @@ export const fetchOwnedNftsFromAlchemy = async (address: string): Promise<NFT[]>
       tokenId?: string;
       title?: string;
       description?: string;
+      media?: Array<{ gateway?: string; raw?: string; format?: string }>;
+      animation?: { cachedUrl?: string; originalUrl?: string };
       metadata?: {
         name?: string;
         description?: string;
@@ -277,7 +290,22 @@ export const fetchOwnedNftsFromAlchemy = async (address: string): Promise<NFT[]>
 
     const mapAlchemyNft = (nft: AlchemyNFT, network: 'ethereum' | 'base'): NFT | null => {
         const meta = nft.metadata || {};
-        const plan = getNftPlaybackPlan({ metadata: meta });
+        const fromMedia = (nft.media || []).find((m) => {
+          const format = (m.format || '').toLowerCase();
+          return format.includes('mp4') || format.includes('webm') || format.includes('video');
+        });
+        const animationFromAlchemy =
+          meta.animation_url ||
+          nft.animation?.originalUrl ||
+          nft.animation?.cachedUrl ||
+          fromMedia?.raw ||
+          fromMedia?.gateway ||
+          '';
+        const mergedMeta = {
+          ...meta,
+          animation_url: animationFromAlchemy || meta.animation_url || '',
+        };
+        const plan = getNftPlaybackPlan({ metadata: mergedMeta });
         const soundRaw = plan.audioUrl || plan.videoUrl || '';
         const audioUrl = normalizeOwnedNftUrl(soundRaw);
         const videoUrl = plan.videoUrl ? normalizeOwnedNftUrl(plan.videoUrl) : '';
@@ -297,8 +325,8 @@ export const fetchOwnedNftsFromAlchemy = async (address: string): Promise<NFT[]>
 
         const candidate = {
           audio: plan.audioUrl || audioUrl,
-          animationUrl: plan.videoUrl || meta.animation_url,
-          metadata: meta,
+          animationUrl: plan.videoUrl || mergedMeta.animation_url,
+          metadata: mergedMeta,
         };
 
         const hasAudio = Boolean(soundRaw) || hasPlayableAudio(candidate);
@@ -310,7 +338,7 @@ export const fetchOwnedNftsFromAlchemy = async (address: string): Promise<NFT[]>
           name: meta.name || `NFT #${tokenId}`,
           description: meta.description || '',
           image: imageUrl || '',
-          animationUrl: plan.videoUrl || audioUrl || '',
+          animationUrl: mergedMeta.animation_url || plan.videoUrl || '',
           audio: audioUrl || '',
           videoUrl: videoUrl || undefined,
           playbackMode: plan.mode,
@@ -323,13 +351,13 @@ export const fetchOwnedNftsFromAlchemy = async (address: string): Promise<NFT[]>
             name: nft.contract.name || ''
           },
           metadata: {
-            ...meta,
+            ...mergedMeta,
             image: imageUrl || '',
-            animation_url: meta.animation_url || plan.videoUrl || plan.audioUrl || '',
+            animation_url: mergedMeta.animation_url || plan.videoUrl || '',
             audio:
-              meta.audio ||
-              meta.audio_url ||
-              (plan.mode === 'video-plus-audio' ? plan.audioUrl || undefined : meta.audio),
+              mergedMeta.audio ||
+              mergedMeta.audio_url ||
+              (plan.mode === 'video-plus-audio' ? plan.audioUrl || undefined : mergedMeta.audio),
           }
         };
 

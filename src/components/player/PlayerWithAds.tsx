@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { Player } from './Player';
 import { AdPlayer } from './AdPlayer';
 import type { NFT } from '../../types/user';
@@ -21,6 +21,8 @@ interface PlayerWithAdsProps {
   onPictureInPicture?: () => void;
   onPlayNFT: (nft: NFT) => Promise<void>;
   onAdStateChange?: (isAdPlaying: boolean) => void;
+  showAd?: boolean;
+  onAdComplete?: () => void;
 }
 
 const FIRST_AD_MIN = 1;
@@ -33,61 +35,58 @@ function randomInt(min: number, max: number): number {
   return min + Math.floor(Math.random() * (max - min + 1));
 }
 
-export const PlayerWithAds: React.FC<PlayerWithAdsProps> = (props) => {
+/** Pre-roll only: decide before a new play starts. Never inserts mid-track. */
+export function usePrerollAd() {
   const [showAd, setShowAd] = useState(false);
-  const currentNftRef = useRef<string | null>(null);
   const uniquePlaysRef = useRef(0);
   const playsUntilNextAdRef = useRef(randomInt(FIRST_AD_MIN, FIRST_AD_MAX));
   const lastAdAtRef = useRef(0);
-  const onPlayPauseRef = useRef(props.onPlayPause);
-  const onAdStateChangeRef = useRef(props.onAdStateChange);
+  const afterAdRef = useRef<(() => void) | null>(null);
 
-  onPlayPauseRef.current = props.onPlayPause;
-  onAdStateChangeRef.current = props.onAdStateChange;
-
-  useEffect(() => {
-    if (!props.nft || !props.isPlaying || showAd) return;
-
-    const nftId = `${props.nft.contract}-${props.nft.tokenId}`;
-    if (nftId === currentNftRef.current) return;
-    currentNftRef.current = nftId;
-
+  const beforePlay = (run: () => void, pauseCurrent?: () => void) => {
     uniquePlaysRef.current += 1;
-
     const due = uniquePlaysRef.current >= playsUntilNextAdRef.current;
     const cooledDown =
       lastAdAtRef.current === 0 ||
       Date.now() - lastAdAtRef.current >= MIN_MS_BETWEEN_ADS;
 
     if (due && cooledDown) {
+      console.log('[PLAY-DEBUG] preroll ad BEFORE play', {
+        uniquePlays: uniquePlaysRef.current,
+        playsUntilNextAd: playsUntilNextAdRef.current,
+      });
+      afterAdRef.current = run;
+      pauseCurrent?.();
       setShowAd(true);
+      return;
     }
-  }, [props.nft, props.isPlaying, showAd]);
 
-  useEffect(() => {
-    onAdStateChangeRef.current?.(showAd);
-    if (showAd) {
-      onPlayPauseRef.current();
-    }
-  }, [showAd]);
+    run();
+  };
 
-  const handleAdComplete = () => {
+  const onAdComplete = () => {
     lastAdAtRef.current = Date.now();
     playsUntilNextAdRef.current =
       uniquePlaysRef.current + randomInt(NEXT_AD_MIN, NEXT_AD_MAX);
+    const run = afterAdRef.current;
+    afterAdRef.current = null;
     setShowAd(false);
-    onAdStateChangeRef.current?.(false);
-    onPlayPauseRef.current();
+    run?.();
   };
 
+  return { showAd, beforePlay, onAdComplete };
+}
+
+export const PlayerWithAds: React.FC<PlayerWithAdsProps> = (props) => {
+  const { showAd, onAdComplete, onAdStateChange: _onAdStateChange, onPlayNFT: _onPlayNFT, ...playerProps } = props;
+
   if (showAd) {
-    return <AdPlayer onAdComplete={handleAdComplete} />;
+    return <AdPlayer onAdComplete={onAdComplete} />;
   }
 
   if (!props.nft) {
     return null;
   }
 
-  const { onPlayNFT: _onPlayNFT, onAdStateChange: _onAdStateChange, ...playerProps } = props;
   return <Player {...playerProps} nft={props.nft} />;
 };

@@ -29,6 +29,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 // Add import:
 import { getMediaKey } from '../../utils/media';
+import { hydrateNftPlayback, restoreStoredAnimationUrl, confirmAudioOnlyPlayback } from '../../utils/isMediaNFT';
 
 // Track NFT play and update play count globally
 export const trackNFTPlay = async (nft: NFT, fid: number) => {
@@ -324,21 +325,26 @@ export const getTopPlayedNFTs = async (): Promise<{ nft: NFT; count: number }[]>
     
     const topPlayed = snapshot.docs.map((doc, index) => {
       const data = doc.data();
-      
-      // Construct NFT object from the data
+      const animationUrl = restoreStoredAnimationUrl(data);
       const nft: NFT = {
         contract: data.nftContract,
         tokenId: data.tokenId,
         name: data.name || 'Untitled',
         description: data.description || '',
-        image: data.imageUrl || '',
+        image: data.imageUrl || data.image || '',
         audio: data.audioUrl || '',
-        metadata: data.metadata || {},
+        videoUrl: data.videoUrl || undefined,
+        isVideo: Boolean(data.isVideo),
+        playbackMode: data.playbackMode,
+        metadata: {
+          ...(data.metadata || {}),
+          animation_url: animationUrl || data.metadata?.animation_url,
+          ...(data.mediaMime ? { mimeType: data.mediaMime } : {}),
+        },
         network: data.network,
-        isVideo: data.metadata?.animation_url && !data.audioUrl
       };
+      hydrateNftPlayback(nft);
       
-      // If the metadata contains collection info, add it
       if (data.metadata?.collection?.name) {
         nft.collection = {
           name: data.metadata.collection.name,
@@ -352,6 +358,7 @@ export const getTopPlayedNFTs = async (): Promise<{ nft: NFT; count: number }[]>
         rank: index + 1
       };
     });
+    await confirmAudioOnlyPlayback(topPlayed.map((item) => item.nft));
     
     // Also update the rank in Firebase if needed
     for (let i = 0; i < snapshot.docs.length; i++) {

@@ -15,15 +15,17 @@ export const getCleanIPFSUrl = (url: string): string => {
 };
 
 // Prefer gateways that currently resolve and serve NFT media reliably.
-// cloudflare-ipfs.com is dead (ERR_NAME_NOT_RESOLVED). ipfs.io often 504s.
+// cloudflare-ipfs.com is dead (ERR_NAME_NOT_RESOLVED).
+// Pinata is fast when the CID is pinned there; ipfs.io is the public fallback
+// when it is not. nftstorage.link often CORS-blocks browser probes.
 export const PRIMARY_IPFS_GATEWAY = 'https://gateway.pinata.cloud/ipfs/';
 
 export const IPFS_GATEWAYS = [
   'https://gateway.pinata.cloud/ipfs/',
-  'https://dweb.link/ipfs/',
-  'https://nftstorage.link/ipfs/',
   'https://ipfs.io/ipfs/',
   'https://w3s.link/ipfs/',
+  'https://dweb.link/ipfs/',
+  'https://nftstorage.link/ipfs/',
   'https://gateway.ipfs.io/ipfs/',
 ];
 
@@ -48,6 +50,14 @@ export const toIpfsGatewayUrl = (
       }
     })
     .join('/');
+  // Path-style dweb.link/ipfs/CID 301s to CID.ipfs.dweb.link — use the subdomain
+  // so <video>/<audio> and HEAD probes get the file, not an HTML redirect.
+  if (gateway.includes('dweb.link')) {
+    const [cid, ...rest] = encoded.split('/');
+    const suffix = rest.length ? `/${rest.join('/')}` : '';
+    return `https://${cid}.ipfs.dweb.link${suffix}`;
+  }
+
   const base = gateway.endsWith('/') ? gateway : `${gateway}/`;
   return `${base}${encoded}`;
 };
@@ -65,11 +75,12 @@ export const buildIpfsFallbackUrls = (url: string): string[] => {
     urls.push(u);
   };
 
-  for (const gateway of IPFS_GATEWAYS) {
-    push(toIpfsGatewayUrl(path, gateway));
-  }
+  // Whatever gateway the NFT already named is the one most likely to have the CID.
   if (url.startsWith('http://') || url.startsWith('https://')) {
     push(url);
+  }
+  for (const gateway of IPFS_GATEWAYS) {
+    push(toIpfsGatewayUrl(path, gateway));
   }
   return urls;
 };
@@ -410,7 +421,125 @@ export const processMediaUrl = (url: string, fallbackUrl: string = '/default-nft
   return url || fallbackUrl;
 };
 
-// Export the list of gateways so components can try alternatives if needed
+export const PLAYBACK_STALL_MS = 2000;
+/** Switch gateway if the current URL never produces a byte (readyState 0). */
+export const FIRST_BYTE_FAILOVER_MS = 8000;
+export const MAX_PLAYBACK_CANDIDATES = 6;
+
+const PLAYBACK_ARWEAVE_GATEWAYS = [
+  'https://turbo-gateway.com/',
+  'https://permagate.io/',
+  'https://arweave.net/',
+];
+
+/** tx.arweave.net subdomains often fail HTTP2; use the path gateway instead. */
+export const canonicalizeArweaveGatewayUrl = (url: string): string => {
+  if (!url || typeof url !== 'string') return url;
+  try {
+    const parsed = new URL(url);
+    if (
+      parsed.hostname.endsWith('.arweave.net') &&
+      parsed.hostname !== 'arweave.net' &&
+      parsed.hostname !== 'www.arweave.net'
+    ) {
+      const path = parsed.pathname.replace(/^\/+/, '');
+      if (path) return `https://arweave.net/${path}${parsed.search}`;
+    }
+  } catch {
+    return url;
+  }
+  return url;
+};
+
+/** Short candidate list so hanging gateways cannot stall playback for minutes. */
+export const buildFastPlaybackUrls = (rawUrl: string): string[] => {
+  if (!rawUrl || typeof rawUrl !== 'string') return [];
+  rawUrl = canonicalizeArweaveGatewayUrl(rawUrl);
+
+  const urls: string[] = [];
+  const seen = new Set<string>();
+  const push = (url: string) => {
+    if (!url || seen.has(url)) return;
+    seen.add(url);
+    urls.push(url);
+  };
+
+  if (
+    rawUrl.startsWith('ar://') ||
+    /arweave\.(net|dev)|permagate\.io|turbo-gateway\.com|irys\.xyz|ar-io\.dev|g8way\.io/i.test(rawUrl)
+  ) {
+    if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) {
+      push(rawUrl);
+    }
+    const { fileTxId, manifestId, filePath } = parseArweaveMediaPath(rawUrl);
+    if (fileTxId) {
+      for (const gateway of PLAYBACK_ARWEAVE_GATEWAYS) {
+        push(toArweaveRawUrl(fileTxId, gateway));
+      }
+      for (const gateway of PLAYBACK_ARWEAVE_GATEWAYS) {
+        push(`${gateway}${fileTxId}`);
+      }
+    }
+    if (manifestId && filePath) {
+      push(`${PLAYBACK_ARWEAVE_GATEWAYS[0]}${manifestId}/${filePath}`);
+    }
+    return urls.slice(0, MAX_PLAYBACK_CANDIDATES);
+  }
+
+  if (rawUrl.startsWith('ipfs://') || extractIPFSPath(rawUrl)) {
+    return buildIpfsFallbackUrls(rawUrl).slice(0, MAX_PLAYBACK_CANDIDATES);
+  }
+
+  const processed = processMediaUrl(rawUrl, '', 'audio');
+  push(processed);
+  if (rawUrl.startsWith('https://') && rawUrl !== processed) {
+    push(rawUrl);
+  }
+  return urls;
+};
+
+export const abortMediaElement = (el: HTMLMediaElement) => {
+  el.pause();
+};
+
+/** Same node the player UI adopts — create it immediately so play() stays in the tap gesture. */
+export function ensurePlaybackVideoElement(contract: string, tokenId: string): HTMLVideoElement {
+  const id = `video-${contract}-${tokenId}`;
+  const existing = document.getElementById(id);
+  if (existing instanceof HTMLVideoElement) return existing;
+
+  const video = document.createElement('video');
+  video.id = id;
+  video.setAttribute('data-podplayr-player', '1');
+  video.setAttribute('playsinline', 'true');
+  video.setAttribute('webkit-playsinline', 'true');
+  video.playsInline = true;
+  video.preload = 'auto';
+  video.muted = false;
+  video.autoplay = false;
+  video.style.display = 'none';
+  document.body.appendChild(video);
+  return video;
+}
+
+export async function waitForVideoElement(
+  contract: string,
+  tokenId: string,
+  timeoutMs = 5000
+): Promise<HTMLVideoElement | null> {
+  const id = `video-${contract}-${tokenId}`;
+  const deadline = performance.now() + timeoutMs;
+  while (performance.now() < deadline) {
+    const el = document.getElementById(id);
+    if (el instanceof HTMLVideoElement) return el;
+    await new Promise<void>((resolve) => {
+      const done = () => resolve();
+      requestAnimationFrame(done);
+      window.setTimeout(done, 32);
+    });
+  }
+  return null;
+}
 
 // Function to check if a URL is a video file
 export const isVideoUrl = (url: string): boolean => {

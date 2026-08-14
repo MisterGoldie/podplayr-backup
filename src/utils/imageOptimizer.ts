@@ -165,27 +165,34 @@ function isAlreadyResized(url: string): boolean {
   return url.includes('wsrv.nl') || url.includes('images.weserv.nl') || url.includes('img-width=');
 }
 
+/**
+ * GIFs / APNGs must not go through the static WebP thumb proxy (n=0 freezes
+ * animation, and large Pinata GIFs often never finish converting).
+ * Dedicated mypinata.cloud CIDs also omit a .gif extension.
+ */
+export function shouldPreserveAnimation(url: string): boolean {
+  if (!url) return false;
+  const lower = url.toLowerCase();
+  if (/\.(gif|apng)(?:\?|#|$)/i.test(lower)) return true;
+  if (lower.includes('image/gif') || lower.includes('image%2fgif')) return true;
+  if (/mypinata\.cloud/i.test(lower)) return true;
+  return false;
+}
+
 /** Display-sized card thumbnail so grids don't download full Arweave/IPFS originals. */
 export function getResizedImageUrl(url: string, size = 360): string {
-  if (isLocalOrDataUrl(url) || isAlreadyResized(url) || /\.svg(\?|$)/i.test(url)) {
+  if (
+    isLocalOrDataUrl(url) ||
+    isAlreadyResized(url) ||
+    /\.svg(\?|$)/i.test(url) ||
+    shouldPreserveAnimation(url)
+  ) {
     return url;
   }
 
   let resolved = url;
   if (url.startsWith('ipfs://') || url.includes('/ipfs/') || url.startsWith('ar://')) {
     resolved = getOptimizedImageUrl(url);
-  }
-
-  try {
-    const parsed = new URL(resolved);
-    if (parsed.hostname.includes('pinata.cloud') || parsed.hostname.includes('mypinata.cloud')) {
-      parsed.searchParams.set('img-width', String(size));
-      parsed.searchParams.set('img-height', String(size));
-      parsed.searchParams.set('img-fit', 'cover');
-      return parsed.toString();
-    }
-  } catch {
-    return resolved;
   }
 
   const params = new URLSearchParams({

@@ -6,6 +6,8 @@ import { NFT } from '~/types/nft';
 import { useNFTLikeState } from '~/hooks/useNFTLikeState';
 import { useNFTLike } from '~/hooks/useNFTLike';
 import { NFTImage } from '../media/NFTImage';
+import { NFTGifImage } from '../media/NFTGifImage';
+import { shouldPreserveAnimation } from '../../utils/imageOptimizer';
 
 interface NFTCardProps {
   nft: NFT;
@@ -70,6 +72,13 @@ const NFTCardInner: React.FC<NFTCardProps> = ({
   }, [animationDelay]);
 
   const handlePlay = () => {
+    console.log('[PLAY-DEBUG] card click', {
+      name: nft.name,
+      contract: nft.contract,
+      tokenId: nft.tokenId,
+      audio: nft.audio,
+      animation: nft.metadata?.animation_url,
+    });
     if (onPlay) {
       onPlay(nft);
     } else {
@@ -100,17 +109,26 @@ const NFTCardInner: React.FC<NFTCardProps> = ({
       style={hasEntered ? undefined : enterStyleRef.current}
     >
         <div className="aspect-square rounded-lg overflow-hidden bg-gray-800/20 shadow-lg relative">
-          <NFTImage
-            nft={nft}
-            src={rawImageUrl}
-            alt={nft.name}
-            className="w-full h-full object-cover"
-            width={smallCard ? 160 : 180}
-            height={smallCard ? 160 : 180}
-            sizes={smallCard ? '160px' : '180px'}
-            quality={60}
-            loading="lazy"
-          />
+          {shouldPreserveAnimation(rawImageUrl) ? (
+            <NFTGifImage
+              nft={nft}
+              className="w-full h-full object-cover"
+              width={smallCard ? 160 : 180}
+              height={smallCard ? 160 : 180}
+            />
+          ) : (
+            <NFTImage
+              nft={nft}
+              src={rawImageUrl}
+              alt={nft.name}
+              className="w-full h-full object-cover"
+              width={smallCard ? 160 : 180}
+              height={smallCard ? 160 : 180}
+              sizes={smallCard ? '160px' : '180px'}
+              quality={60}
+              loading="lazy"
+            />
+          )}
           
           {/* Change this condition to use effectiveFid */}
           {effectiveFid && (

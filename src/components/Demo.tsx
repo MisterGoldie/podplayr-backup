@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback, useContext, useMemo } from 'react';
 import { FarcasterContext, UserFidContext } from '~/app/providers';
-import { PlayerWithAds } from './player/PlayerWithAds';
+import { PlayerWithAds, usePrerollAd } from './player/PlayerWithAds';
 import { getMediaKey } from '~/utils/media';
 import { BottomNav } from './navigation/BottomNav';
 import HomeView from './views/HomeView';
@@ -23,7 +23,8 @@ import { usePlayer } from '../contexts/PlayerContext';
 import { useTopPlayedNFTs } from '../hooks/useTopPlayedNFTs';
 import { UserDataLoader } from './data/UserDataLoader';
 import { logger } from '../utils/logger';
-import { isNftMediaDead, subscribeToDeadNftUpdates } from '../utils/deadNftRegistry';
+import { subscribeToDeadNftUpdates } from '../utils/deadNftRegistry';
+import { applyConfirmedPlayback, isPlayableMediaNFT } from '../utils/isMediaNFT';
 import { UserImageProvider } from '../contexts/UserImageContext';
 import { BaseAppSignIn } from './auth/BaseAppSignIn';
 import { parseProfileFid } from '../lib/miniapp';
@@ -93,7 +94,6 @@ const DemoBase: React.FC = () => {
   const [likedNFTs, setLikedNFTs] = useState<NFT[]>([]);
   const [likedNFTsLoaded, setLikedNFTsLoaded] = useState(false);
   const [recentSearches, setRecentSearches] = useState<SearchedUser[]>([]);
-  const [isAdPlaying, setIsAdPlaying] = useState(false);
 
   const isLoadingLikedNFTsRef = useRef(false);
   const skipEmptyLikeCacheWrite = useRef(true);
@@ -111,6 +111,7 @@ const DemoBase: React.FC = () => {
     handlePlayNext,
     handlePlayPrevious
   } = usePlayer();
+  const { showAd, beforePlay, onAdComplete } = usePrerollAd();
 
   useEffect(() => {
     try {
@@ -150,8 +151,9 @@ const DemoBase: React.FC = () => {
       isLoadingLikedNFTsRef.current = true;
       setLikedNFTsLoaded(false);
       try {
-        const liked = await getLikedNFTs(fid);
-        setLikedNFTs(liked.filter((item) => !isNftMediaDead(item)));
+        const liked = (await getLikedNFTs(fid)).filter(isPlayableMediaNFT);
+        setLikedNFTs(liked);
+        applyConfirmedPlayback(liked, setLikedNFTs);
       } catch (error) {
         demoLogger.error('Error loading liked NFTs:', error);
       } finally {
@@ -167,7 +169,6 @@ const DemoBase: React.FC = () => {
 
   useEffect(() => {
     return subscribeToDeadNftUpdates((deadMediaKey) => {
-      setLikedNFTs((prev) => prev.filter((nft) => getMediaKey(nft) !== deadMediaKey));
       setUserNFTs((prev) => prev.filter((nft) => getMediaKey(nft) !== deadMediaKey));
     });
   }, []);
@@ -257,7 +258,7 @@ const DemoBase: React.FC = () => {
       const newLikeState = await toggleLikeNFT(nft, fid);
 
       if (newLikeState) {
-        if (!wasLiked) {
+        if (!wasLiked && isPlayableMediaNFT(nft)) {
           const likedAt = Date.now();
           const likedNft: NFT = {
             ...nft,
@@ -285,11 +286,35 @@ const DemoBase: React.FC = () => {
       ? getMediaKey(currentPlayingNFT) === getMediaKey(nft)
       : currentlyPlaying === `${nft.contract}-${nft.tokenId}`;
 
+    console.log('[PLAY-DEBUG] Demo.handlePlayNFT', {
+      name: nft.name,
+      sameTrack,
+      queueType: context?.queueType,
+      queueLen: context?.queue?.length,
+    });
+
     setIsPlayerMinimized(true);
-    if (!sameTrack) {
-      await handlePlayAudio(nft, context);
-    }
-  }, [handlePlayAudio, currentlyPlaying, currentPlayingNFT]);
+    if (sameTrack) return;
+
+    beforePlay(
+      () => { void handlePlayAudio(nft, context); },
+      isPlaying ? handlePlayPause : undefined
+    );
+  }, [handlePlayAudio, currentlyPlaying, currentPlayingNFT, beforePlay, isPlaying, handlePlayPause]);
+
+  const handlePlayNextGated = useCallback(() => {
+    beforePlay(
+      () => { void handlePlayNext(); },
+      isPlaying ? handlePlayPause : undefined
+    );
+  }, [beforePlay, handlePlayNext, isPlaying, handlePlayPause]);
+
+  const handlePlayPreviousGated = useCallback(() => {
+    beforePlay(
+      () => { void handlePlayPrevious(); },
+      isPlaying ? handlePlayPause : undefined
+    );
+  }, [beforePlay, handlePlayPrevious, isPlaying, handlePlayPause]);
 
   const syncProfileUrl = useCallback((profileFid: number | null) => {
     if (typeof window === 'undefined') return;
@@ -566,7 +591,7 @@ const DemoBase: React.FC = () => {
         onViewChange={handleViewChange}
         isPlayerActive={!!currentPlayingNFT}
         isPlayerMinimized={isPlayerMinimized}
-        isAdPlaying={isAdPlaying}
+        isAdPlaying={showAd}
       />
       {selectedUser && (
         <UserDataLoader
@@ -575,7 +600,7 @@ const DemoBase: React.FC = () => {
           onError={handleUserDataError}
         />
       )}
-      {currentPlayingNFT && (
+      {(showAd || currentPlayingNFT) && (
         <PlayerWithAds
           nft={currentPlayingNFT}
           isPlaying={isPlaying}
@@ -583,15 +608,16 @@ const DemoBase: React.FC = () => {
           duration={audioDuration}
           onSeek={handleSeek}
           onPlayPause={handlePlayPause}
-          onNext={handlePlayNext}
-          onPrevious={handlePlayPrevious}
+          onNext={handlePlayNextGated}
+          onPrevious={handlePlayPreviousGated}
           isMinimized={isPlayerMinimized}
           onMinimizeToggle={() => setIsPlayerMinimized(!isPlayerMinimized)}
           onPlayNFT={handlePlayNFT}
           onLikeToggle={() => currentPlayingNFT && onLikeToggle(currentPlayingNFT)}
-          isLiked={isNFTLiked(currentPlayingNFT)}
+          isLiked={!!currentPlayingNFT && isNFTLiked(currentPlayingNFT)}
           onPictureInPicture={togglePictureInPicture}
-          onAdStateChange={setIsAdPlaying}
+          showAd={showAd}
+          onAdComplete={onAdComplete}
         />
       )}
     </div>

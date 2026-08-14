@@ -5,6 +5,7 @@ import { searchUsers } from '../../lib/firebase';
 import { getLikedNFTs, subscribeToLikedNFTs } from '../../lib/firebase/likes';
 import { fetchUserNFTsFromAlchemy } from '../../lib/nft';
 import { getMediaKey } from '../../utils/media';
+import { applyConfirmedPlayback, isPlayableMediaNFT } from '../../utils/isMediaNFT';
 import type { NFT, FarcasterUser } from '../../types/user';
 
 const NFT_CACHE_KEY = 'podplayr_nft_cache_';
@@ -81,7 +82,7 @@ export const UserDataLoader: React.FC<UserDataLoaderProps> = ({
   }, [onNFTsLoaded]);
 
   const handleLikedNFTsLoaded = useCallback((nfts: NFT[]) => {
-    onLikedNFTsLoaded?.(nfts);
+    onLikedNFTsLoaded?.(nfts.filter(isPlayableMediaNFT));
   }, [onLikedNFTsLoaded]);
 
   const handleError = useCallback((error: string) => {
@@ -235,6 +236,7 @@ export const UserDataLoader: React.FC<UserDataLoaderProps> = ({
         const likedNFTs = await getLikedNFTs(userFid);
         console.log('Liked NFTs loaded initially:', likedNFTs.length);
         handleLikedNFTsLoaded(likedNFTs);
+        applyConfirmedPlayback(likedNFTs, handleLikedNFTsLoaded);
         
         // Cache all data in session cache
         const updatedCache = getSessionCache();

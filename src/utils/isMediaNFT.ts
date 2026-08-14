@@ -10,6 +10,7 @@ import { isNftMediaDead } from './deadNftRegistry';
 const AUDIO_EXT_RE = /\.(mp3|wav|m4a|aac|ogg|flac)(?:\?|#|$)/i;
 const VIDEO_EXT_RE = /\.(mp4|webm|mov|m4v)(?:\?|#|$)/i;
 const MEDIA_EXT_RE = /\.(mp3|wav|m4a|aac|ogg|flac|mp4|webm|mov|m4v)(?:\?|#|$)/i;
+const MODEL_EXT_RE = /\.(glb|gltf|fbx|obj|vrm|usdz|stl)(?:\?|#|$)/i;
 
 export type MediaCandidate = {
   audio?: string | null;
@@ -69,6 +70,20 @@ const urlLooksLikeVideo = (url: string): boolean => {
   );
 };
 
+/** 3D / scene files (Remx .glb, etc.) — not <audio> or <video>. */
+export const urlLooksLike3dModel = (url?: string | null): boolean => {
+  if (!url) return false;
+  const lower = url.toLowerCase();
+  return (
+    MODEL_EXT_RE.test(lower) ||
+    lower.includes('model/gltf') ||
+    /(?:^|\/)model\//.test(lower)
+  );
+};
+
+const mimeLooksLike3d = (mime: string): boolean =>
+  mime.startsWith('model/') || mime.includes('gltf');
+
 const filesHaveMedia = (files?: NFTFile[] | null): { audio: boolean; video: boolean } => {
   if (!files?.length) return { audio: false, video: false };
 
@@ -101,29 +116,27 @@ const filesHaveMedia = (files?: NFTFile[] | null): { audio: boolean; video: bool
 export const hasPlayableAudio = (candidate: MediaCandidate | NFT): boolean => {
   const mime = getMimeType(candidate);
   if (mime.startsWith('audio/')) return true;
-
   if (collectUrls(candidate).some(urlLooksLikeAudio)) return true;
-
-  return filesHaveMedia(candidate.metadata?.properties?.files).audio;
+  if (filesHaveMedia(candidate.metadata?.properties?.files).audio) return true;
+  return Boolean(pickAudioUrl(candidate) || pickVideoUrl(candidate));
 };
 
-/** True when the NFT has playable video. */
-export const hasPlayableVideo = (candidate: MediaCandidate | NFT): boolean => {
-  const mime = getMimeType(candidate);
-  if (mime.startsWith('video/')) return true;
-
-  if (collectUrls(candidate).some(urlLooksLikeVideo)) return true;
-
-  return filesHaveMedia(candidate.metadata?.properties?.files).video;
-};
+/** True when the NFT has a video layer (animation_url that isn't a sound file). */
+export const hasPlayableVideo = (candidate: MediaCandidate | NFT): boolean =>
+  Boolean(pickVideoUrl(candidate));
 
 /**
  * Keep NFTs that are playable audio or video.
- * Rejects bare `includes('ipfs')`, name keywords, and "any animation_url = audio".
+ * Video = animation_url (not a sound file). Audio-only = sound URL, no video animation.
  */
 export const isPlayableMediaNFT = (candidate: MediaCandidate | NFT): boolean => {
   try {
-    return hasPlayableAudio(candidate) || hasPlayableVideo(candidate);
+    if (mimeLooksLike3d(getMimeType(candidate))) return false;
+    const urls = collectUrls(candidate);
+    if (urls.length > 0 && urls.every(urlLooksLike3dModel)) return false;
+    const plan = getNftPlaybackPlan(candidate);
+    const playUrl = plan.audioUrl || plan.videoUrl;
+    return Boolean(playUrl) && !urlLooksLike3dModel(playUrl);
   } catch {
     return false;
   }
@@ -166,11 +179,11 @@ export type NftPlaybackMode = 'audio-only' | 'video-with-audio' | 'video-plus-au
 
 export type NftPlaybackPlan = {
   mode: NftPlaybackMode;
-  /** Raw URL for the sound source (Audio element). */
+  /** Sound source — dedicated audio file, or the video file's audio track. */
   audioUrl: string | null;
-  /** Raw URL for visual <video> (null → show image). */
+  /** Visual <video> source. Null means audio-only (poster in the player). */
   videoUrl: string | null;
-  /** Always true when video is a companion to a separate Audio element. */
+  /** True when video is a companion to a separate Audio element. */
   muteVideo: boolean;
 };
 
@@ -204,10 +217,21 @@ export const mediaAssetId = (url: string): string => {
   }
 };
 
+/** Raw animation_url from metadata only — never backfilled from audio. */
+export const pickAnimationUrl = (candidate: MediaCandidate | NFT): string | null => {
+  const meta = (candidate as NFT).metadata ?? (candidate as MediaCandidate).metadata ?? null;
+  const typed = candidate as NFT & MediaCandidate;
+  const url =
+    (typeof meta?.animation_url === 'string' && meta.animation_url) ||
+    (typeof meta?.properties?.animation_url === 'string' && meta.properties.animation_url) ||
+    (typeof typed.animationUrl === 'string' && typed.animationUrl) ||
+    null;
+  return url && url.length > 0 ? url : null;
+};
+
 /** Distinct video asset from metadata (never collapses into audio). */
 export const pickVideoUrl = (candidate: MediaCandidate | NFT): string | null => {
   const meta = (candidate as NFT).metadata ?? (candidate as MediaCandidate).metadata ?? null;
-  const mime = getMimeType(candidate);
 
   const fromFiles = meta?.properties?.files?.find((f) => {
     const u = (f?.uri || f?.url || '').toLowerCase();
@@ -216,31 +240,36 @@ export const pickVideoUrl = (candidate: MediaCandidate | NFT): string | null => 
   });
   if (fromFiles?.uri || fromFiles?.url) return (fromFiles.uri || fromFiles.url)!;
 
-  if (mime.startsWith('video/')) {
-    return (
-      firstUrl(
-        [
-          meta?.animation_url,
-          meta?.properties?.video,
-          meta?.properties?.animation_url,
-          meta?.properties?.visual?.url,
-          (candidate as MediaCandidate).animationUrl,
-        ],
-        () => true
-      ) || meta?.animation_url || null
-    );
+  const dedicatedVideo = meta?.properties?.video;
+  if (
+    dedicatedVideo &&
+    !urlLooksLikeAudio(dedicatedVideo) &&
+    !urlLooksLike3dModel(dedicatedVideo)
+  ) {
+    return dedicatedVideo;
   }
 
-  return firstUrl(
-    [
-      meta?.properties?.video,
-      meta?.animation_url,
-      meta?.properties?.animation_url,
-      meta?.properties?.visual?.url,
-      (candidate as MediaCandidate).animationUrl,
-    ],
-    urlLooksLikeVideo
-  );
+  // animation_url is often the SOUND file on audio NFTs (Late #7: ar:// same CID).
+  // Only treat it as video when the URL or Content-Type is actually video.
+  const animation = pickAnimationUrl(candidate);
+  const mime =
+    getMimeType(candidate) ||
+    getCachedMediaMime(animation) ||
+    getCachedMediaMime((candidate as NFT).videoUrl);
+  if (animation && (urlLooksLikeVideo(animation) || mime.startsWith('video/'))) {
+    return animation;
+  }
+
+  const stored = (candidate as NFT).videoUrl;
+  if (
+    stored &&
+    !urlLooksLikeAudio(stored) &&
+    (urlLooksLikeVideo(stored) || mime.startsWith('video/') || getCachedMediaMime(stored).startsWith('video/'))
+  ) {
+    return stored;
+  }
+
+  return null;
 };
 
 /**
@@ -262,7 +291,7 @@ export const pickAudioUrl = (candidate: MediaCandidate | NFT): string | null => 
       meta?.properties?.audio_file,
       meta?.properties?.soundContent?.url,
     ],
-    (url) => !urlLooksLikeVideo(url)
+    (url) => !urlLooksLikeVideo(url) && !urlLooksLike3dModel(url)
   );
   if (dedicated) return dedicated;
 
@@ -294,25 +323,69 @@ export const getNftPlaybackPlan = (nft: MediaCandidate | NFT): NftPlaybackPlan =
 
   let videoUrl = pickVideoUrl(nft);
   let audioUrl = pickAudioUrl(nft);
+  const animation = pickAnimationUrl(nft);
+  const mime =
+    getMimeType(nft) ||
+    getCachedMediaMime(audioUrl || animation || videoUrl || typed.audio || '');
 
-  // Prefer explicitly stored videoUrl from ingest
-  if (!videoUrl && typed.videoUrl) {
-    videoUrl = typed.videoUrl;
+  if (mimeLooksLike3d(mime) || urlLooksLike3dModel(audioUrl) || urlLooksLike3dModel(animation) || urlLooksLike3dModel(videoUrl)) {
+    const hasRealMedia =
+      (audioUrl && !urlLooksLike3dModel(audioUrl)) ||
+      (videoUrl && !urlLooksLike3dModel(videoUrl));
+    if (!hasRealMedia) {
+      return {
+        mode: 'audio-only',
+        audioUrl: null,
+        videoUrl: null,
+        muteVideo: true,
+      };
+    }
   }
 
-  // Extensionless animation_url (common on IPFS/Arweave CIDs): if already flagged as
-  // video, or animation isn't clearly audio, treat animation_url as the video layer.
-  const animation = meta?.animation_url || (nft as MediaCandidate).animationUrl || null;
-  if (!videoUrl && animation && !urlLooksLikeAudio(animation)) {
-    if (
-      typed.isVideo ||
-      typed.playbackMode === 'video-with-audio' ||
-      typed.playbackMode === 'video-plus-audio' ||
-      getMimeType(nft).startsWith('video/') ||
-      urlLooksLikeVideo(animation)
-    ) {
-      videoUrl = animation;
+  // Confirmed audio file — even if metadata stuffed it into animation_url (Late #7).
+  if (mime.startsWith('audio/')) {
+    return {
+      mode: 'audio-only',
+      audioUrl: audioUrl || animation || pickRawMediaUrl(meta) || null,
+      videoUrl: null,
+      muteVideo: true,
+    };
+  }
+
+  // Same CID on audio and animation is only video when Content-Type is video.
+  if (
+    !videoUrl &&
+    animation &&
+    audioUrl &&
+    mediaAssetId(animation) === mediaAssetId(audioUrl) &&
+    (urlLooksLikeVideo(animation) || mime.startsWith('video/'))
+  ) {
+    videoUrl = animation;
+  }
+
+  if (!videoUrl && typed.videoUrl && !urlLooksLikeAudio(typed.videoUrl)) {
+    if (urlLooksLikeVideo(typed.videoUrl) || mime.startsWith('video/')) {
+      videoUrl = typed.videoUrl;
     }
+  }
+
+  // Stored isVideo from a previous correct classify — still require video evidence.
+  if (!videoUrl && typed.isVideo && !mime.startsWith('audio/')) {
+    const stored = typed.videoUrl || typed.audio || audioUrl;
+    if (stored && (urlLooksLikeVideo(stored) || mime.startsWith('video/'))) {
+      videoUrl = stored;
+    }
+  }
+
+  // Firebase often stuffed the video CID into audioUrl. Only promote when
+  // Content-Type is already known to be video (stored mediaMime or probe cache).
+  if (
+    !videoUrl &&
+    audioUrl &&
+    !urlLooksLikeAudio(audioUrl) &&
+    mime.startsWith('video/')
+  ) {
+    videoUrl = audioUrl;
   }
 
   // Dual: distinct assets
@@ -333,14 +406,14 @@ export const getNftPlaybackPlan = (nft: MediaCandidate | NFT): NftPlaybackPlan =
           ? audioUrl
           : videoUrl,
       videoUrl,
-      muteVideo: true,
+      muteVideo: false,
     };
   }
 
+  const rawFallback = pickRawMediaUrl(meta);
   const fallback =
-    audioUrl ||
-    pickRawMediaUrl(meta) ||
-    null;
+    (audioUrl && !urlLooksLike3dModel(audioUrl) ? audioUrl : null) ||
+    (rawFallback && !urlLooksLike3dModel(rawFallback) ? rawFallback : null);
 
   return {
     mode: 'audio-only',
@@ -351,11 +424,102 @@ export const getNftPlaybackPlan = (nft: MediaCandidate | NFT): NftPlaybackPlan =
 };
 
 const mimeProbeCache = new Map<string, string>();
+const mimeSourceCache = new Map<string, string>();
+const deadGatewayHosts = new Map<string, Set<string>>();
+const MIME_CACHE_KEY = 'podplayr_media_mime';
+let mimeCacheLoaded = false;
+let mimePersistTimer: ReturnType<typeof setTimeout> | null = null;
+
+const loadMimeCache = (): void => {
+  if (mimeCacheLoaded || typeof window === 'undefined') return;
+  mimeCacheLoaded = true;
+  try {
+    const raw = window.localStorage.getItem(MIME_CACHE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw) as Record<string, string | { mime?: string; url?: string }>;
+    for (const [key, value] of Object.entries(parsed)) {
+      if (!key || !value) continue;
+      if (typeof value === 'string') {
+        mimeProbeCache.set(key, value);
+      } else {
+        if (value.mime) mimeProbeCache.set(key, value.mime);
+        if (value.url) mimeSourceCache.set(key, value.url);
+      }
+    }
+  } catch {
+    // ignore quota / private mode
+  }
+};
+
+const persistMimeCache = (): void => {
+  if (typeof window === 'undefined') return;
+  if (mimePersistTimer) clearTimeout(mimePersistTimer);
+  mimePersistTimer = setTimeout(() => {
+    try {
+      const obj: Record<string, { mime: string; url?: string }> = {};
+      mimeProbeCache.forEach((mime, key) => {
+        obj[key] = { mime, url: mimeSourceCache.get(key) };
+      });
+      window.localStorage.setItem(MIME_CACHE_KEY, JSON.stringify(obj));
+    } catch {
+      // ignore quota / private mode
+    }
+  }, 200);
+};
+
+export const rememberMediaMime = (url: string, mime: string): void => {
+  if (!url || !mime) return;
+  const clean = mime.split(';')[0].trim().toLowerCase();
+  if (!clean || clean.includes('text/html')) return;
+  loadMimeCache();
+  mimeProbeCache.set(mediaAssetId(url), clean);
+  persistMimeCache();
+};
+
+export const getCachedMediaMime = (url?: string | null): string => {
+  loadMimeCache();
+  if (!url) return '';
+  return mimeProbeCache.get(mediaAssetId(url)) || '';
+};
+
+export const getCachedMediaSourceUrl = (url?: string | null): string => {
+  loadMimeCache();
+  if (!url) return '';
+  return mimeSourceCache.get(mediaAssetId(url)) || '';
+};
+
+export const rememberDeadGateway = (assetUrl: string, gatewayUrl: string): void => {
+  try {
+    const host = new URL(gatewayUrl).hostname;
+    const id = mediaAssetId(assetUrl);
+    if (!deadGatewayHosts.has(id)) deadGatewayHosts.set(id, new Set());
+    deadGatewayHosts.get(id)!.add(host);
+  } catch {
+    // ignore
+  }
+};
+
+export const filterLivePlaybackUrls = (assetUrl: string, urls: string[]): string[] => {
+  const dead = deadGatewayHosts.get(mediaAssetId(assetUrl));
+  const source = getCachedMediaSourceUrl(assetUrl);
+  const ordered = source
+    ? [source, ...urls.filter((u) => u !== source)]
+    : urls;
+  if (!dead?.size) return ordered;
+  const live = ordered.filter((u) => {
+    try {
+      return !dead.has(new URL(u).hostname);
+    } catch {
+      return true;
+    }
+  });
+  return live.length ? live : ordered;
+};
 
 /** True when URL has no clear audio/video extension (Arweave/IPFS CIDs). */
 export const mediaUrlNeedsMimeProbe = (url?: string | null): boolean => {
   if (!url) return false;
-  if (urlLooksLikeAudio(url) || urlLooksLikeVideo(url)) return false;
+  if (urlLooksLikeAudio(url) || urlLooksLikeVideo(url) || urlLooksLike3dModel(url)) return false;
   return true;
 };
 
@@ -365,25 +529,37 @@ export const mediaUrlNeedsMimeProbe = (url?: string | null): boolean => {
  * Tries turbo/permagate/arweave gateways when the primary URL fails.
  */
 export const probeMediaContentType = async (url: string): Promise<string> => {
+  loadMimeCache();
   const cacheKey = mediaAssetId(url);
   if (mimeProbeCache.has(cacheKey)) {
     return mimeProbeCache.get(cacheKey)!;
   }
 
   const candidates = new Set<string>();
-  const primary = processMediaUrl(url, '', 'audio');
-  if (primary) candidates.add(primary);
-  candidates.add(url);
   if (/arweave|ar:\/\/|turbo-gateway|permagate|irys|ar-io|g8way/i.test(url)) {
+    if (url.startsWith('http')) candidates.add(url);
+    const primary = processMediaUrl(url, '', 'audio');
+    if (primary) candidates.add(primary);
     buildArweaveMediaFallbackUrls(url).slice(0, 4).forEach((u) => candidates.add(u));
   } else if (url.startsWith('ipfs://') || extractIPFSPath(url)) {
-    buildIpfsFallbackUrls(url).slice(0, 3).forEach((u) => candidates.add(u));
+    // Same order as playback: original gateway first. Do not rewrite to Pinata
+    // before probing — that CID may only exist on ipfs.io / the source gateway.
+    buildIpfsFallbackUrls(url)
+      .filter((u) => !/nftstorage\.link/i.test(u))
+      .slice(0, 4)
+      .forEach((u) => candidates.add(u));
+  } else {
+    const primary = processMediaUrl(url, '', 'audio');
+    if (primary) candidates.add(primary);
+    candidates.add(url);
   }
 
-  const store = (ct: string) => {
+  const store = (ct: string, sourceUrl: string) => {
     const mime = ct.split(';')[0].trim().toLowerCase();
     if (mime && !mime.includes('text/html')) {
       mimeProbeCache.set(cacheKey, mime);
+      mimeSourceCache.set(cacheKey, sourceUrl);
+      persistMimeCache();
       return mime;
     }
     return '';
@@ -401,8 +577,12 @@ export const probeMediaContentType = async (url: string): Promise<string> => {
     try {
       const head = await timedFetch(probeUrl, { method: 'HEAD' });
       const headCt = head.headers.get('content-type');
+      if (head.status === 404 || head.status === 410) {
+        rememberDeadGateway(url, probeUrl);
+        continue;
+      }
       if (head.ok && headCt) {
-        const mime = store(headCt);
+        const mime = store(headCt, probeUrl);
         if (mime) return mime;
       }
     } catch {
@@ -415,8 +595,12 @@ export const probeMediaContentType = async (url: string): Promise<string> => {
         headers: { Range: 'bytes=0-0' },
       });
       const getCt = get.headers.get('content-type');
+      if (get.status === 404 || get.status === 410) {
+        rememberDeadGateway(url, probeUrl);
+        continue;
+      }
       if (getCt) {
-        const mime = store(getCt);
+        const mime = store(getCt, probeUrl);
         if (mime) return mime;
       }
     } catch {
@@ -427,23 +611,147 @@ export const probeMediaContentType = async (url: string): Promise<string> => {
   return '';
 };
 
-/** Stamp resolved plan fields onto the NFT for Firebase + MaximizedPlayer. */
+/** Stamp resolved plan fields onto the NFT. Never copy audio onto animation_url for audio-only. */
 export const applyPlaybackPlanToNft = (nft: NFT, plan: NftPlaybackPlan, mime?: string): void => {
   nft.playbackMode = plan.mode;
   nft.isVideo = plan.mode !== 'audio-only';
-  if (plan.videoUrl) nft.videoUrl = plan.videoUrl;
+  nft.videoUrl = plan.mode === 'audio-only' ? undefined : plan.videoUrl || undefined;
   if (plan.audioUrl) nft.audio = plan.audioUrl;
   if (!nft.metadata) {
     nft.metadata = { image: nft.image };
   }
-  if (plan.videoUrl) {
-    nft.metadata.animation_url = plan.videoUrl;
-  } else if (plan.audioUrl && !nft.metadata.animation_url) {
-    nft.metadata.animation_url = plan.audioUrl;
+  if (plan.videoUrl && plan.mode !== 'audio-only') {
+    nft.metadata.animation_url = nft.metadata.animation_url || plan.videoUrl;
   }
   if (mime) {
     nft.metadata.mimeType = mime;
   }
+};
+
+type StoredPlaybackFields = {
+  animationUrl?: string;
+  videoUrl?: string;
+  audioUrl?: string;
+  isVideo?: boolean;
+  playbackMode?: string;
+  metadata?: { animation_url?: string } | null;
+};
+
+/**
+ * Rebuild animation_url from a Firebase play/like/top-played doc.
+ * Old docs often only stored audioUrl. Top-played never stored animationUrl,
+ * so that list may treat a bare audioUrl as the animation (those rows are videos).
+ * Likes/library must NOT do that — Late #7 is audio-only with no animation_url.
+ */
+export const restoreStoredAnimationUrl = (
+  data: StoredPlaybackFields,
+  opts?: { legacyAudioIsAnimation?: boolean }
+): string => {
+  const stored =
+    (typeof data.metadata?.animation_url === 'string' && data.metadata.animation_url) ||
+    data.animationUrl ||
+    data.videoUrl ||
+    '';
+  if (stored) return stored;
+  if (
+    data.isVideo ||
+    data.playbackMode === 'video-with-audio' ||
+    data.playbackMode === 'video-plus-audio'
+  ) {
+    return data.audioUrl || '';
+  }
+  if (opts?.legacyAudioIsAnimation) {
+    return data.audioUrl || '';
+  }
+  return '';
+};
+
+export const hydrateNftPlayback = (nft: NFT): NFT => {
+  const plan = getNftPlaybackPlan(nft);
+  applyPlaybackPlanToNft(nft, plan);
+  const mime = getMimeType(nft);
+  const url = plan.videoUrl || plan.audioUrl || nft.audio;
+  if (mime && url) rememberMediaMime(url, mime);
+  return nft;
+};
+
+const PROBE_CONCURRENCY = 6;
+
+/**
+ * HEAD every Firebase/list NFT still classified audio-only whose CID has no
+ * .mp3/.mp4 suffix. video/mp4 → video-with-audio. audio/* stays audio-only.
+ */
+export const confirmAudioOnlyPlayback = async (nfts: NFT[]): Promise<boolean> => {
+  if (!nfts?.length) return false;
+  loadMimeCache();
+  let changed = false;
+  const pending: NFT[] = [];
+
+  for (const nft of nfts) {
+    const sync = getNftPlaybackPlan(nft);
+    const url = sync.videoUrl || sync.audioUrl || nft.audio;
+    if (urlLooksLike3dModel(url) || mimeLooksLike3d(getMimeType(nft))) continue;
+    const known = getMimeType(nft) || getCachedMediaMime(url);
+    if (known.startsWith('audio/')) {
+      if (sync.mode !== 'audio-only' || nft.isVideo || nft.videoUrl) {
+        applyPlaybackPlanToNft(
+          nft,
+          { mode: 'audio-only', audioUrl: url, videoUrl: null, muteVideo: true },
+          known
+        );
+        changed = true;
+      }
+      continue;
+    }
+    if (known.startsWith('video/')) {
+      if (sync.videoUrl) {
+        if (nft.playbackMode !== sync.mode || !nft.metadata?.animation_url) {
+          applyPlaybackPlanToNft(nft, sync, known);
+          changed = true;
+        }
+        continue;
+      }
+    }
+    if (!mediaUrlNeedsMimeProbe(url)) continue;
+    pending.push(nft);
+  }
+
+  if (pending.length) {
+    console.log('[PLAY-DEBUG] confirming audio-only CIDs', {
+      count: pending.length,
+      names: pending.map((nft) => nft.name),
+    });
+  }
+
+  if (!pending.length) return changed;
+
+  let index = 0;
+  const worker = async () => {
+    while (index < pending.length) {
+      const nft = pending[index++];
+      const prevMode = nft.playbackMode;
+      const prevAnim = nft.metadata?.animation_url;
+      await resolveNftPlaybackPlan(nft);
+      if (nft.playbackMode !== prevMode || nft.metadata?.animation_url !== prevAnim) {
+        changed = true;
+      }
+    }
+  };
+
+  await Promise.all(
+    Array.from({ length: Math.min(PROBE_CONCURRENCY, pending.length) }, () => worker())
+  );
+  return changed;
+};
+
+/** Probe in the background and notify when any NFT flips to video. */
+export const applyConfirmedPlayback = (
+  nfts: NFT[],
+  onChange: (nfts: NFT[]) => void
+): void => {
+  void confirmAudioOnlyPlayback(nfts).then((changed) => {
+    if (changed) onChange(nfts.slice());
+  });
 };
 
 /**
@@ -453,35 +761,65 @@ export const applyPlaybackPlanToNft = (nft: NFT, plan: NftPlaybackPlan, mime?: s
 export const resolveNftPlaybackPlan = async (
   nft: MediaCandidate | NFT
 ): Promise<NftPlaybackPlan> => {
-  const sync = getNftPlaybackPlan(nft);
-  if (sync.videoUrl) return sync;
-
   const typed = nft as NFT;
+  const sync = getNftPlaybackPlan(nft);
   const candidate =
+    sync.videoUrl ||
     sync.audioUrl ||
     typed.audio ||
     typed.metadata?.animation_url ||
     (nft as MediaCandidate).animationUrl ||
     null;
 
-  if (!mediaUrlNeedsMimeProbe(candidate)) return sync;
+  const emptyPlan = (): NftPlaybackPlan => ({
+    mode: 'audio-only',
+    audioUrl: null,
+    videoUrl: null,
+    muteVideo: true,
+  });
 
-  const mime = await probeMediaContentType(candidate!);
-  if (mime.startsWith('video/')) {
+  const audioPlan = (): NftPlaybackPlan => ({
+    mode: 'audio-only',
+    audioUrl:
+      (sync.audioUrl && !urlLooksLike3dModel(sync.audioUrl) ? sync.audioUrl : null) ||
+      (candidate && !urlLooksLike3dModel(candidate) ? candidate : null),
+    videoUrl: null,
+    muteVideo: true,
+  });
+  const videoPlan = (url: string, mime?: string): NftPlaybackPlan => {
     const plan: NftPlaybackPlan = {
       mode: 'video-with-audio',
-      audioUrl: candidate,
-      videoUrl: candidate,
-      muteVideo: true,
+      audioUrl: url,
+      videoUrl: url,
+      muteVideo: false,
     };
-    if (typed.contract) {
-      applyPlaybackPlanToNft(typed, plan, mime);
-    }
+    if (typed.contract) applyPlaybackPlanToNft(typed, plan, mime);
+    return plan;
+  };
+
+  const known = getMimeType(nft) || getCachedMediaMime(candidate);
+  if (mimeLooksLike3d(known) || urlLooksLike3dModel(candidate)) {
+    const plan = emptyPlan();
+    if (typed.contract) applyPlaybackPlanToNft(typed, plan);
     return plan;
   }
+  if (known.startsWith('audio/')) {
+    const plan = audioPlan();
+    if (typed.contract) applyPlaybackPlanToNft(typed, plan, known);
+    return plan;
+  }
+  if (known.startsWith('video/')) {
+    return sync.videoUrl ? sync : videoPlan(candidate!, known);
+  }
 
-  if (mime.startsWith('audio/') && typed.metadata) {
-    typed.metadata.mimeType = mime;
+  if (!candidate || !mediaUrlNeedsMimeProbe(candidate)) return sync;
+
+  const mime = await probeMediaContentType(candidate);
+  if (mime.startsWith('video/')) return videoPlan(candidate, mime);
+  if (mime.startsWith('audio/')) {
+    const plan = audioPlan();
+    if (typed.contract) applyPlaybackPlanToNft(typed, plan, mime);
+    return plan;
   }
 
   return sync;

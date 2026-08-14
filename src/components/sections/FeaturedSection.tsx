@@ -14,8 +14,11 @@ export const FEATURED_NFTS: NFT[] = [
     tokenId: '50dc9fb449e1',
     network: 'base',
     audio: 'https://arweave.net/qsVEbTD0FUZ8VebK4yxOrKWDQtW8BpNWj7o46HzKsV8',
+    isVideo: true,
+    playbackMode: 'video-with-audio',
     metadata: {
       animation_url: 'https://arweave.net/qsVEbTD0FUZ8VebK4yxOrKWDQtW8BpNWj7o46HzKsV8',
+      mimeType: 'video/mp4',
       description: 'A Charles Fox Film (ACYL)',
       attributes: [
         {"trait_type":"Director","value":"Charles Fox"}
@@ -29,8 +32,11 @@ export const FEATURED_NFTS: NFT[] = [
     tokenId: '8',
     network: 'base',
     audio: 'https://arweave.net/YV3PQYn-NAX3cC6t6yhlmMtSzZ_SxIcAb3Np6SKBCuQ',
+    isVideo: true,
+    playbackMode: 'video-with-audio',
     metadata: {
       animation_url: 'https://arweave.net/YV3PQYn-NAX3cC6t6yhlmMtSzZ_SxIcAb3Np6SKBCuQ',
+      mimeType: 'video/mp4',
       description: 'ACYL RADIO - Topia Hour hosted by Latashá',
       attributes: [
         {"trait_type":"Host","value":"Latashá"}
@@ -44,8 +50,11 @@ export const FEATURED_NFTS: NFT[] = [
     tokenId: '3',
     network: 'base',
     audio: 'https://arweave.net/FXMkBkgV79p3QIL8589uh68-sKuXbmuBzQwvWH10v74',
+    isVideo: true,
+    playbackMode: 'video-with-audio',
     metadata: {
       animation_url: 'https://arweave.net/FXMkBkgV79p3QIL8589uh68-sKuXbmuBzQwvWH10v74',
+      mimeType: 'video/mp4',
       description: 'Episode 1 from the founder of ACYL | @willcreatesart',
       attributes: [
         {"trait_type":"Host","value":"WiLL"}
@@ -59,8 +68,11 @@ export const FEATURED_NFTS: NFT[] = [
     tokenId: '5',
     network: 'base',
     audio: 'https://arweave.net/GujXDFCEk4FmJl9b_TlofLEmx_YnY_LRSB2aSY8AcRg',
+    isVideo: true,
+    playbackMode: 'video-with-audio',
     metadata: {
       animation_url: 'https://arweave.net/GujXDFCEk4FmJl9b_TlofLEmx_YnY_LRSB2aSY8AcRg',
+      mimeType: 'video/mp4',
       description: 'ACYL RADIO - Chili Sounds | @themrsazon',
       attributes: [
         {"trait_type":"Host","value":"Mr. Sazon"}
@@ -74,8 +86,11 @@ export const FEATURED_NFTS: NFT[] = [
     tokenId: '6',
     network: 'base',
     audio: 'https://arweave.net/Df6hOV1--hsJBtTL1cEbhBkRZuggxSpR9eM0DXsdcv0',
+    isVideo: true,
+    playbackMode: 'video-with-audio',
     metadata: {
       animation_url: 'https://arweave.net/Df6hOV1--hsJBtTL1cEbhBkRZuggxSpR9eM0DXsdcv0',
+      mimeType: 'video/mp4',
       description: 'Join Salem as she plays The Forest for the first time.',
       attributes: [
         {"trait_type":"Game","value":"The Forest"}
@@ -89,8 +104,11 @@ export const FEATURED_NFTS: NFT[] = [
     tokenId: '7',
     network: 'base',
     audio: 'https://arweave.net/KPKrKgdACqggYesQqRCR4MeLWDlpR6i16xL-Q_e35q4',
+    isVideo: true,
+    playbackMode: 'video-with-audio',
     metadata: {
       animation_url: 'https://arweave.net/KPKrKgdACqggYesQqRCR4MeLWDlpR6i16xL-Q_e35q4',
+      mimeType: 'video/mp4',
       description: '"Group (Think) Love" is intended as a piece of meta-satire, exploring the human condition in the age of AI—where computers are rapidly becoming not only our intimate companions and closest confidants but reflections of ourselves. It delves into the essence of artificial intelligence, highlighting its role as the amalgamation of all human knowledge, creativity, and culture, and positions AI as the familial successor in human evolution. Crafted entirely through AI tools, it simultaneously references pivotal moments and ideas from AI culture itself, embodying the very subject it critiques. (ACYL)',
       attributes: [
         {"trait_type":"Artist","value":"MSTRBSTRD"}

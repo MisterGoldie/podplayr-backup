@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { processMediaUrl, IPFS_GATEWAYS, isAudioUrlUsedAsImage, getCleanIPFSUrl, processArweaveUrl, getMediaKey, buildArweaveMediaFallbackUrls, buildIpfsFallbackUrls, extractIPFSPath, getNftMediaUrl } from '../../utils/media';
-import { getResizedImageUrl } from '../../utils/imageOptimizer';
+import { getResizedImageUrl, shouldPreserveAnimation } from '../../utils/imageOptimizer';
 import Image from 'next/image';
 import type { SyntheticEvent } from 'react';
 import type { NFT } from '../../types/user';
@@ -248,6 +248,11 @@ export const NFTImage: React.FC<NFTImageProps> = ({
     if (!url || url === fallbackSrc || url.startsWith('/') || url.startsWith('data:')) {
       return url;
     }
+    // Never send GIFs through the static WebP proxy — it freezes animation
+    // and large Pinata GIFs often never finish loading.
+    if (shouldPreserveAnimation(url)) {
+      return url;
+    }
     return useCardThumb ? getResizedImageUrl(url, Math.max(width * 2, 360)) : url;
   };
   
@@ -284,6 +289,7 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       setRetryCount(0);
       setCurrentGatewayIndex(0);
       setIsLoadingFallback(false);
+      setImgLoading(true);
     } else {
       // Invalid source, use fallback immediately
       setImgSrc(fallbackSrc);
@@ -356,6 +362,24 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       setImgSrc(fallbackSrc);
     }
   }, [src, nftContract, nftTokenId, nftImage, nftMetadataImage, width, height]);
+
+  // If the thumb proxy hangs (common for large GIFs / slow Arweave), show the original.
+  useEffect(() => {
+    const isProxy =
+      imgSrc.includes('wsrv.nl') ||
+      imgSrc.includes('images.weserv.nl') ||
+      imgSrc.includes('img-width=');
+    if (!imgLoading || !isProxy || !originalUrlRef.current || originalUrlRef.current === imgSrc) {
+      return;
+    }
+    const timeout = window.setTimeout(() => {
+      setImgSrc(originalUrlRef.current);
+      setError(false);
+      setIsLoadingFallback(false);
+      setImgLoading(true);
+    }, 3000);
+    return () => window.clearTimeout(timeout);
+  }, [imgSrc, imgLoading]);
 
   // Track already attempted fallback strategies to avoid redundant retries
   const attemptedFallbacks = useRef<Record<string, boolean>>({});
@@ -493,7 +517,8 @@ export const NFTImage: React.FC<NFTImageProps> = ({
   // SECURITY: Use proper URL validation for determining render method
   // Use regular img tag for IPFS/Arweave content to bypass Next.js image optimization
   const isSpecialProtocol = isIpfsUrl(imgSrc) || isArweaveUrl(imgSrc) ||
-    imgSrc.includes('wsrv.nl') || imgSrc.includes('images.weserv.nl') || imgSrc.includes('img-width=');
+    imgSrc.includes('wsrv.nl') || imgSrc.includes('images.weserv.nl') || imgSrc.includes('img-width=') ||
+    /amazonaws\.com|cloudfront\.net/i.test(imgSrc);
   
   // CRITICAL: Additional validation before finalizing source
   // This ensures we NEVER show a blank card, even for malformed NFT data
@@ -538,9 +563,10 @@ export const NFTImage: React.FC<NFTImageProps> = ({
   
   // Check if this is an Arweave URL using proper validation
   const isArweave = isArweaveUrl(finalSrc);
-  
-  // For Arweave URLs, use regular img tag to bypass Next.js image restrictions
-  if (isArweave) {
+  const isAnimated = shouldPreserveAnimation(finalSrc) || shouldPreserveAnimation(src);
+
+  // Native <img> for Arweave and GIFs. Next/Image re-encodes GIFs as a static frame.
+  if (isArweave || isAnimated) {
     // Convert ar:// to https://arweave.net/ if needed
     const arweaveUrl = finalSrc.startsWith('ar://') 
       ? processArweaveUrl(finalSrc)

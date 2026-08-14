@@ -31,7 +31,7 @@ import type { FarcasterUser, SearchedUser, NFTPlayData, FollowedUser } from '../
 import type { NFT } from '../types/nft';
 import { fetchUserNFTsFromAlchemy } from './nft';
 import { getMediaKey } from '~/utils/media';
-import { getNftPlaybackPlan, isPlayableMediaNFT } from '../utils/isMediaNFT';
+import { getNftPlaybackPlan, hydrateNftPlayback, isPlayableMediaNFT, restoreStoredAnimationUrl, applyConfirmedPlayback, getCachedMediaMime } from '../utils/isMediaNFT';
 import { logger } from '../utils/logger';
 import { v4 as uuidv4 } from 'uuid';
 import { isENSUser } from '../utils/ensUtils';
@@ -43,54 +43,67 @@ const authLogger = logger.getModuleLogger('auth');
 /** Playback fields persisted on play/like docs (legacy docs may omit these). */
 const playbackFieldsForStore = (nft: NFT) => {
   const plan = getNftPlaybackPlan(nft);
+  const animationUrl = nft.metadata?.animation_url || plan.videoUrl || '';
   return {
     videoUrl: plan.videoUrl || nft.videoUrl || '',
+    animationUrl,
     isVideo: plan.mode !== 'audio-only',
     playbackMode: plan.mode,
     mediaMime: (nft.metadata as { mimeType?: string; mime_type?: string } | undefined)?.mimeType
       || (nft.metadata as { mimeType?: string; mime_type?: string } | undefined)?.mime_type
+      || getCachedMediaMime(nft.audio || nft.videoUrl || nft.metadata?.animation_url)
       || '',
   };
 };
 
 /** Reconstruct NFT playback fields from a Firebase play/like document. */
 const nftFromPlayRecord = (data: DocumentData): NFT => {
-  const audioUrl = data.audioUrl || '';
-  const videoUrl =
-    data.videoUrl ||
-    (data.isVideo || data.playbackMode === 'video-with-audio' || data.playbackMode === 'video-plus-audio'
-      ? audioUrl
-      : '') ||
-    '';
-  const playbackMode =
-    data.playbackMode ||
-    (videoUrl ? 'video-with-audio' : audioUrl ? 'audio-only' : undefined);
-  const isVideo =
-    data.isVideo ?? Boolean(videoUrl && playbackMode && playbackMode !== 'audio-only');
-
-  return {
-    contract: data.nftContract || data.contract,
-    tokenId: data.tokenId,
-    name: data.name || 'Untitled NFT',
-    description: data.description || '',
-    image: data.image || '',
-    audio: audioUrl,
-    videoUrl: videoUrl || undefined,
-    isVideo: isVideo || undefined,
-    playbackMode,
-    hasValidAudio: Boolean(audioUrl || videoUrl),
+  const nested = data.nft && typeof data.nft === 'object' ? data.nft : {};
+  const audioUrl = data.audioUrl || nested.audio || data.audio || '';
+  const animationUrl = restoreStoredAnimationUrl({
+    ...data,
+    animationUrl: data.animationUrl || nested.metadata?.animation_url || nested.animationUrl,
     metadata: {
-      name: data.name || 'Untitled NFT',
-      description: data.description || '',
-      image: data.image || '',
-      animation_url: videoUrl || audioUrl,
+      ...(nested.metadata || {}),
+      ...(data.metadata || {}),
+    },
+    isVideo: data.isVideo ?? nested.isVideo,
+    playbackMode: data.playbackMode || nested.playbackMode,
+    videoUrl: data.videoUrl || nested.videoUrl,
+    audioUrl,
+  });
+  const collectionName =
+    typeof data.collection === 'string'
+      ? data.collection
+      : data.collection?.name || nested.collection?.name || 'Unknown Collection';
+
+  const nft: NFT = {
+    contract: data.nftContract || data.contract || nested.contract,
+    tokenId: data.tokenId || nested.tokenId,
+    name: data.name || nested.name || 'Untitled NFT',
+    description: data.description || nested.description || '',
+    image: data.image || data.imageUrl || nested.image || '',
+    audio: audioUrl,
+    videoUrl: data.videoUrl || nested.videoUrl || undefined,
+    isVideo: Boolean(data.isVideo ?? nested.isVideo),
+    playbackMode: data.playbackMode || nested.playbackMode,
+    hasValidAudio: Boolean(audioUrl || animationUrl),
+    metadata: {
+      name: data.name || nested.name || 'Untitled NFT',
+      description: data.description || nested.description || '',
+      image: data.image || data.imageUrl || nested.image || '',
+      ...(nested.metadata || {}),
+      ...(data.metadata || {}),
+      animation_url: animationUrl || data.metadata?.animation_url || nested.metadata?.animation_url || undefined,
       ...(data.mediaMime ? { mimeType: data.mediaMime } : {}),
     } as NFT['metadata'],
     collection: {
-      name: data.collection || 'Unknown Collection',
+      name: collectionName,
     },
-    network: data.network,
+    network: data.network || nested.network,
+    mediaKey: data.mediaKey,
   };
+  return hydrateNftPlayback(nft);
 };
 const dataLogger = logger.getModuleLogger('data');
 
@@ -686,6 +699,7 @@ function buildPlayRecord(nft: NFT, fid: number, mediaKey: string, audioUrl: stri
     image: nft.image || nft.metadata?.image || '',
     audioUrl,
     videoUrl: playbackStore.videoUrl || '',
+    animationUrl: playbackStore.animationUrl || '',
     isVideo: playbackStore.isVideo,
     playbackMode: playbackStore.playbackMode,
     mediaMime: playbackStore.mediaMime || '',
@@ -804,6 +818,7 @@ export const trackNFTPlay = async (nft: NFT, fid: number, options?: { forceTrack
         image: nft.image || data.image || '',
         audioUrl: audioUrl || data.audioUrl,
         videoUrl: playbackStore.videoUrl || data.videoUrl || '',
+        animationUrl: playbackStore.animationUrl || data.animationUrl || '',
         isVideo: playbackStore.isVideo,
         playbackMode: playbackStore.playbackMode,
         mediaMime: playbackStore.mediaMime || data.mediaMime || '',
@@ -822,6 +837,7 @@ export const trackNFTPlay = async (nft: NFT, fid: number, options?: { forceTrack
         image: nft.image || nft.metadata?.image || '',
         audioUrl,
         videoUrl: playbackStore.videoUrl,
+        animationUrl: playbackStore.animationUrl,
         isVideo: playbackStore.isVideo,
         playbackMode: playbackStore.playbackMode,
         mediaMime: playbackStore.mediaMime,
@@ -885,6 +901,7 @@ export const trackNFTPlay = async (nft: NFT, fid: number, options?: { forceTrack
         image: nft.image || '',
         audioUrl: audioUrl,
         videoUrl: playbackStore.videoUrl,
+        animationUrl: playbackStore.animationUrl,
         isVideo: playbackStore.isVideo,
         playbackMode: playbackStore.playbackMode,
         mediaMime: playbackStore.mediaMime,
@@ -906,6 +923,7 @@ export const trackNFTPlay = async (nft: NFT, fid: number, options?: { forceTrack
         image: nft.image || data.image || '',
         audioUrl: audioUrl || data.audioUrl,
         videoUrl: playbackStore.videoUrl || data.videoUrl || '',
+        animationUrl: playbackStore.animationUrl || data.animationUrl || '',
         isVideo: playbackStore.isVideo,
         playbackMode: playbackStore.playbackMode,
         mediaMime: playbackStore.mediaMime || data.mediaMime || '',
@@ -926,6 +944,7 @@ export const trackNFTPlay = async (nft: NFT, fid: number, options?: { forceTrack
       image: nft.image || nft.metadata?.image || '',
       audioUrl: audioUrl,
       videoUrl: playbackStore.videoUrl,
+      animationUrl: playbackStore.animationUrl,
       isVideo: playbackStore.isVideo,
       playbackMode: playbackStore.playbackMode,
       mediaMime: playbackStore.mediaMime,
@@ -1216,39 +1235,71 @@ export const getLikedNFTs = (fid: number): Promise<NFT[]> => {
         
         return getDoc(doc(db, 'global_likes', mediaKey))
           .then(async globalLikeDoc => {
+            const globalData = globalLikeDoc.exists() ? globalLikeDoc.data() : {};
+            const nested = userLikeData.nft && typeof userLikeData.nft === 'object' ? userLikeData.nft : {};
+            const merged = {
+              ...globalData,
+              ...userLikeData,
+              nftContract:
+                userLikeData.contract ||
+                userLikeData.nftContract ||
+                nested.contract ||
+                globalData.nftContract ||
+                globalData.contract,
+              tokenId: userLikeData.tokenId || nested.tokenId || globalData.tokenId,
+              name: userLikeData.name || nested.name || globalData.name,
+              description: userLikeData.description || nested.description || globalData.description,
+              image:
+                userLikeData.image ||
+                nested.image ||
+                globalData.image ||
+                globalData.imageUrl,
+              audioUrl: userLikeData.audioUrl || nested.audio || globalData.audioUrl,
+              animationUrl:
+                userLikeData.animationUrl ||
+                userLikeData.metadata?.animation_url ||
+                nested.metadata?.animation_url ||
+                globalData.animationUrl ||
+                globalData.metadata?.animation_url,
+              videoUrl: userLikeData.videoUrl || nested.videoUrl || globalData.videoUrl,
+              isVideo: userLikeData.isVideo ?? nested.isVideo ?? globalData.isVideo,
+              playbackMode:
+                userLikeData.playbackMode || nested.playbackMode || globalData.playbackMode,
+              metadata: {
+                ...(globalData.metadata || {}),
+                ...(nested.metadata || {}),
+                ...(userLikeData.metadata || {}),
+              },
+              network: userLikeData.network || nested.network || globalData.network,
+              collection: userLikeData.collection || globalData.collection,
+              mediaKey,
+            };
+
             if (!globalLikeDoc.exists()) {
-              // Save the user like data for fixing missing global likes later
               missingGlobalLikes.set(mediaKey, userLikeData);
-              
-              // Try to get the NFT data from the user's like document
-              if (userLikeData.nft) {
-                const nftData = userLikeData.nft;
-                const nftKey = `${nftData.contract}-${nftData.tokenId}`.toLowerCase();
-                
-                if (seenNFTKeys.has(nftKey)) {
-                  return null;
-                }
-                seenNFTKeys.add(nftKey);
-                
-                // Return the NFT from user data so it's not lost
-                return nftData;
-              }
-              return null;
             }
-            
-            const globalData = globalLikeDoc.data();
-            
-            // Skip if we've already seen this NFT (by contract-tokenId)
-            const nftKey = `${globalData.nftContract}-${globalData.tokenId}`.toLowerCase();
+
+            if (!merged.nftContract || !merged.tokenId) {
+              return nested.contract && nested.tokenId
+                ? hydrateNftPlayback({
+                    ...nested,
+                    audio: nested.audio || userLikeData.audioUrl || '',
+                    metadata: {
+                      ...(nested.metadata || {}),
+                      ...(userLikeData.metadata || {}),
+                    },
+                  } as NFT)
+                : null;
+            }
+
+            const nftKey = `${merged.nftContract}-${merged.tokenId}`.toLowerCase();
             if (seenNFTKeys.has(nftKey)) {
-              firebaseLogger.debug(`Skipping duplicate NFT: ${globalData.name} (${nftKey})`);
+              firebaseLogger.debug(`Skipping duplicate NFT: ${merged.name} (${nftKey})`);
               return null;
             }
             seenNFTKeys.add(nftKey);
-            
-            const nft = nftFromPlayRecord(globalData);
-            
-            return nft;
+
+            return nftFromPlayRecord(merged);
           })
           .catch(err => {
             firebaseLogger.warn(`Error fetching global like for ${mediaKey}:`, err);
@@ -1271,12 +1322,22 @@ export const getLikedNFTs = (fid: number): Promise<NFT[]> => {
       const nftsToAdd: NFT[] = [];
       
       for (const [mediaKey, userLikeData] of missingGlobalLikes.entries()) {
-        if (!userLikeData.nft) {
+        const nft = userLikeData.nft || {
+          contract: userLikeData.contract || userLikeData.nftContract,
+          tokenId: userLikeData.tokenId,
+          name: userLikeData.name,
+          description: userLikeData.description,
+          image: userLikeData.image,
+          audio: userLikeData.audioUrl,
+          metadata: userLikeData.metadata,
+          network: userLikeData.network,
+          collection: { name: userLikeData.collection || 'Unknown Collection' },
+        };
+        
+        if (!nft.contract || !nft.tokenId) {
           firebaseLogger.warn(`No NFT data found in user like document for mediaKey: ${mediaKey}`);
           continue;
         }
-        
-        const nft = userLikeData.nft;
         
         // Create global like document
         const globalLikeRef = doc(db, 'global_likes', mediaKey);
@@ -1287,9 +1348,17 @@ export const getLikedNFTs = (fid: number): Promise<NFT[]> => {
           name: nft.name || 'Untitled',
           description: nft.description || '',
           image: nft.image || '',
-          audioUrl: nft.audio || nft.metadata?.animation_url || '',
-          collection: nft.collection?.name || 'Unknown Collection',
-          network: nft.network || 'base',
+          audioUrl: nft.audio || userLikeData.audioUrl || nft.metadata?.animation_url || '',
+          animationUrl:
+            userLikeData.animationUrl ||
+            nft.metadata?.animation_url ||
+            '',
+          videoUrl: userLikeData.videoUrl || nft.videoUrl || '',
+          isVideo: Boolean(userLikeData.isVideo ?? nft.isVideo),
+          playbackMode: userLikeData.playbackMode || nft.playbackMode || '',
+          metadata: userLikeData.metadata || nft.metadata || {},
+          collection: nft.collection?.name || userLikeData.collection || 'Unknown Collection',
+          network: nft.network || userLikeData.network || 'base',
           likeCount: 1,  // Start with 1 like (the current user)
           timestamp: serverTimestamp(),
           lastLiked: serverTimestamp()
@@ -1318,7 +1387,7 @@ export const getLikedNFTs = (fid: number): Promise<NFT[]> => {
     }
 
     firebaseLogger.info(`Processed ${likedNFTs.length} liked NFTs after deduplication`);
-    return likedNFTs;
+    return likedNFTs.filter(isPlayableMediaNFT);
     } catch (error) {
       firebaseLogger.error('Error getting liked NFTs:', error);
       return [];
@@ -1493,14 +1562,23 @@ export const toggleLikeNFT = async (nft: NFT, fid: number, forceUnlike: boolean 
             description: nft.description || nft.metadata?.description || '',
             image: nft.image || nft.metadata?.image || '',
             audio: nft.audio || nft.metadata?.animation_url || '',
+            videoUrl: nft.videoUrl || '',
+            isVideo: Boolean(nft.isVideo),
+            playbackMode: nft.playbackMode || '',
             metadata: nft.metadata || {}
           },
           nftContract: nft.contract,
+          contract: nft.contract,
           tokenId: nft.tokenId,
           name: nft.name || 'Untitled',
           description: nft.description || nft.metadata?.description || '',
           image: nft.image || nft.metadata?.image || '',
           audioUrl: nft.audio || nft.metadata?.animation_url || '',
+          animationUrl: typeof nft.metadata?.animation_url === 'string' ? nft.metadata.animation_url : '',
+          videoUrl: nft.videoUrl || '',
+          isVideo: Boolean(nft.isVideo),
+          playbackMode: nft.playbackMode || '',
+          metadata: nft.metadata || {},
           collection: nft.collection?.name || 'Unknown Collection',
           network: nft.network || 'base',
           timestamp: serverTimestamp()
@@ -1522,6 +1600,14 @@ export const toggleLikeNFT = async (nft: NFT, fid: number, forceUnlike: boolean 
             description: nft.description || nft.metadata?.description || globalData?.description || '',
             image: nft.image || nft.metadata?.image || globalData?.image || '',
             audioUrl: nft.audio || nft.metadata?.animation_url || globalData?.audioUrl || '',
+            animationUrl:
+              (typeof nft.metadata?.animation_url === 'string' ? nft.metadata.animation_url : '') ||
+              globalData?.animationUrl ||
+              '',
+            videoUrl: nft.videoUrl || globalData?.videoUrl || '',
+            isVideo: Boolean(nft.isVideo),
+            playbackMode: nft.playbackMode || globalData?.playbackMode || '',
+            metadata: nft.metadata || globalData?.metadata || {},
             collection: nft.collection?.name || globalData?.collection || 'Unknown Collection',
             network: nft.network || globalData?.network || 'base'
           });
@@ -1535,6 +1621,11 @@ export const toggleLikeNFT = async (nft: NFT, fid: number, forceUnlike: boolean 
             description: nft.description || nft.metadata?.description || '',
             image: nft.image || nft.metadata?.image || '',
             audioUrl: nft.audio || nft.metadata?.animation_url || '',
+            animationUrl: typeof nft.metadata?.animation_url === 'string' ? nft.metadata.animation_url : '',
+            videoUrl: nft.videoUrl || '',
+            isVideo: Boolean(nft.isVideo),
+            playbackMode: nft.playbackMode || '',
+            metadata: nft.metadata || {},
             collection: nft.collection?.name || 'Unknown Collection',
             network: nft.network || 'base',
             likeCount: 1,
@@ -1634,7 +1725,7 @@ export const subscribeToRecentPlays = (fid: number, callback: (nfts: NFT[]) => v
           image: playData.image || '',
           audio: playData.audioUrl || '',
           metadata: {
-            animation_url: playData.audioUrl || '',
+            animation_url: playData.animationUrl || playData.videoUrl || '',
             image: playData.image || ''
           }
         };
@@ -1683,6 +1774,7 @@ export const subscribeToRecentPlays = (fid: number, callback: (nfts: NFT[]) => v
     
     firebaseLogger.info(`Recent plays: ${recentNFTs.length} NFTs`);
     callback(recentNFTs);
+    applyConfirmedPlayback(recentNFTs, callback);
   });
 };
 
@@ -1709,7 +1801,7 @@ export const fetchNFTDetails = async (contractAddress: string, tokenId: string):
           name: data.name,
           description: data.description,
           image: data.image,
-          animation_url: data.audioUrl
+          animation_url: data.animationUrl || data.videoUrl || undefined
         },
         collection: {
           name: data.collection

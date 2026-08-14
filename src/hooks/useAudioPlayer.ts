@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { flushSync } from 'react-dom';
 import { NFT } from '../types/user';
 import { trackNFTPlay as originalTrackNFTPlay, recordRecentPlay } from '../lib/firebase';
 import { v4 as uuidv4 } from 'uuid';
@@ -35,7 +36,15 @@ const trackNFTPlay = (nft: NFT, fid: number, options?: { forceTrack?: boolean, t
   // Default case - shouldn't happen but included for completeness
   return Promise.resolve();
 };
-import { processMediaUrl, getMediaKey, buildArweaveAudioFallbackUrls, buildIpfsFallbackUrls, extractIPFSPath } from '../utils/media';
+import {
+  getMediaKey,
+  buildFastPlaybackUrls,
+  canonicalizeArweaveGatewayUrl,
+  abortMediaElement,
+  ensurePlaybackVideoElement,
+  PLAYBACK_STALL_MS,
+  FIRST_BYTE_FAILOVER_MS,
+} from '../utils/media';
 
 function findNftInQueue(queue: NFT[], nft: NFT): number {
   const mediaKey = nft.mediaKey || getMediaKey(nft);
@@ -52,11 +61,21 @@ function findNftInQueue(queue: NFT[], nft: NFT): number {
   }
   return -1;
 }
-import { applyPlaybackPlanToNft, getNftPlaybackPlan, resolveNftPlaybackPlan } from '../utils/isMediaNFT';
+import {
+  applyPlaybackPlanToNft,
+  getNftPlaybackPlan,
+  mediaUrlNeedsMimeProbe,
+  resolveNftPlaybackPlan,
+  filterLivePlaybackUrls,
+  rememberDeadGateway,
+  isPlayableMediaNFT,
+  urlLooksLike3dModel,
+} from '../utils/isMediaNFT';
 import { logger } from '../utils/logger';
 import { useToast } from './useToast';
-import { markNftMediaDead } from '../utils/deadNftRegistry';
+import { reviveNftMedia } from '../utils/deadNftRegistry';
 import { prioritizeRememberedUrl, rememberWorkingMediaUrl, forgetMediaUrl, getRememberedMediaUrl } from '../utils/gatewayMemory';
+import { playDebugStart, playDebug, audioDebugSnapshot } from '../utils/playDebug';
 
 // Create a dedicated logger for this module
 const audioLogger = logger.getModuleLogger('audioPlayer');
@@ -112,6 +131,11 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
   });
   const { error: showErrorToast } = useToast();
 
+  const playAttemptRef = useRef(0);
+  const stallTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const failoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const visualPlaybackRef = useRef<HTMLVideoElement | null>(null);
+
   const handleError = useCallback((e: Event) => {
     const target = e.target as HTMLAudioElement;
     const error = target.error;
@@ -121,31 +145,6 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       networkState: target.networkState,
       readyState: target.readyState
     });
-
-    // Only attempt fallback if we haven't tried all fallbacks yet
-    if (fallbackStateRef.current.currentIndex < fallbackStateRef.current.urls.length - 1) {
-      const nextIndex = fallbackStateRef.current.currentIndex + 1;
-      fallbackStateRef.current.currentIndex = nextIndex;
-      const nextUrl = fallbackStateRef.current.urls[nextIndex];
-      
-      // Reset error state before trying next URL
-      setError(null);
-      
-      // Small delay to ensure clean state
-      setTimeout(() => {
-        if (audioRef.current) {
-          audioRef.current.src = nextUrl;
-          audioRef.current.load();
-          audioRef.current.play().catch(err => {
-            logger.error('Failed to play fallback URL:', err);
-            setError(err);
-          });
-        }
-      }, 100);
-    } else {
-      // If we've tried all fallbacks, set the error state
-      setError(new Error(errorMessage));
-    }
   }, [logger]);
 
   // Update fallback URLs when they change
@@ -171,8 +170,7 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     // Initialize the audio element if it doesn't exist
     if (!audioRef.current) {
       audioRef.current = new Audio();
-      audioRef.current.crossOrigin = 'anonymous';
-      audioRef.current.preload = 'metadata';
+      audioRef.current.preload = 'auto';
       audioLogger.info('Created new audio element');
     }
     
@@ -180,6 +178,7 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     if (!audio) return;
 
     const updateProgress = () => {
+      if (visualPlaybackRef.current) return;
       if (!Number.isFinite(audio.duration)) return;
       
       // Round to prevent micro-updates that cause UI jitter
@@ -216,56 +215,47 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       setIsPlaying(false);
       setAudioProgress(0);
     };
-
-    const handlePlay = () => setIsPlaying(true);
-    const handlePause = () => setIsPlaying(false);
     
-    // Add timeupdate event to track progress
     audio.addEventListener('timeupdate', updateProgress);
     audio.addEventListener('loadedmetadata', handleLoadedMetadata);
     audio.addEventListener('durationchange', handleDurationChange);
     audio.addEventListener('ended', handleEnded);
-    audio.addEventListener('play', handlePlay);
-    audio.addEventListener('pause', handlePause);
 
     return () => {
-      // Clean up event listeners when component unmounts
       audio.removeEventListener('timeupdate', updateProgress);
       audio.removeEventListener('durationchange', handleDurationChange);
       audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
       audio.removeEventListener('ended', handleEnded);
-      audio.removeEventListener('play', handlePlay);
-      audio.removeEventListener('pause', handlePause);
-      
-      // Pause audio and reset when unmounting
-      audio.pause();
-      audio.src = '';
-      audio.load(); // Reset the audio element
     };
   }, []);
 
   const handlePlayPause = useCallback(() => {
     if (!audioRef.current) return;
+    const clock =
+      visualPlaybackRef.current ||
+      audioRef.current;
 
     const video =
       currentPlayingNFT
         ? (document.getElementById(
             `video-${currentPlayingNFT.contract}-${currentPlayingNFT.tokenId}`
           ) as HTMLVideoElement | null)
-        : null;
+        : visualPlaybackRef.current;
 
-    if (isPlaying) {
-      audioRef.current.pause();
-      video?.pause();
+    if (isPlaying || !clock.paused) {
+      playDebug('handlePlayPause → pause', audioDebugSnapshot(clock));
+      clock.pause();
+      if (video && video !== clock) video.pause();
+      setIsPlaying(false);
     } else {
-      audioRef.current.play().catch((error) => {
+      playDebug('handlePlayPause → play', audioDebugSnapshot(clock));
+      setIsPlaying(true);
+      clock.play().catch((error) => {
         audioLogger.error('Error in handlePlayPause:', error);
         setIsPlaying(false);
       });
-      if (video) {
+      if (video && video !== clock) {
         video.muted = true;
-        // No seeking on resume — many Arweave gateways don't support Range requests,
-        // so forcing currentTime forces a full re-fetch that stalls/"skips" playback.
         video.play().catch(() => {});
       }
     }
@@ -291,19 +281,22 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
   useEffect(() => {
     return () => {
       cleanupBlobUrls();
-      
-      // Clean up audio element
-      if (audioRef.current) {
-        audioRef.current.pause();
-        // Instead of setting empty src, remove the source element
-        audioRef.current.removeAttribute('src');
-        audioRef.current.load();
-      }
     };
   }, [cleanupBlobUrls]);
   
   // Define handlePlayAudio first, before it's used in other functions
   const handlePlayAudio = useCallback(async (nft: NFT, context?: { queue?: NFT[], queueType?: string }) => {
+    playDebugStart('handlePlayAudio enter', {
+      name: nft.name,
+      contract: nft.contract,
+      tokenId: nft.tokenId,
+      audio: nft.audio,
+      animation: nft.metadata?.animation_url,
+      videoUrl: nft.videoUrl,
+      isVideo: nft.isVideo,
+      playbackMode: nft.playbackMode,
+    });
+
     // Add mobile optimization
     const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
     
@@ -319,15 +312,25 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       setQueueType('single');
     }
     audioLogger.info('handlePlayAudio called with NFT:', nft);
+    reviveNftMedia(nft, 'audio');
 
-    // Use sync plan so audio starts immediately — never block on network probes here.
-    // resolveNftPlaybackPlan (which probes Content-Type) runs in background and updates
-    // nft fields so MaximizedPlayer picks up the video layer after open.
-    const plan = getNftPlaybackPlan(nft);
-    applyPlaybackPlanToNft(nft, plan);
-    if (!plan.videoUrl && !nft.metadata?.mimeType) {
-      void resolveNftPlaybackPlan(nft).then((resolved) => applyPlaybackPlanToNft(nft, resolved));
+    // Extensionless CIDs can be audio (Late #7) or video (Community.eth).
+    // Probe before mounting <video>, even if metadata put the sound in animation_url.
+    let plan = getNftPlaybackPlan(nft);
+    const probeUrl = plan.videoUrl || plan.audioUrl || nft.audio;
+    if (urlLooksLike3dModel(probeUrl) || !isPlayableMediaNFT(nft)) {
+      playDebug('rejected non-audio/video media (3D/model)', {
+        name: nft.name,
+        url: probeUrl,
+      });
+      audioLogger.info('Skipping non-playable media NFT', { name: nft.name, url: probeUrl });
+      return;
     }
+    if (mediaUrlNeedsMimeProbe(probeUrl)) {
+      playDebug('extensionless media — probing Content-Type');
+      plan = await resolveNftPlaybackPlan(nft);
+    }
+    applyPlaybackPlanToNft(nft, plan);
     audioLogger.info('NFT playback plan:', {
       mode: plan.mode,
       audioUrl: plan.audioUrl?.slice(0, 80),
@@ -336,399 +339,416 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     });
 
     // Sound source: dedicated audio, or the video file's audio track
-    const rawAudioUrl =
-      plan.audioUrl ||
-      nft.audio ||
-      plan.videoUrl ||
-      nft.metadata?.animation_url;
+    const rawAudioUrl = [plan.audioUrl, nft.audio, plan.videoUrl, nft.metadata?.animation_url].find(
+      (url): url is string => Boolean(url) && !urlLooksLike3dModel(url)
+    );
 
     if (!rawAudioUrl) {
+      playDebug('NO audio URL on NFT — abort');
       audioLogger.error('No audio URL found for NFT');
       return;
     }
     
-    // Generate multiple potential URLs for fallback
-    const audioUrls: string[] = [];
-    
-    // Special handling for Arweave / PODs URLs — try multiple gateways + direct file tx
-    if (rawAudioUrl.startsWith('ar://') || /arweave\.(net|dev)|permagate\.io|turbo-gateway\.com|irys\.xyz|ar-io\.dev|g8way\.io/i.test(rawAudioUrl)) {
-      // Plain https://arweave.net/{tx} URLs work via arweave.net's CDN — keep them first.
-      // Only ar:// and non-arweave.net gateway URLs need to be rebuilt through turbo/permagate.
-      if (rawAudioUrl.startsWith('https://arweave.net/') || rawAudioUrl.startsWith('http://arweave.net/')) {
-        audioUrls.push(rawAudioUrl);
-        // Turbo/permagate as fallbacks in case arweave.net CDN misses
-        const fallbacks = buildArweaveAudioFallbackUrls(rawAudioUrl).filter(u => u !== rawAudioUrl);
-        audioUrls.push(...fallbacks);
-      } else {
-        const arweaveFallbacks = buildArweaveAudioFallbackUrls(rawAudioUrl);
-        audioUrls.push(...arweaveFallbacks);
-      }
-      audioLogger.info('Generated Arweave audio URLs across gateways:', {
-        count: audioUrls.length,
-        primary: audioUrls[0],
-      });
-    }
-    // IPFS — try multiple gateways (cloudflare-ipfs.com DNS is dead)
-    else if (rawAudioUrl.startsWith('ipfs://') || extractIPFSPath(rawAudioUrl)) {
-      const ipfsFallbacks = buildIpfsFallbackUrls(rawAudioUrl);
-      audioUrls.push(...ipfsFallbacks);
-      audioLogger.info('Generated IPFS audio URLs across gateways:', {
-        count: ipfsFallbacks.length,
-        urls: ipfsFallbacks.slice(0, 4),
-      });
-    }
-    // Standard URL processing for other URLs
-    else {
-      // 1. Process using our standard processMediaUrl function
-      const processedUrl = processMediaUrl(rawAudioUrl, undefined, 'audio');
-      if (processedUrl && processedUrl !== 'undefined' && processedUrl !== 'null') {
-        audioUrls.push(processedUrl);
-      }
-      
-      // 2. If it's already an HTTPS URL, add it directly
-      if (rawAudioUrl.startsWith('https://')) {
-        if (!audioUrls.includes(rawAudioUrl)) {
-          audioUrls.push(rawAudioUrl);
-        }
-      }
-    }
-    
-    // If we couldn't generate any valid URLs, log error and return
+    const audioUrls = buildFastPlaybackUrls(rawAudioUrl);
     if (audioUrls.length === 0) {
       audioLogger.error('Failed to generate any valid audio URLs', { raw: rawAudioUrl });
       return;
     }
 
-    // If a gateway has already proven itself for this exact media, try it first —
-    // skips redoing the same trial-and-error cascade on every repeat play.
     const mediaKeyForMemory = nft.mediaKey || getMediaKey(nft);
-    const prioritizedAudioUrls = prioritizeRememberedUrl(mediaKeyForMemory, 'audio', audioUrls);
+    const playbackUrls = filterLivePlaybackUrls(
+      rawAudioUrl,
+      prioritizeRememberedUrl(mediaKeyForMemory, 'audio', audioUrls)
+        .map(canonicalizeArweaveGatewayUrl)
+        .filter((url, index, list) => url && list.indexOf(url) === index)
+    );
 
-    // Use the first URL as our primary
-    const audioUrl = prioritizedAudioUrls[0];
-    
-    // Store all URLs for fallback
-    const fallbackUrls = prioritizedAudioUrls.slice(1);
-    
-    // Log detailed information about the URL processing
-    audioLogger.info('Processed audio URLs:', { 
+    playDebug('URLs ready', {
+      planMode: plan.mode,
+      speculative: false,
+      videoUrl: plan.videoUrl,
       raw: rawAudioUrl,
-      primary: audioUrl,
-      fallbacks: fallbackUrls,
-      nftName: nft.name,
-      mediaKey: getMediaKey(nft)
+      count: playbackUrls.length,
+      urls: playbackUrls,
+      remembered: getRememberedMediaUrl(mediaKeyForMemory, 'audio'),
     });
 
     // If same NFT is clicked, toggle play/pause
     if (currentlyPlaying === `${nft.contract}-${nft.tokenId}`) {
+      playDebug('same NFT — toggle pause/play instead of reload');
       audioLogger.info('Same NFT clicked, toggling play/pause');
       handlePlayPause();
       return;
     }
 
-    // Stop current audio and video if playing
+    playAttemptRef.current += 1;
+    const playAttempt = playAttemptRef.current;
+    if (stallTimerRef.current) {
+      clearTimeout(stallTimerRef.current);
+      stallTimerRef.current = null;
+    }
+    if (failoverTimerRef.current) {
+      clearTimeout(failoverTimerRef.current);
+      failoverTimerRef.current = null;
+    }
+
     if (audioRef.current) {
       audioLogger.info('Stopping current audio');
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
+      abortMediaElement(audioRef.current);
       setAudioProgress(0);
       setAudioDuration(0);
     }
 
-    // Stop any currently playing videos
-    const currentVideo = currentPlayingNFT ? 
-      document.querySelector(`#video-${currentPlayingNFT.contract}-${currentPlayingNFT.tokenId}`) : null;
-    if (currentVideo instanceof HTMLVideoElement) {
-      currentVideo.pause();
-      currentVideo.currentTime = 0;
+    const previousClock = visualPlaybackRef.current;
+    if (previousClock) {
+      previousClock.onerror = null;
+      previousClock.onplaying = null;
+      previousClock.ontimeupdate = null;
+      previousClock.onpause = null;
+      previousClock.onended = null;
+      previousClock.onplay = null;
+      previousClock.onloadedmetadata = null;
+      previousClock.ondurationchange = null;
+      previousClock.oncanplay = null;
+      previousClock.onwaiting = null;
+      previousClock.onstalled = null;
+      previousClock.pause();
+      previousClock.removeAttribute('src');
+      previousClock.load();
+    } else if (currentPlayingNFT) {
+      const currentVideo = document.getElementById(
+        `video-${currentPlayingNFT.contract}-${currentPlayingNFT.tokenId}`
+      );
+      if (currentVideo instanceof HTMLVideoElement) {
+        currentVideo.pause();
+        currentVideo.removeAttribute('src');
+        currentVideo.load();
+      }
     }
 
-    setCurrentPlayingNFT(nft);
-    setCurrentlyPlaying(`${nft.contract}-${nft.tokenId}`);
+    flushSync(() => {
+      setCurrentPlayingNFT(nft);
+      setCurrentlyPlaying(`${nft.contract}-${nft.tokenId}`);
+    });
 
     const mediaKey = mediaKeyForMemory;
     recordRecentPlay(nft, fid).catch((error) => {
       audioLogger.error('Error recording recent play:', error);
     });
 
-    // IMPORTANT: Do NOT use unmuted <video> as the sound source.
-    // Audio element always owns sound. If there's a video layer, it stays muted
-    // and is synced as a visual companion (avoids double-audio + minimize/maximize desync).
-    // Fall through to Audio element setup below.
-    
-    // EXISTING CODE for audio playback (all modes)
-    if (audioRef.current) {
-      // Create a new audio element for this NFT using the already processed URL
-      audioLogger.info('Creating Audio element with URL:', audioUrl);
-      
-      // Use the existing audio element instead of creating a new one each time
-      // This prevents memory leaks from accumulating audio elements
-      const audio = audioRef.current;
-      if (!audio) {
-        audioLogger.error('Audio element reference is null');
+    if (!audioRef.current) {
+      audioRef.current = new Audio();
+    }
+    const audio = audioRef.current;
+
+    const detachPlaybackHandlers = (el: HTMLMediaElement | null) => {
+      if (!el) return;
+      el.onerror = null;
+      el.onloadedmetadata = null;
+      el.ondurationchange = null;
+      el.oncanplay = null;
+      el.onwaiting = null;
+      el.onstalled = null;
+      el.onplaying = null;
+      el.ontimeupdate = null;
+      el.onplay = null;
+      el.onpause = null;
+      el.onended = null;
+    };
+    detachPlaybackHandlers(audio);
+    detachPlaybackHandlers(visualPlaybackRef.current);
+
+    audio.preload = 'auto';
+    if (isMobile) {
+      audio.volume = 0.7;
+    }
+
+    visualPlaybackRef.current = null;
+    let media: HTMLMediaElement = audio;
+    if (plan.mode === 'video-with-audio' && plan.videoUrl) {
+      abortMediaElement(audio);
+      audio.removeAttribute('src');
+      const mounted = document.getElementById(
+        `video-${nft.contract}-${nft.tokenId}`
+      );
+      const videoEl =
+        mounted instanceof HTMLVideoElement
+          ? mounted
+          : ensurePlaybackVideoElement(nft.contract, nft.tokenId);
+      media = videoEl;
+      videoEl.muted = false;
+      videoEl.preload = 'auto';
+      videoEl.loop = false;
+      if (isMobile) videoEl.volume = 0.7;
+      visualPlaybackRef.current = videoEl;
+      playDebug('using <video> as playback clock', {
+        id: videoEl.id,
+        createdFallback: !(mounted instanceof HTMLVideoElement),
+      });
+    }
+
+    let urlIndex = 0;
+    let switchingUrl = false;
+    let playbackStarted = false;
+    let unplayableToastShown = false;
+    let playTracked = false;
+
+    const showUnplayableToast = () => {
+      if (unplayableToastShown) return;
+      unplayableToastShown = true;
+      showErrorToast(`Couldn't play "${nft.name || 'this track'}" — its media file is currently unavailable.`);
+    };
+
+    const clearStall = () => {
+      if (stallTimerRef.current) {
+        clearTimeout(stallTimerRef.current);
+        stallTimerRef.current = null;
+      }
+      if (failoverTimerRef.current) {
+        clearTimeout(failoverTimerRef.current);
+        failoverTimerRef.current = null;
+      }
+    };
+
+    const startCompanionVideo = () => {
+      if (media instanceof HTMLVideoElement) {
+        playDebug('playback clock is the video — no separate companion');
         return;
       }
-      
-      // Reset the audio element
-      audio.pause();
-      audio.currentTime = 0;
-      audio.crossOrigin = 'anonymous';
-      audio.preload = 'metadata';
-      
-      // Add comprehensive error handling with multiple fallbacks
-      let fallbackIndex = 0;
-      let unplayableToastShown = false;
-      const showUnplayableToast = () => {
-        if (unplayableToastShown) return;
-        unplayableToastShown = true;
-        showErrorToast(`Couldn't play "${nft.name || 'this track'}" — its media file is currently unavailable.`);
-        // Every fallback/gateway/last-resort URL is exhausted at this point — safe to
-        // remember this NFT as dead so it stops showing up as "playable" elsewhere.
-        markNftMediaDead(nft, 'audio');
-      };
-      
-      audio.onerror = (e) => {
-        const errorInfo = {
-          error: e,
-          code: audio.error?.code,
-          message: audio.error?.message,
-          url: audio.src,
-          nftName: nft.name,
-          mediaKey: getMediaKey(nft)
-        };
-        
-        audioLogger.error('Audio element error:', errorInfo);
-
-        // The gateway we remembered as "working" just failed — stop recommending it.
-        if (audio.src === getRememberedMediaUrl(mediaKey, 'audio')) {
-          forgetMediaUrl(mediaKey, 'audio');
+      if (!(plan.videoUrl || plan.mode !== 'audio-only')) {
+        playDebug('no companion video');
+        return;
+      }
+      const newVideo = document.getElementById(
+        `video-${nft.contract}-${nft.tokenId}`
+      ) as HTMLVideoElement | null;
+      if (!newVideo) {
+        playDebug('companion video element not in DOM yet');
+        return;
+      }
+      playDebug('starting muted companion video', { src: newVideo.currentSrc || newVideo.src });
+      newVideo.muted = true;
+      newVideo.play().catch((error) => {
+        if (!(error instanceof DOMException && error.name === 'AbortError')) {
+          playDebug('companion video play failed', { name: error?.name, message: error?.message });
+          audioLogger.error('Error playing muted companion video:', error);
         }
-        
-        // Try fallback URLs if available
-        if (fallbackUrls.length > fallbackIndex) {
-          const nextUrl = fallbackUrls[fallbackIndex];
-          fallbackIndex++;
-          
-          audioLogger.info(`Trying fallback URL ${fallbackIndex} of ${fallbackUrls.length}:`, nextUrl);
-          
-          // Reset the audio element
-          audio.pause();
-          
-          // Try the next URL
-          audio.src = nextUrl;
-          
-          // Attempt to load and play
-          const playPromise = audio.play();
-          if (playPromise) {
-            playPromise.catch(playError => {
-              audioLogger.error('Error playing fallback URL:', { url: nextUrl, error: playError });
+      });
+    };
+
+    const kickPlay = () => {
+      playDebug('media.play() called', audioDebugSnapshot(media));
+      setIsPlaying(true);
+      const playPromise = media.play();
+      if (!playPromise) {
+        playDebug('media.play() returned nothing');
+        return;
+      }
+      playPromise.then(() => {
+        playDebug('media.play() resolved', audioDebugSnapshot(media));
+      }).catch((err) => {
+        if (playAttempt !== playAttemptRef.current) return;
+        playDebug('media.play() rejected', {
+          name: err?.name,
+          message: err?.message,
+          ...audioDebugSnapshot(media),
+        });
+        if (err instanceof DOMException && err.name === 'AbortError') return;
+        if (err instanceof DOMException && err.name === 'NotAllowedError' && isMobile) {
+          playDebug('NotAllowedError — retry muted');
+          media.muted = true;
+          media.play()
+            .then(() => {
+              playDebug('muted play resolved — will unmute');
+              setTimeout(() => { media.muted = false; }, 300);
+            })
+            .catch((mutedErr) => {
+              playDebug('muted play also failed', { name: mutedErr?.name, message: mutedErr?.message });
             });
-          }
-          
           return;
         }
-        
-        // If we've exhausted all fallbacks, try one last approach for Arweave URLs
-        if (/arweave\.|permagate\.io|turbo-gateway|irys\.xyz|ar-io\.dev|g8way\.io/i.test(audioUrl) &&
-            audio.error?.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED) {
-          audioLogger.error('All fallbacks failed. Attempting direct transaction access...', errorInfo);
-          
-          // Extract just the transaction ID and try direct access across gateways
-          const urlParts = audio.src.split('/');
-          let txId = '';
-          
-          // Find the part that looks like a transaction ID (43-character alphanumeric string)
-          for (const part of urlParts) {
-            const cleaned = part.replace(/\.(mp3|wav|ogg|m4a|flac|aac)$/i, '');
-            if (/^[a-zA-Z0-9_-]{43}$/.test(cleaned)) {
-              txId = cleaned;
-              break;
-            }
-          }
-          
-          if (txId) {
-            const lastResortUrls = buildArweaveAudioFallbackUrls(`ar://${txId}`);
-            const lastResortUrl = lastResortUrls[0] || `https://arweave.net/${txId}`;
-            audioLogger.info('Last resort: trying direct transaction URL:', lastResortUrl);
-            
-            // Reset the audio element
-            audio.pause();
-            audio.src = lastResortUrl;
-            
-            // Attempt to load and play
-            const playPromise = audio.play();
-            if (playPromise) {
-              playPromise.catch(playError => {
-                audioLogger.error('Error playing last resort URL:', { url: lastResortUrl, error: playError });
-                showUnplayableToast();
-              });
-            }
-            return;
-          }
-        }
-        
-        // Nothing left to try — let the user know instead of failing silently
-        showUnplayableToast();
-      };
-      
-      // Create a closure variable to track if this particular NFT play has been counted
-      let playTracked = false;
-      const nftKey = `${nft.contract}-${nft.tokenId}`;
-
-      // IMPORTANT: assign via on___ properties (not addEventListener) so each new
-      // handlePlayAudio call fully REPLACES the previous NFT's handlers instead of
-      // stacking alongside them. With addEventListener, a quick click from NFT A to
-      // NFT B left A's stale closure attached too — when B's metadata loaded, A's
-      // leftover listener fired as well and (among other things) mis-attributed
-      // gateway-memory / play-tracking to the wrong NFT, making rapid clicks appear
-      // to "play the previous NFT".
-      audio.onloadedmetadata = () => {
-        audioLogger.info('Audio metadata loaded:', {
-          duration: audio.duration,
-          currentTime: audio.currentTime
+        audioLogger.error('Error playing media:', {
+          error: err,
+          url: playbackUrls[urlIndex],
+          nftId: `${nft.contract}-${nft.tokenId}`,
         });
-        // Some gateways stream audio without a proper Content-Length, so duration
-        // can be NaN/Infinity here — never store that; ondurationchange below will
-        // report the real value once the browser figures it out.
-        if (Number.isFinite(audio.duration)) {
-          setAudioDuration(audio.duration);
-        }
-        // Metadata loading means whatever URL is currently on the element actually
-        // worked (whether it was the primary or one reached via the onerror fallback
-        // cascade) — remember it so next time we skip straight past dead gateways.
-        rememberWorkingMediaUrl(mediaKey, 'audio', audio.currentSrc || audio.src);
-      };
+      });
+    };
 
-      audio.ondurationchange = () => {
-        if (Number.isFinite(audio.duration)) {
-          setAudioDuration(audio.duration);
-        }
-      };
-
-      audio.ontimeupdate = () => {
-        setAudioProgress(audio.currentTime);
-        
-        // Count a play at 25% when duration is known. Streams that never report
-        // a finite duration (common on Arweave) would otherwise never track.
-        const knownDuration = Number.isFinite(audio.duration) && audio.duration > 0;
-        const reachedPercent = knownDuration && audio.currentTime >= audio.duration * 0.25;
-        const reachedFallback = !knownDuration && audio.currentTime >= 15;
-        if (!playTracked && (reachedPercent || reachedFallback)) {
-          playTracked = true;
-          
-          if (mediaKey) {
-            audioLogger.info(`🎵 Play count threshold reached for NFT: ${nft.name} (${Math.round(audio.currentTime)}s of ${knownDuration ? Math.round(audio.duration) : '?'}s) [mediaKey: ${mediaKey.substring(0, 20)}...]`);
-          } else {
-            audioLogger.info(`🎵 Play count threshold reached for NFT: ${nft.name}`);
-          }
-          
-          trackNFTPlay(nft, fid, { thresholdReached: true }).catch(error => {
-            audioLogger.error('Error tracking NFT play after threshold:', error);
-          });
-        }
-      };
-
-      audio.onplay = () => setIsPlaying(true);
-      audio.onpause = () => setIsPlaying(false);
-      audio.onended = () => {
+    const tryUrl = (index: number) => {
+      if (playAttempt !== playAttemptRef.current) {
+        playDebug('tryUrl ignored — stale attempt', { index, playAttempt, current: playAttemptRef.current });
+        return;
+      }
+      if (index >= playbackUrls.length) {
+        playDebug('all URLs exhausted', { tried: playbackUrls });
+        clearStall();
+        showUnplayableToast();
         setIsPlaying(false);
-        setAudioProgress(0);
-      };
-
-      // Stream Arweave / PODs audio directly (avoid blobbing large files like ~100MB episodes)
-      // audio.onerror above walks fallbackUrls across turbo/permagate/raw gateways
-      audio.src = audioUrl;
-      audioLogger.info('Using Arweave gateway URL for audio playback:', audioUrl);
-
-      // Replace the current audio reference
-      audioRef.current = audio;
-
-      // When setting up the audio element
-      if (isMobile) {
-        // Optimize for mobile
-        audio.preload = "metadata"; // Only preload metadata first
-        
-        // Set a lower volume initially to avoid popping on mobile
-        audio.volume = 0.7;
-        
-        // Use a smaller buffer size on mobile to reduce memory usage
-        if ('mozFragmentSize' in audio) {
-          (audio as any).mozFragmentSize = 1024; // Firefox-specific
-        }
-        
-        // Use low latency mode on Android Chrome if available
-        if ('webkitAudioContext' in window) {
-          audio.dataset.lowLatency = 'true';
-        }
+        return;
       }
 
-      try {
-        if (isMobile) {
-          // Improved mobile audio handling
-          // First try to play normally without muting
-          try {
-            await audio.play();
-            setIsPlaying(true);
-          } catch (mobileError) {
-            // If normal play fails, try the muted approach as fallback
-            audioLogger.debug('First play attempt failed on mobile, trying muted approach');
-            audio.muted = true; // Start muted to bypass autoplay restrictions
-            
-            try {
-              await audio.play();
-              // Autoplay started successfully with muting, now unmute
-              setTimeout(() => {
-                audio.muted = false;
-              }, 300); // Small delay to ensure browser accepts the unmute
-              setIsPlaying(true);
-            } catch (mutedError) {
-              // Both approaches failed
-              audioLogger.warn("Mobile audio playback failed even with muting:", mutedError);
-              setIsPlaying(false);
-              throw mutedError; // Re-throw to be caught by the outer catch
-            }
-          }
-        } else {
-          // Normal desktop play behavior
-          await audio.play();
-          setIsPlaying(true);
-        }
-        
-        // Muted visual companion only — never unmute (Audio owns sound)
-        if (plan.videoUrl || plan.mode !== 'audio-only') {
-          const newVideo = document.getElementById(
-            `video-${nft.contract}-${nft.tokenId}`
-          ) as HTMLVideoElement | null;
-          if (newVideo) {
-            newVideo.muted = true;
-            // No seeking — many Arweave gateways don't support Range requests, so
-            // forcing currentTime forces a full re-fetch that stalls/"skips" playback.
-            newVideo.play().catch((error) => {
-              if (!(error instanceof DOMException && error.name === 'AbortError')) {
-                audioLogger.error('Error playing muted companion video:', error);
-              }
-            });
-          }
-        }
-      } catch (error) {
-        // Don't treat AbortError as an error - it's normal when ads trigger
-        if (error instanceof DOMException && error.name === 'AbortError') {
-          audioLogger.debug('Audio playback interrupted by ad system', {
-            nftId: `${nft.contract}-${nft.tokenId}`,
-            audioUrl: audioUrl,
-            timestamp: new Date().toISOString()
-          });
-          // Don't set isPlaying to false for AbortError as the ad system will handle playback state
-        } else {
-          audioLogger.error("Error playing audio:", {
-            error,
-            nftId: `${nft.contract}-${nft.tokenId}`,
-            audioUrl: audioUrl
-          });
-          setIsPlaying(false);
-        }
+      urlIndex = index;
+      playbackStarted = false;
+      clearStall();
+      switchingUrl = true;
+      media.pause();
+      media.preload = 'auto';
+      const nextUrl = playbackUrls[index];
+      const existing = media.currentSrc || media.src;
+      if (existing && existing !== nextUrl && existing !== window.location.href) {
+        media.removeAttribute('src');
+        media.load();
       }
-    }
+      if ((media.currentSrc || media.src) !== nextUrl) {
+        media.src = nextUrl;
+      }
+      switchingUrl = false;
+
+      playDebug(`tryUrl[${index}/${playbackUrls.length - 1}]`, {
+        url: nextUrl,
+        assignedSrc: media.src,
+        ...audioDebugSnapshot(media),
+      });
+
+      stallTimerRef.current = setTimeout(() => {
+        if (playAttempt !== playAttemptRef.current || playbackStarted) return;
+        playDebug('still waiting for first bytes (NOT switching — URL may still be loading)', {
+          url: playbackUrls[index],
+          ...audioDebugSnapshot(media),
+        });
+      }, PLAYBACK_STALL_MS);
+
+      failoverTimerRef.current = setTimeout(() => {
+        if (playAttempt !== playAttemptRef.current || playbackStarted) return;
+        if (media.readyState > 0) return;
+        playDebug('no first byte — switching gateway', {
+          url: playbackUrls[index],
+          ...audioDebugSnapshot(media),
+        });
+        tryUrl(index + 1);
+      }, FIRST_BYTE_FAILOVER_MS);
+
+      kickPlay();
+    };
+
+    media.onerror = () => {
+      if (playAttempt !== playAttemptRef.current || switchingUrl) {
+        playDebug('onerror ignored', {
+          stale: playAttempt !== playAttemptRef.current,
+          switchingUrl,
+          ...audioDebugSnapshot(media),
+        });
+        return;
+      }
+      const failedSrc = media.currentSrc || media.src;
+      if (!failedSrc || failedSrc === window.location.href) {
+        playDebug('onerror empty src — ignore', audioDebugSnapshot(media));
+        return;
+      }
+
+      playDebug(playbackStarted ? 'stream died after start — next gateway' : 'media.onerror', audioDebugSnapshot(media));
+      rememberDeadGateway(rawAudioUrl, failedSrc);
+      playbackStarted = false;
+
+      if (failedSrc === getRememberedMediaUrl(mediaKey, 'audio')) {
+        forgetMediaUrl(mediaKey, 'audio');
+      }
+      tryUrl(urlIndex + 1);
+    };
+
+    media.onloadedmetadata = () => {
+      if (playAttempt !== playAttemptRef.current) return;
+      playDebug('loadedmetadata', audioDebugSnapshot(media));
+      if (Number.isFinite(media.duration)) {
+        setAudioDuration(media.duration);
+      }
+    };
+
+    media.ondurationchange = () => {
+      if (playAttempt !== playAttemptRef.current) return;
+      if (Number.isFinite(media.duration)) {
+        setAudioDuration(media.duration);
+      }
+    };
+
+    media.oncanplay = () => {
+      if (playAttempt !== playAttemptRef.current) return;
+      playDebug('canplay', audioDebugSnapshot(media));
+    };
+
+    media.onwaiting = () => {
+      if (playAttempt !== playAttemptRef.current) return;
+      playDebug('waiting (buffering)', audioDebugSnapshot(media));
+    };
+
+    media.onstalled = () => {
+      if (playAttempt !== playAttemptRef.current) return;
+      playDebug('stalled event', audioDebugSnapshot(media));
+      // First frame then starve (Pinata HTTP2 on a huge IPFS file): drop that
+      // gateway and try the next instead of freezing on a still.
+      if (playbackStarted && media.readyState <= 2 && media.currentTime < 8) {
+        const failedSrc = media.currentSrc || media.src;
+        playDebug('early stall after start — next gateway', { failedSrc });
+        rememberDeadGateway(rawAudioUrl, failedSrc);
+        forgetMediaUrl(mediaKey, 'audio');
+        playbackStarted = false;
+        tryUrl(urlIndex + 1);
+      }
+    };
+
+    media.onplaying = () => {
+      if (playAttempt !== playAttemptRef.current) return;
+      playbackStarted = true;
+      clearStall();
+      playDebug('PLAYING', audioDebugSnapshot(media));
+      setIsPlaying(true);
+      startCompanionVideo();
+    };
+
+    let firstProgressLogged = false;
+    let rememberedGateway = false;
+    media.ontimeupdate = () => {
+      if (playAttempt !== playAttemptRef.current) return;
+      if (!firstProgressLogged && media.currentTime > 0) {
+        firstProgressLogged = true;
+        playDebug('first timeupdate > 0', audioDebugSnapshot(media));
+      }
+      setAudioProgress(media.currentTime);
+      // Only remember a gateway after it has actually streamed, not on the first frame.
+      if (!rememberedGateway && media.currentTime >= 5) {
+        rememberedGateway = true;
+        rememberWorkingMediaUrl(mediaKey, 'audio', media.currentSrc || media.src);
+      }
+
+      const knownDuration = Number.isFinite(media.duration) && media.duration > 0;
+      const reachedPercent = knownDuration && media.currentTime >= media.duration * 0.25;
+      const reachedFallback = !knownDuration && media.currentTime >= 15;
+      if (!playTracked && (reachedPercent || reachedFallback)) {
+        playTracked = true;
+        audioLogger.info(`Play count threshold reached for NFT: ${nft.name}`);
+        trackNFTPlay(nft, fid, { thresholdReached: true }).catch(error => {
+          audioLogger.error('Error tracking NFT play after threshold:', error);
+        });
+      }
+    };
+
+    media.onplay = () => {
+      playDebug('media.onplay (not marking isPlaying yet — waiting for playing)', audioDebugSnapshot(media));
+    };
+    media.onpause = () => {
+      if (playAttempt !== playAttemptRef.current || switchingUrl) return;
+      playDebug('media.onpause', audioDebugSnapshot(media));
+      if (!media.ended) setIsPlaying(false);
+    };
+    media.onended = () => {
+      if (playAttempt !== playAttemptRef.current) return;
+      setIsPlaying(false);
+      setAudioProgress(0);
+    };
+
+    tryUrl(0);
+    playDebug('handlePlayAudio setup done — waiting on network/events');
 
     // iOS audio unlock only — do not reset video to 0 (desyncs from Audio)
     const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
@@ -788,13 +808,11 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
   }, [skipInQueue]);
 
   const handleSeek = useCallback((time: number) => {
-    if (!audioRef.current) return;
-    audioRef.current.currentTime = time;
+    const clock = visualPlaybackRef.current || audioRef.current;
+    if (!clock) return;
+    clock.currentTime = time;
     setAudioProgress(time);
-    // Deliberately not seeking the companion video — many Arweave gateways don't
-    // support Range requests, so forcing currentTime stalls playback (looks like
-    // skipping). It's a muted cosmetic loop; audio position is what matters.
-  }, [currentPlayingNFT]);
+  }, []);
 
   // Add a function to set fallback URLs
   const setFallbackSources = useCallback((urls: string[]) => {

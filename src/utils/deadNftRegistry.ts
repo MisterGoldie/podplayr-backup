@@ -64,6 +64,26 @@ export const markNftMediaDead = (nft: MediaKeyable | null | undefined, reason: D
   }
 };
 
+/** Undo a dead mark so a liked NFT can show and be retried after a gateway miss. */
+export const reviveNftMedia = (
+  nft: MediaKeyable | null | undefined,
+  reason?: DeadReason
+): void => {
+  if (!nft?.contract || !nft?.tokenId) return;
+  hydrate();
+  const key = getMediaKey(nft as NFT);
+  const existing = store.get(key);
+  if (!existing) return;
+  if (!reason) {
+    store.delete(key);
+  } else {
+    delete existing[reason];
+    if (!existing.image && !existing.audio) store.delete(key);
+    else store.set(key, existing);
+  }
+  persist();
+};
+
 /**
  * True once this NFT's playable media (audio/video) is confirmed dead.
  * Audio/video is the app's core function — a broken thumbnail alone already

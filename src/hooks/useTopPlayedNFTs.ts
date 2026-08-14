@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { getFirestore, collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
 import type { NFT } from '../types/user';
 import { getMediaKey } from '../utils/media';
+import { applyConfirmedPlayback, hydrateNftPlayback, restoreStoredAnimationUrl } from '../utils/isMediaNFT';
 
 export const useTopPlayedNFTs = () => {
   const [topPlayed, setTopPlayed] = useState<{ nft: NFT; count: number }[]>([]);
@@ -25,6 +26,7 @@ export const useTopPlayedNFTs = () => {
         if (!data.mediaKey || !data.nftContract || !data.tokenId) return;
 
         // Create NFT object from global_plays data
+        const animationUrl = restoreStoredAnimationUrl(data);
         const nft: NFT = {
           contract: data.nftContract,
           tokenId: data.tokenId,
@@ -32,18 +34,23 @@ export const useTopPlayedNFTs = () => {
           description: data.description || '',
           image: data.image || '',
           audio: data.audioUrl,
-          hasValidAudio: Boolean(data.audioUrl),
+          videoUrl: data.videoUrl || animationUrl || undefined,
+          hasValidAudio: Boolean(data.audioUrl || data.videoUrl || animationUrl),
+          isVideo: Boolean(data.isVideo),
+          playbackMode: data.playbackMode,
           metadata: {
             name: data.name || 'Untitled NFT',
             description: data.description || '',
             image: data.image || '',
-            animation_url: data.audioUrl
+            animation_url: animationUrl || undefined,
+            ...(data.mediaMime ? { mimeType: data.mediaMime } : {}),
           },
           collection: {
             name: data.collection || 'Unknown Collection'
           },
           network: data.network
         };
+        hydrateNftPlayback(nft);
 
         topPlayedNFTs.push({
           nft,
@@ -79,6 +86,10 @@ export const useTopPlayedNFTs = () => {
 
       setTopPlayed(sortedTopPlayed);
       setLoading(false);
+      applyConfirmedPlayback(
+        sortedTopPlayed.map((item) => item.nft),
+        () => setTopPlayed(sortedTopPlayed.slice())
+      );
     });
 
     return () => unsubscribe();
