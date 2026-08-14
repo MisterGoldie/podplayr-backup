@@ -7,6 +7,7 @@ import { logger } from '../../utils/logger';
 import { FEATURED_NFTS } from '../sections/FeaturedSection';
 import { triggerHaptic } from '../../utils/haptics';
 import { formatTime, safeProgressPercent, getDisplayTimes } from '../../utils/media';
+import { getResizedImageUrl } from '../../utils/imageOptimizer';
 
 // Create a dedicated logger for the MinimizedPlayer
 const playerLogger = logger.getModuleLogger('minimizedPlayer');
@@ -497,11 +498,12 @@ export const MinimizedPlayer: React.FC<MinimizedPlayerProps> = ({
                 
                 {featuredNft ? (
                   <img
-                    src={getFeaturedNFTImage(nft)}
+                    src={getResizedImageUrl(getFeaturedNFTImage(nft), 96)}
                     alt={nft.name}
                     className="w-full h-full object-cover"
                     width={48}
                     height={48}
+                    decoding="async"
                     onLoad={() => setThumbLoaded(true)}
                     onError={(e) => {
                       playerLogger.error('Featured NFT image failed to load:', {
@@ -518,6 +520,8 @@ export const MinimizedPlayer: React.FC<MinimizedPlayerProps> = ({
                     className="w-full h-full object-cover"
                     width={48}
                     height={48}
+                    sizes="48px"
+                    quality={50}
                     priority={true}
                     nft={nft}
                     key={`thumb-regular-${nft.contract}-${nft.tokenId}`}

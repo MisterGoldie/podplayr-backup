@@ -21,7 +21,7 @@ interface UsePagedItemsOptions {
 export function usePagedItems<T>(items: T[], options: UsePagedItemsOptions = {}) {
   const pageSize = options.pageSize ?? PAGE_SIZE;
   const resetKey = options.resetKey ?? '';
-  const rootMargin = options.rootMargin ?? '600px 0px';
+  const rootMargin = options.rootMargin ?? '240px 0px';
   const { scrollRoot, scrollRootRef } = options;
 
   const [visibleCount, setVisibleCount] = useState(() => Math.min(pageSize, items.length));

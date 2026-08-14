@@ -154,3 +154,48 @@ export function getOptimizedImageUrl(url: string, options: {
   // For normal HTTP URLs that don't support optimization parameters, just return the URL
   return url;
 }
+
+const THUMB_PROXY = 'https://wsrv.nl/?';
+
+function isLocalOrDataUrl(url: string): boolean {
+  return !url || url.startsWith('/') || url.startsWith('data:') || url.startsWith('blob:');
+}
+
+function isAlreadyResized(url: string): boolean {
+  return url.includes('wsrv.nl') || url.includes('images.weserv.nl') || url.includes('img-width=');
+}
+
+/** Display-sized card thumbnail so grids don't download full Arweave/IPFS originals. */
+export function getResizedImageUrl(url: string, size = 360): string {
+  if (isLocalOrDataUrl(url) || isAlreadyResized(url) || /\.svg(\?|$)/i.test(url)) {
+    return url;
+  }
+
+  let resolved = url;
+  if (url.startsWith('ipfs://') || url.includes('/ipfs/') || url.startsWith('ar://')) {
+    resolved = getOptimizedImageUrl(url);
+  }
+
+  try {
+    const parsed = new URL(resolved);
+    if (parsed.hostname.includes('pinata.cloud') || parsed.hostname.includes('mypinata.cloud')) {
+      parsed.searchParams.set('img-width', String(size));
+      parsed.searchParams.set('img-height', String(size));
+      parsed.searchParams.set('img-fit', 'cover');
+      return parsed.toString();
+    }
+  } catch {
+    return resolved;
+  }
+
+  const params = new URLSearchParams({
+    url: resolved,
+    w: String(size),
+    h: String(size),
+    fit: 'cover',
+    q: '65',
+    output: 'webp',
+    n: '-1',
+  });
+  return `${THUMB_PROXY}${params.toString()}`;
+}

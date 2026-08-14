@@ -105,8 +105,10 @@ const NFTCardInner: React.FC<NFTCardProps> = ({
             src={rawImageUrl}
             alt={nft.name}
             className="w-full h-full object-cover"
-            width={300}
-            height={300}
+            width={smallCard ? 160 : 180}
+            height={smallCard ? 160 : 180}
+            sizes={smallCard ? '160px' : '180px'}
+            quality={60}
             loading="lazy"
           />
           

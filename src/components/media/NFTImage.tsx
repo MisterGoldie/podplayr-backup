@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { processMediaUrl, IPFS_GATEWAYS, isAudioUrlUsedAsImage, getCleanIPFSUrl, processArweaveUrl, getMediaKey, buildArweaveMediaFallbackUrls, buildIpfsFallbackUrls, extractIPFSPath, getNftMediaUrl, preloadNftMedia } from '../../utils/media';
+import { processMediaUrl, IPFS_GATEWAYS, isAudioUrlUsedAsImage, getCleanIPFSUrl, processArweaveUrl, getMediaKey, buildArweaveMediaFallbackUrls, buildIpfsFallbackUrls, extractIPFSPath, getNftMediaUrl } from '../../utils/media';
+import { getResizedImageUrl } from '../../utils/imageOptimizer';
 import Image from 'next/image';
 import type { SyntheticEvent } from 'react';
 import type { NFT } from '../../types/user';
@@ -231,10 +232,24 @@ export const NFTImage: React.FC<NFTImageProps> = ({
 
   // Cache for processed image URLs to avoid redundant processing
   const processedUrlCache = useRef<Record<string, string>>({});
+  const originalUrlRef = useRef<string>(initialSrc);
   const arweaveFallbackUrls = useRef<string[]>([]);
   const arweaveFallbackIndex = useRef(0);
   const ipfsFallbackUrls = useRef<string[]>([]);
   const ipfsFallbackIndex = useRef(0);
+  const nftContract = nft?.contract;
+  const nftTokenId = nft?.tokenId;
+  const nftImage = nft?.image;
+  const nftMetadataImage = nft?.metadata?.image;
+  const useCardThumb = width < 400 && height < 400;
+
+  const toDisplaySrc = (url: string) => {
+    originalUrlRef.current = url;
+    if (!url || url === fallbackSrc || url.startsWith('/') || url.startsWith('data:')) {
+      return url;
+    }
+    return useCardThumb ? getResizedImageUrl(url, Math.max(width * 2, 360)) : url;
+  };
   
   useEffect(() => {
     // Reset states when src changes, but only if src is valid
@@ -249,19 +264,19 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       const cacheKey = nft ? `${nft.contract}-${nft.tokenId}` : src;
       
       if (processedUrlCache.current[cacheKey]) {
-        setImgSrc(processedUrlCache.current[cacheKey]);
+        setImgSrc(toDisplaySrc(processedUrlCache.current[cacheKey]));
       } else {
         // Use a consistent approach for all URL types
         if (nft) {
           const mediaUrl = getNftMediaUrl(nft, 'image');
-          setImgSrc(mediaUrl);
           processedUrlCache.current[cacheKey] = mediaUrl;
+          setImgSrc(toDisplaySrc(mediaUrl));
         } else {
           // Process the URL to handle all special protocols (ar://, ipfs://, etc.)
           // using our improved processMediaUrl function
           const processedSrc = processMediaUrl(src, fallbackSrc, 'image');
-          setImgSrc(processedSrc);
           processedUrlCache.current[cacheKey] = processedSrc;
+          setImgSrc(toDisplaySrc(processedSrc));
         }
       }
       
@@ -303,9 +318,9 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       }
       
       if (nft) {
-        setImgSrc(getNftMediaUrl(nft, 'image'));
+        setImgSrc(toDisplaySrc(getNftMediaUrl(nft, 'image')));
       } else {
-        setImgSrc(processMediaUrl(thumbnailUrl, fallbackSrc, 'image'));
+        setImgSrc(toDisplaySrc(processMediaUrl(thumbnailUrl, fallbackSrc, 'image')));
       }
       return;
     }
@@ -326,13 +341,13 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       setIsVideo(false);
       // Clean and process the URL - handle all special URL types including ar:// and ipfs://
       if (nft) {
-        setImgSrc(getNftMediaUrl(nft, 'image'));
+        setImgSrc(toDisplaySrc(getNftMediaUrl(nft, 'image')));
       } else if (isArweaveUrl(src) || isIpfsUrl(src)) {
         // Safely process special URL protocols
         const cleanedUrl = isArweaveUrl(src) ? processArweaveUrl(src) : getCleanIPFSUrl(src);
-        setImgSrc(processMediaUrl(cleanedUrl, fallbackSrc, 'image'));
+        setImgSrc(toDisplaySrc(processMediaUrl(cleanedUrl, fallbackSrc, 'image')));
       } else {
-        setImgSrc(processMediaUrl(src, fallbackSrc, 'image'));
+        setImgSrc(toDisplaySrc(processMediaUrl(src, fallbackSrc, 'image')));
       }
     }
     // Fallback
@@ -340,7 +355,7 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       setIsVideo(false);
       setImgSrc(fallbackSrc);
     }
-  }, [src, nft]);
+  }, [src, nftContract, nftTokenId, nftImage, nftMetadataImage, width, height]);
 
   // Track already attempted fallback strategies to avoid redundant retries
   const attemptedFallbacks = useRef<Record<string, boolean>>({});
@@ -370,16 +385,23 @@ export const NFTImage: React.FC<NFTImageProps> = ({
     // Mark this fallback as attempted
     attemptedFallbacks.current[fallbackKey] = true;
 
+    const isThumbProxy =
+      failedSrc.includes('wsrv.nl') ||
+      failedSrc.includes('images.weserv.nl') ||
+      failedSrc.includes('img-width=');
+    if (isThumbProxy && originalUrlRef.current && originalUrlRef.current !== failedSrc) {
+      setImgSrc(originalUrlRef.current);
+      setError(false);
+      setIsLoadingFallback(false);
+      return;
+    }
+
     // The gateway we remembered as "working" just failed — stop recommending it.
     if (nft) {
       const mediaKeyForMemory = getMediaKey(nft);
       if (failedSrc === getRememberedMediaUrl(mediaKeyForMemory, 'image')) {
         forgetMediaUrl(mediaKeyForMemory, 'image');
       }
-    }
-    
-    if (nft && retryCount === 0) {
-      preloadNftMedia(nft);
     }
     
     // Special handling for Arweave / PODs URLs — cycle turbo/permagate /raw/ fallbacks
@@ -462,12 +484,16 @@ export const NFTImage: React.FC<NFTImageProps> = ({
   // remember it so future renders of this same media skip straight past dead gateways.
   const handleLoad = (loadedSrc: string) => {
     if (!nft || !loadedSrc || loadedSrc.includes('default-nft.png')) return;
+    if (loadedSrc.includes('wsrv.nl') || loadedSrc.includes('images.weserv.nl') || loadedSrc.includes('img-width=')) {
+      return;
+    }
     rememberWorkingMediaUrl(getMediaKey(nft), 'image', loadedSrc);
   };
 
   // SECURITY: Use proper URL validation for determining render method
   // Use regular img tag for IPFS/Arweave content to bypass Next.js image optimization
-  const isSpecialProtocol = isIpfsUrl(imgSrc) || isArweaveUrl(imgSrc);
+  const isSpecialProtocol = isIpfsUrl(imgSrc) || isArweaveUrl(imgSrc) ||
+    imgSrc.includes('wsrv.nl') || imgSrc.includes('images.weserv.nl') || imgSrc.includes('img-width=');
   
   // CRITICAL: Additional validation before finalizing source
   // This ensures we NEVER show a blank card, even for malformed NFT data
@@ -529,12 +555,11 @@ export const NFTImage: React.FC<NFTImageProps> = ({
         height={height || 300}
         onError={handleError}
         onLoad={() => handleLoad(arweaveUrl)}
-        // Add a data attribute to help with debugging
+        decoding="async"
         data-nft-image-status={error ? 'error' : 'loaded'}
         data-nft-id={nft ? `${nft.contract}-${nft.tokenId}` : 'unknown'}
         data-original-src={src}
-        // Force re-render when source changes to ensure fallback works
-        key={`nft-img-${error ? 'fallback' : 'original'}-${nft?.contract || ''}-${nft?.tokenId || ''}-${isLoadingFallback ? 'fallback' : 'normal'}`}
+        key={`nft-img-${nft?.contract || 'unknown'}-${nft?.tokenId || 'unknown'}`}
       />
     );
   }
@@ -554,11 +579,9 @@ export const NFTImage: React.FC<NFTImageProps> = ({
         placeholder={placeholder}
         onError={handleError}
         onLoad={() => handleLoad(finalSrc)}
-        // Add a data attribute to help with debugging
         data-nft-image-status={error ? 'error' : 'loaded'}
         data-nft-id={nft ? `${nft.contract}-${nft.tokenId}` : 'unknown'}
-        // Force re-render when source changes to ensure fallback works
-        key={`nft-img-${error ? 'fallback' : 'original'}-${nft?.contract || ''}-${nft?.tokenId || ''}-${isLoadingFallback ? 'fallback' : 'normal'}`}
+        key={`nft-img-${nft?.contract || 'unknown'}-${nft?.tokenId || 'unknown'}`}
       />
     );
   }
@@ -574,12 +597,11 @@ export const NFTImage: React.FC<NFTImageProps> = ({
         height={height || 300}
         onError={handleError}
         onLoad={() => { setImgLoading(false); handleLoad(finalSrc); }}
-        // Add a data attribute to help with debugging
+        decoding="async"
         data-nft-image-status={error ? 'error' : 'loaded'}
         data-nft-id={nft ? `${nft.contract}-${nft.tokenId}` : 'unknown'}
         loading={priority ? 'eager' : loading}
         sizes={sizes}
-        // Improve the key to be more stable and unique
         key={`nft-img-${nft?.contract || 'unknown'}-${nft?.tokenId || 'unknown'}`}
         style={{ objectFit: 'cover' }}
       />

@@ -359,22 +359,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
     if (nft) {
       preloadNftMedia(nft);
     }
-  }, [nft]);
-  
-  // Preload the thumbnail when the component mounts
-  useEffect(() => {
-    if (nft && (nft.image || nft.metadata?.image)) {
-      // Create an image element to preload
-      const img = new Image();
-      img.src = nft.image || nft.metadata?.image || '';
-      
-      // Log preloading attempt
-      playerLogger.info('Preloading NFT thumbnail:', {
-        nft: nft.name || 'Unknown NFT',
-        source: img.src
-      });
-    }
-  }, [nft]);
+  }, [nft?.contract, nft?.tokenId]);
   
   // Track the last logged mediaKey to prevent duplicate logs
   const lastLoggedMediaKeyRef = useRef<string>('');
@@ -408,7 +393,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
           loop
           muted={true}
           autoPlay={isPlaying}
-          preload="auto"
+          preload="metadata"
           className="w-auto h-auto object-contain rounded-3xl max-h-[58vh] min-h-[36vh] min-w-[60%] max-w-full shadow-2xl shadow-purple-900/40"
           style={{
             opacity: 1,

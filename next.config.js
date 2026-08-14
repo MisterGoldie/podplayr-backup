@@ -24,6 +24,8 @@ const nextConfig = {
         hostname: '**',
       },
     ],
+    deviceSizes: [320, 420, 640, 750, 828],
+    imageSizes: [64, 96, 128, 160, 180, 256, 384],
   },
   experimental: {
     scrollRestoration: true,

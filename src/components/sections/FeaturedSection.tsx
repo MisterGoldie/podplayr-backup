@@ -1,8 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import type { NFT } from '~/types/nft';
-import { preloadAudio } from '~/utils/audioPreloader';
 import { NFTCard } from '../nft/NFTCard';
 import { getMediaKey } from '~/utils/media';
 
@@ -121,32 +120,6 @@ const FeaturedSection: React.FC<FeaturedSectionProps> = ({
   userFid,
   nfts = FEATURED_NFTS
 }) => {
-  const [preloaded, setPreloaded] = useState(false);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    const preloadFeaturedContent = async () => {
-      if (!isMounted) return;
-      // Fire all preloads in parallel — a single slow/dead URL can't block others
-      await Promise.allSettled(
-        nfts.map((nft) => {
-          const audioUrl = nft.audio || nft.metadata?.animation_url;
-          return audioUrl ? preloadAudio(audioUrl) : Promise.resolve();
-        })
-      );
-      if (isMounted) setPreloaded(true);
-    };
-
-    if (!preloaded) {
-      preloadFeaturedContent();
-    }
-
-    return () => {
-      isMounted = false;
-    };
-  }, [nfts]); // Only depend on nfts array, not preloaded state
-
   return (
     <section className="w-full">
       <div className="container mx-auto px-4">

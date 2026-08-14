@@ -131,6 +131,8 @@ const SimpleNFTCard: React.FC<SimpleNFTCardProps> = ({
             className="w-full h-full object-cover"
             width={48}
             height={48}
+            sizes="48px"
+            quality={50}
             priority
             nft={nft}
           />

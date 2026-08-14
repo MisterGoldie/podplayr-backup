@@ -1,7 +1,6 @@
 import React from 'react';
 import { NFT } from '../../types/user';
 import { NFTCard } from './NFTCard';
-import { getMediaKey } from '../../utils/media';
 import { PAGE_SIZE, usePagedItems } from '../../hooks/usePagedItems';
 
 interface UserProfileNFTGridProps {
@@ -42,8 +41,7 @@ export const UserProfileNFTGrid: React.FC<UserProfileNFTGridProps> = ({
     <>
       <div className="flex flex-wrap justify-center gap-4 pb-32">
         {visibleItems.map((nft, index) => {
-          const mediaKey = getMediaKey(nft);
-          const uniqueKey = `user-profile-${mediaKey || `${nft.contract}-${nft.tokenId}`}-${index}`;
+          const uniqueKey = `user-profile-${nft.contract}-${nft.tokenId}`;
           const staggerDelay = 0.05 * (index % 8);
 
           return (

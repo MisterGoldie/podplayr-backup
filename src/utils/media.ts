@@ -565,7 +565,7 @@ export const getNftMediaUrl = (nft: UserNFT, mediaType: 'image' | 'audio'): stri
   return url;
 };
 
-/** Warm the browser cache for an NFT's image (and audio via HEAD). */
+/** Warm the browser cache for an NFT's display image. Audio starts on play. */
 export const preloadNftMedia = (nft: UserNFT): void => {
   if (!nft || typeof window === 'undefined') return;
 
@@ -573,11 +573,6 @@ export const preloadNftMedia = (nft: UserNFT): void => {
   if (imageUrl && imageUrl !== IMAGE_FALLBACK) {
     const imgPreload = new Image();
     imgPreload.src = imageUrl;
-  }
-
-  const audioUrl = getNftMediaUrl(nft, 'audio');
-  if (audioUrl && audioUrl !== AUDIO_FALLBACK) {
-    fetch(audioUrl, { method: 'HEAD' }).catch(() => {});
   }
 };
 

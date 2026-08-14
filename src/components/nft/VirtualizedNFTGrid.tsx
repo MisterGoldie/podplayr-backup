@@ -2,9 +2,6 @@ import React, { useCallback } from 'react';
 import { NFT } from '../../types/user';
 import { NFTCard } from './NFTCard';
 import ErrorBoundary from '../ErrorBoundary';
-import { getMediaKey } from '../../utils/media';
-import { predictivePreload } from '../../utils/videoPreloader';
-import { logger } from '../../utils/logger';
 import { PAGE_SIZE, usePagedItems } from '../../hooks/usePagedItems';
 
 interface VirtualizedNFTGridProps {
@@ -23,8 +20,6 @@ interface VirtualizedNFTGridProps {
   resetKey?: string | number;
   showLibraryBadge?: boolean;
 }
-
-const gridLogger = logger.getModuleLogger('virtualizedNFTGrid');
 
 export const VirtualizedNFTGrid: React.FC<VirtualizedNFTGridProps> = ({
   nfts,
@@ -50,27 +45,15 @@ export const VirtualizedNFTGrid: React.FC<VirtualizedNFTGridProps> = ({
     return isNFTLiked(nftToCheck, true);
   }, [isNFTLiked]);
 
-  const handlePlay = useCallback(async (played: NFT) => {
-    const currentIndex = nfts.findIndex(
-      (item) => getMediaKey(item) === getMediaKey(played)
-    );
-
-    if (currentIndex !== -1) {
-      gridLogger.info('Predictively preloading next NFTs', {
-        currentNFT: played.name || 'Unknown NFT',
-        currentIndex,
-      });
-      predictivePreload(nfts, currentIndex);
-    }
-
-    await onPlayNFT(played);
-  }, [nfts, onPlayNFT]);
+  const handlePlay = useCallback((played: NFT) => {
+    onPlayNFT(played);
+  }, [onPlayNFT]);
 
   return (
     <>
       {visibleNFTs.map((nft, index) => {
         const staggerDelay = 0.05 * (index % 8) + 0.2;
-        const uniqueKey = nft.mediaKey || `${nft.contract}-${nft.tokenId}`;
+        const uniqueKey = `${nft.contract}-${nft.tokenId}`;
         const stableKey = `${uniqueKey}-${index}`;
 
         return (

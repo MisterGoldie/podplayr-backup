@@ -172,6 +172,7 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     if (!audioRef.current) {
       audioRef.current = new Audio();
       audioRef.current.crossOrigin = 'anonymous';
+      audioRef.current.preload = 'metadata';
       audioLogger.info('Created new audio element');
     }
     
@@ -472,6 +473,7 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       audio.pause();
       audio.currentTime = 0;
       audio.crossOrigin = 'anonymous';
+      audio.preload = 'metadata';
       
       // Add comprehensive error handling with multiple fallbacks
       let fallbackIndex = 0;
