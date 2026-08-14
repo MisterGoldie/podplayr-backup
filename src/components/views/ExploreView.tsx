@@ -92,6 +92,7 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
   const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState<ExploreFilter>('all');
   const [featuredUsers, setFeaturedUsers] = useState<FarcasterUser[]>([]);
+  const [featuredReady, setFeaturedReady] = useState(false);
   const [popularUsers, setPopularUsers] = useState<SearchedUser[]>([]);
   const [following, setFollowing] = useState<FollowedUser[]>([]);
   const { hideNotification } = useNFTNotification();
@@ -111,6 +112,9 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
       })
       .catch(() => {
         if (!cancelled) setFeaturedUsers([]);
+      })
+      .finally(() => {
+        if (!cancelled) setFeaturedReady(true);
       });
     return () => {
       cancelled = true;
@@ -482,7 +486,7 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
         )}
 
         {searchResults.length > 0 && (
-          <section className="px-4">
+          <section className="px-4 explore-enter">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-sm font-semibold text-white/80">Search results</h2>
               <button
@@ -500,8 +504,8 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
           </section>
         )}
 
-        {showDiscovery && (
-          <div className="px-4 space-y-8">
+        {showDiscovery && featuredReady && (
+          <div className="px-4 space-y-8 explore-stack">
             {officialUser && filter !== 'ens' && (
               <div className="w-full rounded-2xl p-4 flex items-center gap-4 border border-purple-300/25 bg-gradient-to-r from-purple-700/40 via-fuchsia-700/20 to-black/30">
                 <div className="relative flex-shrink-0">
