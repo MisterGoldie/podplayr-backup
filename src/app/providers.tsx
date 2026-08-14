@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { isFarcasterMiniApp } from '../utils/platform';
+import { isBaseAppBrowser, isCoinbaseWalletClientFid, isFarcasterMiniApp, isRealFid } from '../utils/platform';
 import { ensurePodplayrFollow, searchUsersByAddress } from '../lib/firebase';
 import { VideoPlayProvider } from '../contexts/VideoPlayContext';
 import { NFTNotificationProvider } from '../context/NFTNotificationContext';
@@ -102,35 +102,63 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
   // reads it in O(1), so this hot-path scan was removed entirely. Use
   // updatePodplayrFollowerCount() by hand if drift is ever suspected.
 
-  // Initialize environment detection.
-  // Farcaster's own SDK is checked FIRST and is authoritative: Farcaster
-  // clients can also populate a MiniKit-shaped context (they share the same
-  // underlying frame/postMessage protocol as Base), so "MiniKit context is
-  // present" is not on its own reliable evidence that we're in Coinbase/Base.
-  // If we skipped the Farcaster check whenever MiniKit context existed (as
-  // this used to), a real Farcaster session could get mislabeled as
-  // 'coinbase' with isFarcaster stuck false for the whole session — which
-  // silently breaks any UX gated on isFarcaster (haptics, profile nav icon).
+  // 2024: Base App was a Farcaster mini-app host (clientFid 309857).
+  // April 9 2026: Base App is a standard webview — isInMiniApp() is false,
+  // MiniKit still injects dummy context (fid -1) in regular browsers.
+  // Detect Base App via clientFid 309857 or Coinbase's isCoinbaseBrowser flag.
+  // Never treat MiniKit context presence or isCoinbaseWallet as Base App.
   useEffect(() => {
     async function initializeEnvironmentContext() {
       try {
+        const applyMiniKitUser = () => {
+          const miniFid = miniKitContext?.user?.fid;
+          if (!isRealFid(miniFid)) return;
+          setFid(miniFid);
+          setUserContext({
+            fid: miniFid,
+            username: miniKitContext.user.username,
+            displayName: miniKitContext.user.displayName,
+            pfp: miniKitContext.user.pfpUrl,
+            bio: (miniKitContext.user as any).bio,
+          });
+          if (miniKitContext.client) {
+            setClientContext({
+              clientFid: miniKitContext.client.clientFid || miniFid,
+              added: miniKitContext.client.added || false,
+              safeAreaInsets: miniKitContext.client.safeAreaInsets,
+            });
+          }
+        };
+
         const isInMiniApp = await isFarcasterMiniApp();
-        setIsFarcaster(isInMiniApp);
 
         if (isInMiniApp) {
+          const { sdk } = await import('@farcaster/miniapp-sdk');
+          const context = await Promise.race([
+            sdk.context,
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500)),
+          ]);
+
+          const clientFid = context?.client?.clientFid;
+          const hostedByBase = isCoinbaseWalletClientFid(clientFid) || isBaseAppBrowser();
+
+          if (hostedByBase) {
+            console.log('🟦 App is RUNNING in Base App (mini-app host + Coinbase client)');
+            setIsFarcaster(false);
+            setIsMiniKit(true);
+            setEnvironment('coinbase');
+            applyMiniKitUser();
+            setIsFidReady(true);
+            return;
+          }
+
+          setIsFarcaster(true);
           setEnvironment('farcaster');
           console.log('🚨 App is RUNNING in Farcaster mini-app');
-          
-          const { sdk } = await import('@farcaster/miniapp-sdk');
-          const context = await sdk.context;
-          
           console.log('🔍 FULL FARCASTER CONTEXT:', context);
-          
-          // Extract comprehensive user data
-          if (context?.user?.fid) {
-            console.log('🔑 Setting user FID from Farcaster SDK context:', context.user.fid);
+
+          if (isRealFid(context?.user?.fid)) {
             setFid(context.user.fid);
-            
             const sdkUser = context.user as any;
             setUserContext({
               fid: sdkUser.fid,
@@ -140,8 +168,7 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
               bio: sdkUser.bio,
               location: sdkUser.location
             });
-            
-            // Set client context
+
             if (context.client) {
               setClientContext({
                 clientFid: context.client.clientFid,
@@ -150,8 +177,7 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
                 notificationDetails: context.client.notificationDetails
               });
             }
-            
-            // Set location context
+
             if (context.location) {
               const sdkLocation = context.location as any;
               setLocationContext({
@@ -167,41 +193,11 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        // Not Farcaster — fall back to MiniKit (Base/Coinbase) context if present.
-        if (miniKitContext) {
-          console.log('🔍 MiniKit context detected:', miniKitContext);
+        if (isBaseAppBrowser()) {
+          console.log('🟦 App is RUNNING in Base App webview');
           setIsMiniKit(true);
           setEnvironment('coinbase');
-          
-          if (miniKitContext.user?.fid) {
-            console.log('🔑 Setting user FID from MiniKit context:', miniKitContext.user.fid);
-            setFid(miniKitContext.user.fid);
-            
-            setUserContext({
-              fid: miniKitContext.user.fid,
-              username: miniKitContext.user.username,
-              displayName: miniKitContext.user.displayName,
-              pfp: miniKitContext.user.pfpUrl,
-              bio: (miniKitContext.user as any).bio,
-            });
-            
-            if (miniKitContext.client) {
-              setClientContext({
-                clientFid: miniKitContext.client.clientFid || miniKitContext.user.fid,
-                added: miniKitContext.client.added || false,
-                safeAreaInsets: miniKitContext.client.safeAreaInsets,
-              });
-            }
-            
-            if (miniKitContext.location) {
-              setLocationContext({
-                type: typeof miniKitContext.location === 'string' 
-                  ? miniKitContext.location 
-                  : miniKitContext.location.type || 'unknown',
-              });
-            }
-          }
-
+          applyMiniKitUser();
           setIsFidReady(true);
           return;
         }
@@ -211,7 +207,12 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
         setIsFidReady(true);
       } catch (error) {
         console.error('❌ Error initializing environment context:', error);
-        setEnvironment('web');
+        if (isBaseAppBrowser()) {
+          setEnvironment('coinbase');
+          setIsMiniKit(true);
+        } else {
+          setEnvironment('web');
+        }
         setIsFidReady(true);
       }
     }

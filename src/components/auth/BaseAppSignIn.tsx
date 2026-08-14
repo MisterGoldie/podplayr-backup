@@ -9,11 +9,11 @@ interface BaseAppSignInProps {
 }
 
 export function BaseAppSignIn({ variant = 'profile' }: BaseAppSignInProps) {
-  const { environment, fid, walletAddress, connectBaseWallet } = useContext(UserFidContext);
+  const { environment, walletAddress, connectBaseWallet } = useContext(UserFidContext);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (environment !== 'coinbase' || fid || walletAddress || !connectBaseWallet) {
+  if (environment !== 'coinbase' || walletAddress || !connectBaseWallet) {
     return null;
   }
 

@@ -368,7 +368,7 @@ const DemoBase: React.FC = () => {
 
   return (
     <div className="relative min-h-screen bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082] text-white">
-      {!currentPage.isProfile && <BaseAppSignIn variant="banner" />}
+      <BaseAppSignIn variant="banner" />
       {currentPage.isHome && (
         <HomeView
           topPlayedNFTs={topPlayedNFTs}
