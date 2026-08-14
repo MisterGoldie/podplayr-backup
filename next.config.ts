@@ -5,6 +5,7 @@ const nextConfig: NextConfig = {
     NEXT_PUBLIC_HOST: process.env.NEXT_PUBLIC_HOST || 'http://localhost:3000',
     NEXT_PUBLIC_ALCHEMY_API_KEY: process.env.NEXT_PUBLIC_ALCHEMY_API_KEY,
   },
+  transpilePackages: ['@base-org/account', '@base-org/account-ui'],
   // Required for Frames to work properly
   async headers() {
     return [

@@ -2802,18 +2802,21 @@ export const searchUsersByAddress = async (address: string): Promise<FarcasterUs
     }
 
     const data = await response.json();
-    
-    // The API response structure for bulk-by-address endpoint
-    // Returns { users: [...] } directly
-    const users = data.users || [];
-    console.log(`Found ${users.length} users for address ${address}`);
-    
-    if (users.length === 0) {
+
+    // Neynar bulk-by-address returns `{ [address]: User[] }`; some versions use `{ users: [] }`.
+    let rawUsers: any[] = [];
+    if (Array.isArray(data.users)) {
+      rawUsers = data.users;
+    } else if (data && typeof data === 'object') {
+      rawUsers = Object.values(data).flat().filter((user: any) => user && typeof user === 'object' && user.fid);
+    }
+    console.log(`Found ${rawUsers.length} users for address ${address}`);
+
+    if (rawUsers.length === 0) {
       return [];
     }
-    
-    // Process and return user data in the same format as searchUsers
-    return users.map((user: any) => {
+
+    return rawUsers.map((user: any) => {
       return {
         fid: user.fid,
         username: user.username,

@@ -1,6 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: false, // ✅ DISABLE FOR NOW
+  transpilePackages: ['@base-org/account', '@base-org/account-ui'],
   images: {
     remotePatterns: [
       {

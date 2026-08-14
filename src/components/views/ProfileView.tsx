@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useRef, useMemo } from 'react';
+import React, { useEffect, useState, useRef, useMemo, useContext } from 'react';
 import { useToast } from '../../hooks/useToast';
 import Image from 'next/image';
 import type { NFT, FarcasterUser } from '../../types/user';
@@ -20,6 +20,8 @@ import NFTNotification from '../NFTNotification';
 import { UserProfileNFTGrid } from '../nft/UserProfileNFTGrid';
 import { isAcylMember, isOfficialAccount, isPodMember } from '../../constants/community';
 import { getBioText } from '../../utils/format';
+import { UserFidContext } from '../../app/providers';
+import { BaseAppSignIn } from '../auth/BaseAppSignIn';
 
 interface ProfileViewProps {
   farcasterContext: {
@@ -105,6 +107,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({
   isNFTLiked: isNFTLikedProp,
   onUserProfileClick
 }) => {
+  const { walletAddress } = useContext(UserFidContext);
   const [likedNFTs, setLikedNFTs] = useState<NFT[]>([]);
   const toast = useToast();
   const [isLoading, setIsLoading] = useState(false);
@@ -521,9 +524,15 @@ const ProfileView: React.FC<ProfileViewProps> = ({
             {farcasterContext?.user?.username && (
               <p className="text-white/50 truncate">@{farcasterContext.user.username}</p>
             )}
+            {!farcasterContext?.user?.username && walletAddress && (
+              <p className="text-white/50 font-mono text-sm truncate">
+                {walletAddress.slice(0, 6)}…{walletAddress.slice(-4)}
+              </p>
+            )}
             {getBioText(farcasterContext?.user?.bio) ? (
               <p className="text-sm text-white/60 mt-2 line-clamp-3">{getBioText(farcasterContext.user?.bio)}</p>
             ) : null}
+            <BaseAppSignIn variant="profile" />
           </div>
 
           {farcasterContext?.user?.fid && (

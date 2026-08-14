@@ -1,13 +1,15 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { isFarcasterMiniApp } from '../utils/platform';
-import { ensurePodplayrFollow } from '../lib/firebase';
+import { ensurePodplayrFollow, searchUsersByAddress } from '../lib/firebase';
 import { VideoPlayProvider } from '../contexts/VideoPlayContext';
 import { NFTNotificationProvider } from '../context/NFTNotificationContext';
 import { PlayerProvider } from '../contexts/PlayerContext';
 import { useMiniKit } from '@coinbase/onchainkit/minikit';
 import { Toaster } from 'react-hot-toast';
+import { getStoredBaseWalletAddress, signInWithBase } from '../lib/baseAccount';
+import { getBioText } from '../utils/format';
 
 // Create a context for the user's Farcaster ID
 export const UserFidContext = createContext<{
@@ -15,6 +17,8 @@ export const UserFidContext = createContext<{
   setFid: (fid: number | undefined) => void;
   isFidReady: boolean;
   environment: 'farcaster' | 'coinbase' | 'web';
+  walletAddress?: string;
+  connectBaseWallet?: () => Promise<void>;
 }>({
   setFid: () => {},
   isFidReady: false,
@@ -81,6 +85,7 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
   const [isFarcaster, setIsFarcaster] = useState(false);
   const [isFidReady, setIsFidReady] = useState(false);
   const [environment, setEnvironment] = useState<'farcaster' | 'coinbase' | 'web'>('web');
+  const [walletAddress, setWalletAddress] = useState<string>();
   
   // Add missing state variables
   const [userContext, setUserContext] = useState<FarcasterUserContext | null>(null);
@@ -230,12 +235,40 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
     }
   }, [fid]);
 
+  const applyWalletIdentity = useCallback(async (address: string) => {
+    setWalletAddress(address.toLowerCase());
+    const matches = await searchUsersByAddress(address);
+    const matched = matches[0];
+    if (!matched?.fid) return;
+
+    setFid(matched.fid);
+    setUserContext({
+      fid: matched.fid,
+      username: matched.username,
+      displayName: matched.display_name,
+      pfp: matched.pfp_url,
+      bio: getBioText(matched.profile?.bio),
+    });
+  }, []);
+
+  const connectBaseWallet = useCallback(async () => {
+    const result = await signInWithBase();
+    await applyWalletIdentity(result.address);
+  }, [applyWalletIdentity]);
+
+  useEffect(() => {
+    if (environment !== 'coinbase' || fid || walletAddress) return;
+    const saved = getStoredBaseWalletAddress();
+    if (!saved) return;
+    void applyWalletIdentity(saved);
+  }, [environment, fid, walletAddress, applyWalletIdentity]);
+
   // Memoized so consumers only re-render when the actual values change,
   // instead of on every render of InnerProviders (e.g. from unrelated state
   // updates elsewhere in the app tree).
   const userFidContextValue = useMemo(
-    () => ({ fid, setFid, isFidReady, environment }),
-    [fid, setFid, isFidReady, environment]
+    () => ({ fid, setFid, isFidReady, environment, walletAddress, connectBaseWallet }),
+    [fid, setFid, isFidReady, environment, walletAddress, connectBaseWallet]
   );
 
   const unifiedContextValue = useMemo(
