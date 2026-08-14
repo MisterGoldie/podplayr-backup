@@ -518,7 +518,6 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
                 <span className="text-white font-medium">{formatCount(appFollowingCount)}</span> Following
               </span>
             </button>
-            <ShareProfileButton fid={user?.fid} username={user?.username} showLabel />
             {!isNFTsLoading && (
               <span className="text-xs text-white/45 px-1">
                 {filteredNFTs.length} {filteredNFTs.length === 1 ? 'media NFT' : 'media NFTs'}
