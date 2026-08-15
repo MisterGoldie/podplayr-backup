@@ -444,7 +444,7 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
 
       <div
         ref={setScrollRoot}
-        className="space-y-7 pt-20 pb-48 overflow-y-auto overscroll-y-contain min-h-screen bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082] h-[calc(100vh-130px)] md:h-[calc(100vh-150px)]"
+        className="page-scroll space-y-7 pt-20 pb-48 bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082]"
       >
         <div className="px-4">
           <p className="text-white/50 text-sm mb-3 px-1 text-center">Find Farcaster and ENS listeners</p>

@@ -420,7 +420,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({
       )}
       <div 
         ref={setScrollRoot}
-        className="pt-16 pb-48 overflow-y-auto overscroll-y-contain min-h-screen bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082] h-[calc(100vh-130px)] md:h-[calc(100vh-150px)]"
+        className="page-scroll pt-16 pb-48 bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082]"
       >
         <div className="relative w-full h-[200px] sm:h-[240px] overflow-hidden">
           <div

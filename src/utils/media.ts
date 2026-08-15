@@ -1041,24 +1041,94 @@ export const abortMediaElement = (el: HTMLMediaElement) => {
   el.pause();
 };
 
+export function playbackVideoElementId(contract: string, tokenId: string): string {
+  return `video-${contract}-${tokenId}`;
+}
+
+export const PLAYBACK_VIDEO_CLASSNAME =
+  'w-auto h-auto object-contain rounded-3xl max-h-[58vh] min-h-[36vh] min-w-[60%] max-w-full shadow-2xl shadow-purple-900/40';
+
+/** Keep the element in the compositor without using display:none.
+ *  WebKit scroll-into-view on a hidden playing <video> breaks nested page scroll. */
+function parkPlaybackVideo(video: HTMLVideoElement) {
+  video.style.cssText =
+    'position:fixed;left:0;bottom:5rem;width:1px;height:1px;opacity:0;pointer-events:none;overflow:hidden;z-index:-1;border:0;';
+}
+
+export function applyPlaybackVideoPresentation(video: HTMLVideoElement) {
+  video.className = PLAYBACK_VIDEO_CLASSNAME;
+  video.style.cssText = 'opacity:1;will-change:transform;object-fit:contain;';
+}
+
 /** Same node the player UI adopts — create it immediately so play() stays in the tap gesture. */
 export function ensurePlaybackVideoElement(contract: string, tokenId: string): HTMLVideoElement {
-  const id = `video-${contract}-${tokenId}`;
+  const id = playbackVideoElementId(contract, tokenId);
   const existing = document.getElementById(id);
   if (existing instanceof HTMLVideoElement) return existing;
 
   const video = document.createElement('video');
   video.id = id;
   video.setAttribute('data-podplayr-player', '1');
+  video.setAttribute('data-podplayr-fallback', '1');
   video.setAttribute('playsinline', 'true');
   video.setAttribute('webkit-playsinline', 'true');
   video.playsInline = true;
   video.preload = 'auto';
   video.muted = false;
   video.autoplay = false;
-  video.style.display = 'none';
+  parkPlaybackVideo(video);
   document.body.appendChild(video);
   return video;
+}
+
+/** Move the body-parked node into the player host instead of rendering a second <video> with the same id. */
+export function adoptPlaybackVideoElement(
+  host: HTMLElement,
+  contract: string,
+  tokenId: string
+): HTMLVideoElement {
+  const video = ensurePlaybackVideoElement(contract, tokenId);
+  for (const child of Array.from(host.querySelectorAll('video'))) {
+    if (child === video) continue;
+    try {
+      (child as HTMLVideoElement).pause();
+      child.removeAttribute('src');
+      (child as HTMLVideoElement).load();
+    } catch {
+      // ignore
+    }
+    child.remove();
+  }
+  if (video.parentElement !== host) {
+    host.appendChild(video);
+  }
+  video.removeAttribute('data-podplayr-fallback');
+  applyPlaybackVideoPresentation(video);
+  return video;
+}
+
+export function releasePlaybackVideoElement(video: HTMLVideoElement | null | undefined) {
+  if (!video) return;
+  try {
+    video.pause();
+    video.removeAttribute('src');
+    while (video.firstChild) video.removeChild(video.firstChild);
+    video.load();
+  } catch {
+    // ignore
+  }
+  if (video.hasAttribute('data-podplayr-fallback') || video.parentElement === document.body) {
+    video.remove();
+  }
+}
+
+export function releaseOrphanPlaybackVideos(keepId?: string) {
+  document.querySelectorAll<HTMLVideoElement>('video[data-podplayr-player="1"]').forEach((node) => {
+    if (keepId && node.id === keepId) return;
+    if (node.parentElement === document.body || node.hasAttribute('data-podplayr-fallback')) {
+      releasePlaybackVideoElement(node);
+    }
+  });
 }
 
 export async function waitForVideoElement(
@@ -1066,7 +1136,7 @@ export async function waitForVideoElement(
   tokenId: string,
   timeoutMs = 5000
 ): Promise<HTMLVideoElement | null> {
-  const id = `video-${contract}-${tokenId}`;
+  const id = playbackVideoElementId(contract, tokenId);
   const deadline = performance.now() + timeoutMs;
   while (performance.now() < deadline) {
     const el = document.getElementById(id);

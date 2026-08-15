@@ -66,25 +66,23 @@ export const Player: React.FC<PlayerProps> = ({
   return (
     <>
       {hasMaximizedOnce && (
-        <div className={isMinimized ? 'hidden' : ''}>
-          <MaximizedPlayer
-            nft={nft}
-            isMinimized={isMinimized}
-            isAnimating={false}
-            isPlaying={isPlaying}
-            onPlayPause={onPlayPause}
-            onNext={onNext}  // Use the prop directly
-            onPrevious={onPrevious}  // Use the prop directly
-            onMinimizeToggle={handleMinimizeToggle}
-            progress={progress}
-            duration={duration}
-            onSeek={onSeek}
-            onLikeToggle={onLikeToggle}
-            isLiked={isLiked}
-            onPictureInPicture={onPictureInPicture}
-            lastPosition={progress}
-          />
-        </div>
+        <MaximizedPlayer
+          nft={nft}
+          isMinimized={isMinimized}
+          isAnimating={false}
+          isPlaying={isPlaying}
+          onPlayPause={onPlayPause}
+          onNext={onNext}
+          onPrevious={onPrevious}
+          onMinimizeToggle={handleMinimizeToggle}
+          progress={progress}
+          duration={duration}
+          onSeek={onSeek}
+          onLikeToggle={onLikeToggle}
+          isLiked={isLiked}
+          onPictureInPicture={onPictureInPicture}
+          lastPosition={progress}
+        />
       )}
       {isMinimized && (
         <MinimizedPlayer

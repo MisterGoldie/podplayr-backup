@@ -27,6 +27,7 @@ import { applyConfirmedPlayback, isPlayableMediaNFT } from '../utils/isMediaNFT'
 import { UserImageProvider } from '../contexts/UserImageContext';
 import { BaseAppSignIn } from './auth/BaseAppSignIn';
 import { parseProfileFid } from '../lib/miniapp';
+import { restorePageScroll } from '../utils/pageScroll';
 
 const demoLogger = logger.getModuleLogger('demo');
 
@@ -356,6 +357,7 @@ const DemoBase: React.FC = () => {
     if (updateUrl) {
       syncProfileUrl(user.fid);
     }
+    restorePageScroll();
   }, [syncProfileUrl]);
 
   const closeUserProfile = useCallback((nextPage: PageState = HOME_PAGE) => {
@@ -365,6 +367,7 @@ const DemoBase: React.FC = () => {
     setNavigationSource({ fromExplore: false, fromProfile: false });
     setCurrentPage(nextPage);
     syncProfileUrl(null);
+    restorePageScroll();
   }, [syncProfileUrl]);
 
   const onReset = useCallback(() => {
@@ -422,6 +425,7 @@ const DemoBase: React.FC = () => {
       isUserProfile: false
     });
     syncProfileUrl(null);
+    restorePageScroll();
   }, [syncProfileUrl]);
 
   const loadProfileFromFid = useCallback(async (profileFid: number, updateUrl = false) => {
@@ -463,6 +467,7 @@ const DemoBase: React.FC = () => {
       setUserNftsLoading(false);
       setNavigationSource({ fromExplore: false, fromProfile: false });
       setCurrentPage(HOME_PAGE);
+      restorePageScroll();
     };
 
     window.addEventListener('popstate', onPopState);
@@ -476,8 +481,12 @@ const DemoBase: React.FC = () => {
     return 'home';
   }, [currentPage]);
 
+  useEffect(() => {
+    restorePageScroll();
+  }, [currentViewKey, currentPage.isUserProfile, selectedUser?.fid]);
+
   return (
-    <div className="relative min-h-screen bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082] text-white">
+    <div className="relative bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082] text-white">
       <BaseAppSignIn variant="banner" />
       {currentPage.isHome && (
         <HomeView

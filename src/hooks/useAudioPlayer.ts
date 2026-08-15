@@ -42,6 +42,8 @@ import {
   canonicalizeArweaveGatewayUrl,
   abortMediaElement,
   ensurePlaybackVideoElement,
+  playbackVideoElementId,
+  releaseOrphanPlaybackVideos,
   shouldProbeIpfsDirectory,
   extractIPFSPath,
   PLAYBACK_STALL_MS,
@@ -50,6 +52,7 @@ import {
   clearNftMediaUrlCache,
 } from '../utils/media';
 import { resolveCdnPlaybackUrls } from '../lib/mediaCdn';
+import { restorePageScroll } from '../utils/pageScroll';
 
 function findNftInQueue(queue: NFT[], nft: NFT): number {
   const mediaKey = nft.mediaKey || getMediaKey(nft);
@@ -513,6 +516,7 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       setCurrentPlayingNFT(nft);
       setCurrentlyPlaying(`${nft.contract}-${nft.tokenId}`);
     });
+    releaseOrphanPlaybackVideos(playbackVideoElementId(nft.contract, nft.tokenId));
 
     const mediaKey = mediaKeyForMemory;
     recordRecentPlay(nft, fid).catch((error) => {
@@ -614,7 +618,7 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       }
       playDebug('starting muted companion video', { src: newVideo.currentSrc || newVideo.src });
       newVideo.muted = true;
-      newVideo.play().catch((error) => {
+      newVideo.play().then(() => restorePageScroll()).catch((error) => {
         if (!(error instanceof DOMException && error.name === 'AbortError')) {
           playDebug('companion video play failed', { name: error?.name, message: error?.message });
           audioLogger.error('Error playing muted companion video:', error);
@@ -632,6 +636,7 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       }
       playPromise.then(() => {
         playDebug('media.play() resolved', audioDebugSnapshot(media));
+        restorePageScroll();
       }).catch((err) => {
         if (playAttempt !== playAttemptRef.current) return;
         playDebug('media.play() rejected', {
@@ -646,6 +651,7 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
           media.play()
             .then(() => {
               playDebug('muted play resolved — will unmute');
+              restorePageScroll();
               setTimeout(() => { media.muted = false; }, 300);
             })
             .catch((mutedErr) => {

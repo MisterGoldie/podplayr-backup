@@ -35,7 +35,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={spaceGrotesk.className}>
+    <html lang="en" className={`${spaceGrotesk.className} h-full overflow-hidden`}>
       <head>
         {/* Ensure mobile support with proper viewport */}
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
@@ -52,7 +52,7 @@ export default function RootLayout({
         <link rel="dns-prefetch" href="https://dweb.link" />
         <link rel="dns-prefetch" href="https://nftstorage.link" />
       </head>
-      <body>
+      <body className="h-full overflow-hidden">
         <MiniKitContextProvider>
           <Providers>{children}</Providers>
         </MiniKitContextProvider>

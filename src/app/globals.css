@@ -3,12 +3,14 @@
 @tailwind utilities;
 
 @layer base {
-  html {
-    @apply min-h-screen;
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
   }
-  
+
   body {
-    @apply min-h-screen bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082] text-white antialiased;
+    @apply bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082] text-white antialiased;
   }
 
   h1, h2, h3, h4, h5, h6 {
@@ -18,6 +20,15 @@
   .font-mono {
     font-family: inherit !important;
   }
+}
+
+/* Viewport-tall scroller. Use dvh (not %) so this works even if a parent
+   has no explicit height. Do not clip this with overflow:hidden on ancestors. */
+.page-scroll {
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  height: 100dvh;
 }
 
 @layer components {

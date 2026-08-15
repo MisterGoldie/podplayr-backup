@@ -318,7 +318,7 @@ const LibraryView: React.FC<LibraryViewProps> = ({
 
       <div
         ref={scrollRootRef}
-        className="space-y-5 pt-20 pb-40 overflow-y-auto overscroll-y-contain min-h-screen bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082] h-[calc(100vh-130px)] md:h-[calc(100vh-150px)]"
+        className="page-scroll space-y-5 pt-20 pb-40 bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082]"
       >
         <div className="px-4 flex items-end justify-between gap-3">
           <div>

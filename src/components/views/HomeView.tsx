@@ -91,7 +91,7 @@ const HomeView: React.FC<HomeViewProps> = ({
     return (
       <>
         <NotificationHeader show={false} message="" onReset={onReset} />
-        <div className="space-y-8 animate-pulse pt-20 px-4 min-h-screen bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082]">
+        <div className="page-scroll space-y-8 animate-pulse pt-20 px-4 bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082]">
           <div className="h-6 w-40 bg-purple-900/40 rounded" />
           <div className="flex gap-4 overflow-hidden">
             {[...Array(4)].map((_, i) => (
@@ -114,7 +114,7 @@ const HomeView: React.FC<HomeViewProps> = ({
       <NotificationHeader show={false} message="" onReset={onReset} />
       <NFTNotification onReset={onReset} />
 
-      <div className="space-y-6 pt-20 pb-40 overflow-y-auto overscroll-y-contain min-h-screen bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082] h-[calc(100vh-130px)] md:h-[calc(100vh-150px)]">
+      <div className="page-scroll space-y-6 pt-20 pb-40 bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082]">
         {!isFidReady ? (
           <section className="w-full">
             <div className="container mx-auto px-4">

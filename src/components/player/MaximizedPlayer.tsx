@@ -1,6 +1,6 @@
-import React, { useRef, useState, useEffect, useCallback } from 'react';
+import React, { useRef, useState, useEffect, useLayoutEffect, useCallback } from 'react';
 import { NFTImage } from '../media/NFTImage';
-import { processMediaUrl, getMediaKey, formatTime, safeProgressPercent, getDisplayTimes, rewriteLegacyOpenSeaMediaUrl } from '../../utils/media';
+import { processMediaUrl, getMediaKey, formatTime, safeProgressPercent, getDisplayTimes, rewriteLegacyOpenSeaMediaUrl, adoptPlaybackVideoElement } from '../../utils/media';
 import { applyPlaybackPlanToNft, getNftPlaybackPlan } from '../../utils/isMediaNFT';
 import type { NFT } from '../../types/user';
 import { logger } from '../../utils/logger';
@@ -63,6 +63,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
   isAnimating
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const videoHostRef = useRef<HTMLDivElement | null>(null);
   const [showControls, setShowControls] = useState(true);
   const [videoLoading, setVideoLoading] = useState(false);
   const hideControlsTimer = useRef<NodeJS.Timeout | undefined>(undefined);
@@ -125,8 +126,10 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
     );
   }, [nft.contract, nft.tokenId, nft.image, nft.network]);
   
-  // Auto-hide controls after inactivity
+  // Auto-hide controls after inactivity — skip while minimized so leftover
+  // document listeners never capture navigation on the page underneath.
   useEffect(() => {
+    if (isMinimized) return;
     const handleUserActivity = () => {
       setShowControls(true);
       if (hideControlsTimer.current) {
@@ -149,7 +152,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
       document.removeEventListener('mousemove', handleUserActivity);
       document.removeEventListener('touchstart', handleUserActivity);
     };
-  }, []);
+  }, [isMinimized]);
   
   // PiP event handlers that need access to the latest state
   // Define these using useCallback to maintain reference stability
@@ -334,11 +337,6 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
     const rawVideo = rawVideoSrc || '';
     if (!rawVideo) return null;
 
-    const videoUrl = processMediaUrl(
-      rewriteLegacyOpenSeaMediaUrl(rawVideo, nft.contract, nft.network),
-      '',
-      'audio'
-    );
     const currentMediaKey = getMediaKey(nft);
     const videoIsClock = playbackPlan.mode === 'video-with-audio' && !playbackPlan.muteVideo;
 
@@ -348,103 +346,75 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
         mediaKey: currentMediaKey,
         mode: playbackPlan.mode,
         videoIsClock,
-        url: videoUrl,
+        url: rawVideo,
       });
       lastLoggedMediaKeyRef.current = currentMediaKey;
     }
 
-    if (videoIsClock) {
-      return (
-        <div className="relative w-full h-full flex items-center justify-center">
-          <video
-            key={`${nft.contract}-${nft.tokenId}`}
-            ref={videoRef}
-            id={`video-${nft.contract}-${nft.tokenId}`}
-            data-podplayr-player="1"
-            playsInline
-            webkit-playsinline="true"
-            preload="auto"
-            className="w-auto h-auto object-contain rounded-3xl max-h-[58vh] min-h-[36vh] min-w-[60%] max-w-full shadow-2xl shadow-purple-900/40"
-            style={{
-              opacity: 1,
-              willChange: 'transform',
-              objectFit: 'contain',
-            }}
-            onLoadedMetadata={() => {
-              const video = videoRef.current;
-              if (!video) return;
-              if (video.videoWidth > 0 && video.videoHeight > 0) {
-                applyPlaybackPlanToNft(nft, playbackPlan);
-              }
-            }}
-          />
-        </div>
-      );
-    }
-
     return (
-      <div className="relative w-full h-full flex items-center justify-center">
-        <video
-          key={`${nft.contract}-${nft.tokenId}`}
-          ref={videoRef}
-          id={`video-${nft.contract}-${nft.tokenId}`}
-          data-podplayr-player="1"
-          src={videoUrl}
-          playsInline
-          loop
-          muted
-          autoPlay={isPlaying}
-          preload="none"
-          className="w-auto h-auto object-contain rounded-3xl max-h-[58vh] min-h-[36vh] min-w-[60%] max-w-full shadow-2xl shadow-purple-900/40"
-          style={{
-            opacity: 1,
-            willChange: 'transform',
-            objectFit: 'contain',
-          }}
-          onLoadedData={() => {
-            setVideoLoading(false);
-            const video = videoRef.current;
-            if (!video) return;
-            video.muted = true;
-            if (isPlaying) {
-              video.play().catch((e) => {
-                playerLogger.warn('Video play after load failed:', e);
-              });
-            }
-          }}
-          onCanPlay={() => {
-            const video = videoRef.current;
-            if (!video || !isPlaying) return;
-            video.muted = true;
-            if (video.paused) {
-              video.play().catch(() => {});
-            }
-          }}
-          onError={(e) => {
-            playerLogger.warn('Error loading video:', {
-              nft: nft.name || 'Unknown NFT',
-              mediaKey: getMediaKey(nft),
-              error: e.currentTarget.error?.message || 'Unknown error',
-            });
-            setVideoLayerFailed(true);
-          }}
-          onLoadedMetadata={() => {
-            const video = videoRef.current;
-            if (!video) return;
-            if (video.videoWidth === 0) {
-              setVideoLayerFailed(true);
-            }
-          }}
-        />
-
-        {videoLoading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/30 backdrop-blur-sm rounded-lg">
-            <div className="loader"></div>
-          </div>
-        )}
-      </div>
+      <div
+        ref={videoHostRef}
+        className="relative w-full h-full flex items-center justify-center"
+      />
     );
   };
+
+  useLayoutEffect(() => {
+    if (!rawVideoSrc) return;
+    const host = videoHostRef.current;
+    if (!host) return;
+
+    const video = adoptPlaybackVideoElement(host, nft.contract, nft.tokenId);
+    videoRef.current = video;
+    video.setAttribute('playsinline', 'true');
+    video.setAttribute('webkit-playsinline', 'true');
+    video.playsInline = true;
+
+    const videoIsClock = playbackPlan.mode === 'video-with-audio' && !playbackPlan.muteVideo;
+    const onLoadedMetadata = () => {
+      if (video.videoWidth > 0 && video.videoHeight > 0) {
+        applyPlaybackPlanToNft(nft, playbackPlan);
+      } else if (!videoIsClock) {
+        setVideoLayerFailed(true);
+      }
+    };
+    video.addEventListener('loadedmetadata', onLoadedMetadata);
+
+    if (videoIsClock) {
+      video.preload = 'auto';
+      video.loop = false;
+      return () => {
+        video.removeEventListener('loadedmetadata', onLoadedMetadata);
+      };
+    }
+
+    const videoUrl = processMediaUrl(
+      rewriteLegacyOpenSeaMediaUrl(rawVideoSrc, nft.contract, nft.network),
+      '',
+      'audio'
+    );
+    video.muted = true;
+    video.loop = true;
+    video.preload = 'none';
+    if ((video.currentSrc || video.src) !== videoUrl) {
+      video.src = videoUrl;
+    }
+
+    const onError = () => {
+      playerLogger.warn('Error loading video:', {
+        nft: nft.name || 'Unknown NFT',
+        mediaKey: getMediaKey(nft),
+        error: video.error?.message || 'Unknown error',
+      });
+      setVideoLayerFailed(true);
+    };
+    video.addEventListener('error', onError);
+
+    return () => {
+      video.removeEventListener('loadedmetadata', onLoadedMetadata);
+      video.removeEventListener('error', onError);
+    };
+  }, [rawVideoSrc, nft, playbackPlan, nft.contract, nft.tokenId, nft.network]);
 
   const handleMinimizeToggle = () => {
     onMinimizeToggle();
@@ -617,7 +587,15 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
   // Keep the exact same JSX as the original Player component for the maximized state
   return (
     <>
-      <div className="fixed inset-0 z-[100] bg-black will-change-transform flex flex-col overflow-hidden" style={{ backfaceVisibility: 'hidden' }}>
+      <div
+        className={
+          isMinimized
+            ? 'fixed bottom-20 left-0 z-0 w-px h-px overflow-hidden opacity-0 pointer-events-none'
+            : 'fixed inset-0 z-[100] bg-black will-change-transform flex flex-col overflow-hidden'
+        }
+        style={isMinimized ? undefined : { backfaceVisibility: 'hidden' }}
+        aria-hidden={isMinimized}
+      >
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           {resolvedImageUrl && (
             <img
@@ -829,7 +807,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
           </div>
         </div>
       </div>
-      {showInfo && <InfoPanel nft={nft} onClose={() => setShowInfo(false)} isLiked={Boolean(isLiked)} />}
+      {showInfo && !isMinimized && <InfoPanel nft={nft} onClose={() => setShowInfo(false)} isLiked={Boolean(isLiked)} />}
     </>
   );
 };
