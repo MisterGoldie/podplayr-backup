@@ -101,6 +101,16 @@ const PLAYBACK_OVERRIDES: Record<string, { mobile: string; desktop?: string }> =
     mobile: muxHls('XG00lGsg01DVCnI02bhj4e6ybzknmr6oBuWSE7G5G01vu54'),
     desktop: muxHls('XG00lGsg01DVCnI02bhj4e6ybzknmr6oBuWSE7G5G01vu54'),
   },
+  // Bruises Music Video Game - Opening Cinematic
+  CQkNgwIYcfLj0ipMgbQ_oF4ITLY3ulp_kofmliVpJSw: {
+    mobile: muxHls('GHs4M027urWxSH8HhvxuB02Cwo2OWQfnXlEKevZrNOx9U'),
+    desktop: muxHls('GHs4M027urWxSH8HhvxuB02Cwo2OWQfnXlEKevZrNOx9U'),
+  },
+  // Energy (OFFICIAL VISUALIZER)
+  bafybeigxtbuhw3zvhjfruzrfzcprmbxyryxqidnja5w4gj2dthhi4tuiyi: {
+    mobile: muxHls('OyxgVCF400m5RVH6Q01sGk01ANkD01nONIMRvw9HLLe02M8M'),
+    desktop: muxHls('OyxgVCF400m5RVH6Q01sGk01ANkD01nONIMRvw9HLLe02M8M'),
+  },
 };
 
 /** Alchemy NFT CDN media filename, e.g. 7d1b91517fd57375c124c9f8b6a66a2c_animation */
