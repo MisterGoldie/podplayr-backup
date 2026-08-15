@@ -76,6 +76,16 @@ const PLAYBACK_OVERRIDES: Record<string, { mobile: string; desktop?: string }> =
     mobile: muxHls('oTt2eSe8ONvIQ5U9iJ013kRyYWj2LRU2fxSLMuhm3tC00'),
     desktop: muxHls('oTt2eSe8ONvIQ5U9iJ013kRyYWj2LRU2fxSLMuhm3tC00'),
   },
+  // Isolation(2020)
+  bafybeibops7cqqf5ssqvueexmsyyrf6q4x6jbeaicymrnnzbg7dx34k2jq: {
+    mobile: muxHls('EbduV02z1BQpMwykl2qYJ4OwQZliLBRoK7sL4YjN8LLY'),
+    desktop: muxHls('EbduV02z1BQpMwykl2qYJ4OwQZliLBRoK7sL4YjN8LLY'),
+  },
+  // DIGITAL DAYDREAM
+  'C3ZD4vH-nmHjYvtA9qWrEy2UZXajitmLMOQf9AsKBOU': {
+    mobile: muxHls('YmErvai7JAbDK01EpZIoOEkZIBU01YbT19IL2R02CXSnVo'),
+    desktop: muxHls('YmErvai7JAbDK01EpZIoOEkZIBU01YbT19IL2R02CXSnVo'),
+  },
 };
 
 export function mediaAssetIdFromUrl(url: string): string | null {
