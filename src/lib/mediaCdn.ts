@@ -61,6 +61,11 @@ const PLAYBACK_OVERRIDES: Record<string, { mobile: string; desktop?: string }> =
     mobile: muxHls('ZEKVzDhMOAQZ6iJKypsqCZHDrw019Vs11DfLoA23HO7c'),
     desktop: muxHls('ZEKVzDhMOAQZ6iJKypsqCZHDrw019Vs11DfLoA23HO7c'),
   },
+  // Music Mondays
+  '6Y0t6OM1QybUlzHmbw2BLiFNjrG_jJfr4Md_pIF4o3c': {
+    mobile: muxHls('VLW3nHxl5oW02dBMn02kombVDy3B5OtT86jJesGzDl6j00'),
+    desktop: muxHls('VLW3nHxl5oW02dBMn02kombVDy3B5OtT86jJesGzDl6j00'),
+  },
 };
 
 export function mediaAssetIdFromUrl(url: string): string | null {
