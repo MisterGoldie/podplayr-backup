@@ -185,20 +185,32 @@ export const pickImageCandidates = (nft: UserNFT | null | undefined): string[] =
   const meta = nft.metadata;
   const raw: string[] = [];
 
-  const push = (url?: string | null) => {
+  const push = (url?: string | null, opts?: { allowVideo?: boolean }) => {
     if (!url || typeof url !== 'string') return;
     const trimmed = url.trim();
     if (!trimmed) return;
-    // Never use dedicated sound/video files as cover art.
-    if (looksLikeAudioFileUrl(trimmed) || looksLikeVideoFileUrl(trimmed)) return;
+    // Skip dedicated audio. Allow video covers (Nifty Island / SeaDN mp4).
+    if (looksLikeAudioFileUrl(trimmed)) return;
+    if (looksLikeVideoFileUrl(trimmed) && !opts?.allowVideo) return;
     raw.push(trimmed);
   };
 
-  push(nft.image);
-  push(meta?.image);
+  // Token image may be an mp4 cover — keep it.
+  push(nft.image, { allowVideo: true });
+  push(meta?.image, { allowVideo: true });
   push(meta?.image_url);
   push(meta?.properties?.image);
   push(meta?.properties?.visual?.url);
+  // Animation URL as cover only when it's clearly video (not the audio track).
+  const anim = meta?.animation_url || nft.animationUrl || nft.videoUrl;
+  if (
+    anim &&
+    (looksLikeVideoFileUrl(anim) ||
+      /niftyisland\.com/i.test(anim) ||
+      (/raw2?\.seadn\.io/i.test(anim) && !looksLikeAudioFileUrl(anim)))
+  ) {
+    push(anim, { allowVideo: true });
+  }
 
   for (const file of meta?.properties?.files || []) {
     if (!file) continue;
@@ -220,7 +232,6 @@ export const pickImageCandidates = (nft: UserNFT | null | undefined): string[] =
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(rewritten);
-    // Keep original as secondary candidate when rewrite changed it.
     if (rewritten !== url) {
       const origKey = normalizeMediaUrlKey(url) || url.toLowerCase();
       if (!seen.has(origKey)) {
@@ -229,10 +240,13 @@ export const pickImageCandidates = (nft: UserNFT | null | undefined): string[] =
       }
     }
   }
-  // Prefer durable CDNs over unreplicated public IPFS gateways.
+  // Prefer token Alchemy / Nifty video over shared OpenSea collection art (i2c).
   const coverScore = (url: string): number => {
+    if (/niftyisland\.com/i.test(url) || looksLikeVideoFileUrl(url)) return 5;
     if (isAlchemyCdnMediaUrl(url)) return 4;
-    if (/seadn\.io|openseauserdata\.com|i2c\.seadn|res\.cloudinary\.com/i.test(url)) return 3;
+    if (/raw2?\.seadn\.io/i.test(url)) return 3;
+    if (/i2c\.seadn|openseauserdata\.com/i.test(url)) return 1; // often collection-level
+    if (/seadn\.io|res\.cloudinary\.com/i.test(url)) return 2;
     if (IMAGE_FILE_EXT_RE.test(url) && !/\/ipfs\//i.test(url) && !url.startsWith('ipfs://')) return 2;
     if (/\/ipfs\//i.test(url) || url.startsWith('ipfs://') || /\.ipfs\./i.test(url)) return 0;
     return 1;
@@ -1221,9 +1235,34 @@ export const getNftMediaUrl = (nft: UserNFT, mediaType: 'image' | 'audio'): stri
       : [nft.audio, nft.videoUrl, nft.metadata?.animation_url].find((u) =>
           isAlchemyCdnMediaUrl(u)
         );
+  // Prefer video cover from image fields only. Fall back to animation_url video
+  // only when there is no Alchemy still (otherwise Base House / Coinbase Pass
+  // cards flash the playback mp4 instead of the still).
+  const imageTokenVideo =
+    mediaType === 'image'
+      ? [nft.image, nft.metadata?.image].find(
+          (u) =>
+            !!u &&
+            (looksLikeVideoFileUrl(u) ||
+              /niftyisland\.com/i.test(u) ||
+              (/raw2?\.seadn\.io/i.test(u) && !looksLikeAudioFileUrl(u)))
+        )
+      : undefined;
+  const animTokenVideo =
+    mediaType === 'image' && !alchemyPreferred
+      ? [nft.metadata?.animation_url, nft.animationUrl, nft.videoUrl].find(
+          (u) =>
+            !!u &&
+            (looksLikeVideoFileUrl(u) ||
+              /niftyisland\.com/i.test(u) ||
+              (/raw2?\.seadn\.io/i.test(u) && !looksLikeAudioFileUrl(u)))
+        )
+      : undefined;
+  const tokenVideoPreferred = imageTokenVideo || animTokenVideo;
   const rawSourceUrl =
     mediaType === 'image'
-      ? alchemyPreferred ||
+      ? tokenVideoPreferred ||
+        alchemyPreferred ||
         imageCandidates[0] ||
         nft.image ||
         nft.metadata?.image ||

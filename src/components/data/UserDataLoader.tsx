@@ -106,50 +106,6 @@ const cacheOwnedNFTs = (userFid: number, nfts: NFT[]) => {
   );
 };
 
-const coverRank = (url?: string | null): number => {
-  if (!url) return 0;
-  if (/seadn\.io|i2c\.seadn|niftyisland\.com/i.test(url)) return 4;
-  if (/\.(mp4|webm|mov|m4v)(?:\?|#|$)/i.test(url)) return 3;
-  if (/nft2?-cdn\.alchemy\.com/i.test(url)) return 1; // often audio rehosted
-  if (/\/ipfs\//i.test(url) || url.startsWith('ipfs://')) return 0;
-  return 2;
-};
-
-/** Keep a better in-memory / cached cover when Alchemy refresh returns a worse one. */
-const mergeOwnedCovers = (fresh: NFT[], previous: NFT[] | null): NFT[] => {
-  if (!previous?.length) return fresh;
-  const prevById = new Map(
-    previous.map((n) => [`${n.contract?.toLowerCase()}-${n.tokenId}`, n])
-  );
-  return fresh.map((nft) => {
-    const prev = prevById.get(`${nft.contract?.toLowerCase()}-${nft.tokenId}`);
-    if (!prev) return nft;
-    const freshCover = nft.image || nft.metadata?.image || '';
-    const prevCover =
-      prev.image ||
-      prev.metadata?.image ||
-      prev.metadata?.animation_url ||
-      prev.animationUrl ||
-      '';
-    if (coverRank(prevCover) <= coverRank(freshCover)) return nft;
-    return {
-      ...nft,
-      image: prevCover,
-      metadata: {
-        ...nft.metadata,
-        image: prevCover,
-        animation_url:
-          nft.metadata?.animation_url ||
-          prev.metadata?.animation_url ||
-          prev.animationUrl ||
-          '',
-      },
-      animationUrl: nft.animationUrl || prev.animationUrl || '',
-      collection: nft.collection || prev.collection,
-    };
-  });
-};
-
 export const UserDataLoader: React.FC<UserDataLoaderProps> = ({
   userFid,
   onUserDataLoaded,
@@ -254,8 +210,9 @@ export const UserDataLoader: React.FC<UserDataLoaderProps> = ({
         const freshNFTs = await fetchUserNFTs(userFid);
         if (cancelled) return;
 
-        const mergedFresh = mergeOwnedCovers(freshNFTs, cachedNFTs);
-        const nftsWithLikeStatus = withLikeStatus(mergedFresh);
+        // Do not soft-merge covers from cache — that preferred OpenSea collection
+        // art over Alchemy token stills and could pollute animation_url.
+        const nftsWithLikeStatus = withLikeStatus(freshNFTs);
         console.log('Owned NFTs refreshed:', nftsWithLikeStatus.length);
         cacheOwnedNFTs(userFid, nftsWithLikeStatus);
         handleNFTsLoaded(nftsWithLikeStatus);

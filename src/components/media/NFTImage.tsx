@@ -10,6 +10,9 @@ import { enrichNftMediaFromChain, nftNeedsChainMediaEnrich } from '../../lib/nft
 
 const IMG_LOG = true; // flip off when done debugging broken NFT thumbs
 
+/** Alchemy CDN hashes with no extension that decoded as video (Food / Conflicted). */
+const alchemyCdnAsVideoCover = new Set<string>();
+
 const shortUrl = (url?: string | null, max = 120): string => {
   if (!url) return '(empty)';
   return url.length <= max ? url : `${url.slice(0, max)}…`;
@@ -263,6 +266,7 @@ export const NFTImage: React.FC<NFTImageProps> = ({
   const attemptedFallbacks = useRef<Record<string, boolean>>({});
   const alchemyEnrichAttemptedRef = useRef(false);
   const alchemyEnrichInFlightRef = useRef(false);
+  const alchemyAsVideoTriedRef = useRef(false);
   /** True when an image error was deferred until Alchemy enrich finishes. */
   const pendingEnrichResumeRef = useRef(false);
   const nftContract = nft?.contract;
@@ -359,6 +363,7 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       loadedOkSrcRef.current = null;
       alchemyEnrichAttemptedRef.current = false;
       alchemyEnrichInFlightRef.current = false;
+      alchemyAsVideoTriedRef.current = false;
       pendingEnrichResumeRef.current = false;
     }
 
@@ -386,11 +391,33 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       const isFragileUrl = (url?: string | null) =>
         !!url &&
         (/\/ipfs\//i.test(url) || url.startsWith('ipfs://') || /\.ipfs\./i.test(url));
+      const isCollectionOpenSea = (url?: string | null) =>
+        !!url && /i2c\.seadn\.io/i.test(url);
+      const isTokenVideoCover = (url?: string | null) =>
+        !!url &&
+        (isVideoMediaUrl(url) ||
+          /niftyisland\.com/i.test(url) ||
+          (/raw2?\.seadn\.io/i.test(url) && !/\.(png|jpe?g|gif|webp|svg)(?:\?|#|$)/i.test(url)));
+
+      const isAlchemyStillUrl = (url?: string | null) =>
+        !!url && /nft2?-cdn\.alchemy\.com|res\.cloudinary\.com\/alchemyapi/i.test(url);
       const alchemySrc =
-        (effectiveSrc && /nft2?-cdn\.alchemy\.com/i.test(effectiveSrc) && effectiveSrc) ||
-        (nft?.image && /nft2?-cdn\.alchemy\.com/i.test(nft.image) && nft.image) ||
+        (effectiveSrc && isAlchemyStillUrl(effectiveSrc) && effectiveSrc) ||
+        (nft?.image && isAlchemyStillUrl(nft.image) && nft.image) ||
+        '';
+      // Token VIDEO cover only from image fields (Nifty / SeaDN mp4). Do NOT pull
+      // animation_url when an Alchemy still exists — that stole Base House /
+      // Coinbase Pass stills in favor of playback mp4s.
+      const tokenVideoSrc =
+        (effectiveSrc && isTokenVideoCover(effectiveSrc) && effectiveSrc) ||
+        (nft?.image && isTokenVideoCover(nft.image) && nft.image) ||
+        (!alchemySrc &&
+          nft?.metadata?.animation_url &&
+          isTokenVideoCover(nft.metadata.animation_url) &&
+          nft.metadata.animation_url) ||
         '';
       const durableSrc =
+        tokenVideoSrc ||
         alchemySrc ||
         (effectiveSrc &&
           !isFragileUrl(effectiveSrc) &&
@@ -406,18 +433,42 @@ export const NFTImage: React.FC<NFTImageProps> = ({
           nft.image) ||
         (nft?.collection?.image && !isFragileUrl(nft.collection.image) && nft.collection.image) ||
         '';
-      // Don't stick to a dead IPFS cache hit after Alchemy/OpenSea enrich.
-      if (cached && isFragileUrl(cached) && durableSrc && !isFragileUrl(durableSrc)) {
+
+      // Drop stale collection-art cache when we now have a real token video cover.
+      if (
+        cached &&
+        ((isFragileUrl(cached) && durableSrc && !isFragileUrl(durableSrc)) ||
+          (isCollectionOpenSea(cached) && tokenVideoSrc))
+      ) {
         delete processedUrlCache.current[cacheKey];
         clearNftMediaUrlCache(nft, 'image');
       }
 
-      if (durableSrc && /nft2?-cdn\.alchemy\.com/i.test(durableSrc)) {
+      if (tokenVideoSrc) {
+        processedUrlCache.current[cacheKey] = tokenVideoSrc;
+        clearNftMediaUrlCache(nft, 'image');
+        nftImgLog('resolve:token-video-cover', nft, { mediaUrl: shortUrl(tokenVideoSrc) });
+        setImgSrc(toDisplaySrc(tokenVideoSrc));
+      } else if (durableSrc && isAlchemyStillUrl(durableSrc)) {
         processedUrlCache.current[cacheKey] = durableSrc;
         clearNftMediaUrlCache(nft, 'image');
-        nftImgLog('resolve:alchemy-cdn', nft, { mediaUrl: shortUrl(durableSrc) });
+        // Previously decoded as video/mp4 — skip broken <img> attempt.
+        if (
+          /nft2?-cdn\.alchemy\.com/i.test(durableSrc) &&
+          alchemyCdnAsVideoCover.has(durableSrc)
+        ) {
+          setIsVideo(true);
+          nftImgLog('resolve:alchemy-cdn-as-video', nft, { mediaUrl: shortUrl(durableSrc) });
+        } else {
+          setIsVideo(false);
+          nftImgLog('resolve:alchemy-cdn', nft, { mediaUrl: shortUrl(durableSrc) });
+        }
         setImgSrc(toDisplaySrc(durableSrc));
-      } else if (processedUrlCache.current[cacheKey] && !isFragileUrl(processedUrlCache.current[cacheKey])) {
+      } else if (
+        processedUrlCache.current[cacheKey] &&
+        !isFragileUrl(processedUrlCache.current[cacheKey]) &&
+        !(isCollectionOpenSea(processedUrlCache.current[cacheKey]) && tokenVideoSrc)
+      ) {
         const hit = processedUrlCache.current[cacheKey];
         nftImgLog('resolve:component-cache-hit', nft, { cached: shortUrl(hit) });
         setImgSrc(toDisplaySrc(hit));
@@ -544,14 +595,18 @@ export const NFTImage: React.FC<NFTImageProps> = ({
             if (videoCover) next = videoCover;
           }
 
+          // COVER ONLY — never replace metadata.animation_url / audio (breaks play).
           Object.assign(nft, {
-            // Prefer durable cover on the NFT object so later resolves don't re-hit IPFS.
             image: next || enriched.image || nft.image,
             metadata: {
-              ...enriched.metadata,
-              image: next || enriched.metadata?.image,
+              ...nft.metadata,
+              image: next || enriched.image || nft.metadata?.image,
             },
-            collection: enriched.collection,
+            collection: {
+              ...nft.collection,
+              ...enriched.collection,
+              image: enriched.collection?.image || nft.collection?.image,
+            },
           });
           clearNftMediaUrlCache(nft, 'image');
           imageCandidates.current = pickImageCandidates(nft);
@@ -633,11 +688,23 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       
       if (nft) {
         const mediaUrl = getNftMediaUrl(nft, 'image');
+        // Prefer token video cover over getNftMediaUrl when it still returns collection art.
+        const prefer =
+          (isVideoMediaUrl(thumbnailUrl) || /niftyisland\.com/i.test(thumbnailUrl)
+            ? thumbnailUrl
+            : '') || mediaUrl;
         nftImgLog('resolve:thumbnail-path', nft, {
           thumbnailUrl: shortUrl(thumbnailUrl),
           mediaUrl: shortUrl(mediaUrl),
+          using: shortUrl(prefer),
         });
-        setImgSrc(toDisplaySrc(mediaUrl));
+        if (nft.contract && nft.tokenId && prefer) {
+          const cacheKey = `${nft.contract}-${nft.tokenId}`;
+          if (isVideoMediaUrl(prefer) || /niftyisland\.com/i.test(prefer)) {
+            processedUrlCache.current[cacheKey] = prefer;
+          }
+        }
+        setImgSrc(toDisplaySrc(prefer));
       } else {
         setImgSrc(toDisplaySrc(processMediaUrl(thumbnailUrl, fallbackSrc, 'image')));
       }
@@ -991,9 +1058,30 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       }
     }
     
+    // Alchemy CDN "image" hashes are often video/mp4 (Food / Conflicted). Try
+    // <video> with the same URL before SeaDN enrich — keeps unique per-token covers.
+    const alchemyCdnFailed = /nft2?-cdn\.alchemy\.com/i.test(failedSrc);
+    if (alchemyCdnFailed && isVideo && alchemyAsVideoTriedRef.current) {
+      // Same hash failed as <video> too (unlikely) — clear and fall through to enrich.
+      alchemyCdnAsVideoCover.delete(failedSrc);
+      setIsVideo(false);
+    }
+    if (alchemyCdnFailed && !alchemyAsVideoTriedRef.current && !isVideo) {
+      alchemyAsVideoTriedRef.current = true;
+      alchemyCdnAsVideoCover.add(failedSrc);
+      nftImgLog('retry:alchemy-cdn-as-video', nft, { failed: shortUrl(failedSrc) });
+      setIsVideo(true);
+      originalUrlRef.current = failedSrc;
+      setImgSrc(failedSrc);
+      setRetryCount((c) => c + 1);
+      setError(false);
+      setIsLoadingFallback(false);
+      setImgLoading(true);
+      return;
+    }
+
     // Public IPFS unreplicated — Alchemy CDN / OpenSea / collection often still has a cover.
     // Also re-enrich when an Alchemy CDN "image" fails (often the audio hash).
-    const alchemyCdnFailed = /nft2?-cdn\.alchemy\.com/i.test(failedSrc);
     if (
       nft &&
       !alchemyEnrichAttemptedRef.current &&
@@ -1013,7 +1101,14 @@ export const NFTImage: React.FC<NFTImageProps> = ({
             if (/\.(mp3|wav|m4a|aac|ogg|flac)(?:\?|#|$)/i.test(url)) return '';
             return url;
           };
-          // Prefer SeaDN / Nifty video covers over another Alchemy CDN hash.
+          // Prefer SeaDN / Nifty token VIDEO covers over another Alchemy CDN hash.
+          // Do NOT treat i2c.seadn collection stills as video.
+          const isTokenVideoCover = (u: string) =>
+            isVideoMediaUrl(u) ||
+            /\.(mp4|webm|mov|m4v)(?:\?|#|$)/i.test(u) ||
+            /niftyisland\.com/i.test(u) ||
+            (/raw2?\.seadn\.io/i.test(u) &&
+              !/\.(png|jpe?g|gif|webp|svg)(?:\?|#|$)/i.test(u));
           const videoNext =
             [
               enriched.metadata?.animation_url,
@@ -1022,13 +1117,7 @@ export const NFTImage: React.FC<NFTImageProps> = ({
               enriched.image,
             ]
               .map(pickCover)
-              .find(
-                (u) =>
-                  u &&
-                  (isVideoMediaUrl(u) ||
-                    /\.(mp4|webm|mov|m4v)(?:\?|#|$)/i.test(u) ||
-                    /seadn\.io|i2c\.seadn|niftyisland\.com/i.test(u))
-              ) || '';
+              .find((u) => u && isTokenVideoCover(u)) || '';
           const stillNext =
             pickCover(
               enriched.image && !/nft2?-cdn\.alchemy\.com/i.test(enriched.image)
@@ -1037,10 +1126,18 @@ export const NFTImage: React.FC<NFTImageProps> = ({
             ) || pickCover(enriched.collection?.image) || '';
           const next = videoNext || stillNext;
 
+          // COVER ONLY — preserve playback metadata.
           Object.assign(nft, {
-            image: enriched.image || nft.image,
-            metadata: enriched.metadata,
-            collection: enriched.collection,
+            image: next || nft.image,
+            metadata: {
+              ...nft.metadata,
+              image: next || nft.metadata?.image,
+            },
+            collection: {
+              ...nft.collection,
+              ...enriched.collection,
+              image: enriched.collection?.image || nft.collection?.image,
+            },
           });
           clearNftMediaUrlCache(nft, 'image');
           imageCandidates.current = pickImageCandidates(nft);
@@ -1122,15 +1219,16 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       }
     }
 
-    // Alchemy CDN "image" hashes are often the audio file — try token video /
-    // SeaDN / Nifty Island covers before swapping hosts or giving up.
+    // Alchemy CDN "image" hashes are often the audio file — try token video
+    // covers (Nifty / raw2 SeaDN / .mp4) before swapping hosts or giving up.
+    // Never treat i2c.seadn collection stills as video.
     if (nft && /nft2?-cdn\.alchemy\.com/i.test(failedSrc)) {
       const videoCandidates = [
         nft.metadata?.animation_url,
         nft.animationUrl,
         nft.videoUrl,
         nft.metadata?.image,
-        nft.collection?.image,
+        nft.image,
       ].filter((u): u is string => typeof u === 'string' && !!u);
       for (const candidate of videoCandidates) {
         if (
@@ -1143,13 +1241,14 @@ export const NFTImage: React.FC<NFTImageProps> = ({
         const looksVideo =
           isVideoMediaUrl(candidate) ||
           /\.(mp4|webm|mov|m4v)(?:\?|#|$)/i.test(candidate) ||
-          /seadn\.io|i2c\.seadn|niftyisland\.com/i.test(candidate);
+          /niftyisland\.com/i.test(candidate) ||
+          (/raw2?\.seadn\.io/i.test(candidate) &&
+            !/\.(png|jpe?g|gif|webp|svg)(?:\?|#|$)/i.test(candidate));
         const looksAudio = /\.(mp3|wav|m4a|aac|ogg|flac)(?:\?|#|$)/i.test(candidate);
         if (!looksVideo || looksAudio) continue;
         if (/\/ipfs\//i.test(candidate) || candidate.startsWith('ipfs://')) continue;
 
         attemptedFallbacks.current[`${candidate}-video-cover`] = true;
-        // Drop the dead Alchemy CDN from component cache so we stick to video.
         if (nft.contract && nft.tokenId) {
           processedUrlCache.current[`${nft.contract}-${nft.tokenId}`] = candidate;
         }
@@ -1295,7 +1394,12 @@ export const NFTImage: React.FC<NFTImageProps> = ({
   // Check if this is an Arweave URL using proper validation
   const isArweave = isArweaveUrl(finalSrc);
   const isAnimated = shouldPreserveAnimation(finalSrc) || shouldPreserveAnimation(src);
-  const isVideoCover = isVideoMediaUrl(finalSrc) || isVideoMediaUrl(src);
+  const isVideoCover =
+    isVideo ||
+    isVideoMediaUrl(finalSrc) ||
+    isVideoMediaUrl(src) ||
+    alchemyCdnAsVideoCover.has(finalSrc) ||
+    alchemyCdnAsVideoCover.has(originalUrlRef.current || '');
   const useNativeImg =
     isArweave ||
     isAnimated ||
