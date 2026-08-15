@@ -406,7 +406,7 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
     return (
       <section>
         <h2 className="text-sm font-semibold text-white/80 mb-3 px-1">{title}</h2>
-        <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 hide-scrollbar">
+        <div className="flex gap-3 overflow-x-auto pt-2 pb-4 -mx-1 px-1 hide-scrollbar">
           {users.map((user) => (
             <button
               key={`${title}-${user.fid}-${user.username}`}
@@ -453,7 +453,7 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
     return (
       <section>
         <h2 className="text-sm font-semibold text-white/80 mb-3 px-1">Music videos</h2>
-        <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 hide-scrollbar">
+        <div className="flex gap-3 overflow-x-auto pt-2 pb-4 -mx-1 px-1 hide-scrollbar">
           {musicVideos.map((nft) => {
             const isThisPlaying = Boolean(
               isPlaying &&
@@ -470,7 +470,7 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
               >
                 <div className="relative mx-auto w-14 h-14">
                   <div
-                    className={`relative rounded-full overflow-hidden flex-shrink-0 ring-2 bg-purple-900/30 ${
+                    className={`relative rounded-md overflow-hidden flex-shrink-0 ring-2 bg-purple-900/30 ${
                       isThisPlaying ? 'ring-green-400/80' : 'ring-purple-400/25'
                     }`}
                     style={{ width: 56, height: 56 }}
