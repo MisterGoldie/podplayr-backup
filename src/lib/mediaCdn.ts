@@ -96,6 +96,11 @@ const PLAYBACK_OVERRIDES: Record<string, { mobile: string; desktop?: string }> =
     mobile: muxHls('V01CIYB6vZHqf01eHIGDt102f2XHE02xIUrvFp4neqi42ag'),
     desktop: muxHls('V01CIYB6vZHqf01eHIGDt102f2XHE02xIUrvFp4neqi42ag'),
   },
+  // ISLAND 221
+  bafybeicod3m7as3y7luyvfgclltnps235hhevt64xqmo3nyhojn2mv3owq: {
+    mobile: muxHls('XG00lGsg01DVCnI02bhj4e6ybzknmr6oBuWSE7G5G01vu54'),
+    desktop: muxHls('XG00lGsg01DVCnI02bhj4e6ybzknmr6oBuWSE7G5G01vu54'),
+  },
 };
 
 /** Alchemy NFT CDN media filename, e.g. 7d1b91517fd57375c124c9f8b6a66a2c_animation */
