@@ -524,6 +524,8 @@ const DemoBase: React.FC = () => {
           isSearching={isSearching}
           recentSearches={recentSearches}
           handleDirectUserSelect={handleDirectUserSelect}
+          onPlayNFT={handlePlayNFT}
+          currentlyPlaying={currentlyPlaying}
         />
       )}
       {currentPage.isLibrary && (

@@ -26,7 +26,7 @@ const CDN_BASE = (process.env.NEXT_PUBLIC_MEDIA_CDN_BASE || '').replace(/\/+$/, 
 
 /**
  * Optional per-id overrides (Cloudflare Stream HLS, Mux, etc.).
- * Key = Arweave tx id or IPFS CID.
+ * Key = Arweave tx id, IPFS CID, or Alchemy nft-cdn filename.
  */
 const muxHls = (playbackId: string) => `https://stream.mux.com/${playbackId}.m3u8`;
 
@@ -86,14 +86,34 @@ const PLAYBACK_OVERRIDES: Record<string, { mobile: string; desktop?: string }> =
     mobile: muxHls('YmErvai7JAbDK01EpZIoOEkZIBU01YbT19IL2R02CXSnVo'),
     desktop: muxHls('YmErvai7JAbDK01EpZIoOEkZIBU01YbT19IL2R02CXSnVo'),
   },
+  // LATASHÁ - A Ten (OFFICIAL VIDEO) — Alchemy nft2-cdn animation hash
+  '7d1b91517fd57375c124c9f8b6a66a2c_animation': {
+    mobile: muxHls('TGr1d27X01mvnVSH7R4101cIC7Q4wyMazgBdpxW6ZaK34'),
+    desktop: muxHls('TGr1d27X01mvnVSH7R4101cIC7Q4wyMazgBdpxW6ZaK34'),
+  },
 };
+
+/** Alchemy NFT CDN media filename, e.g. 7d1b91517fd57375c124c9f8b6a66a2c_animation */
+function extractAlchemyMediaId(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    if (!host.endsWith('alchemy.com') && !host.endsWith('alchemyapi.com')) return null;
+    const last = parsed.pathname.split('/').filter(Boolean).pop();
+    if (!last) return null;
+    return last.replace(/\.(mp4|m3u8|webm|mov)$/i, '') || null;
+  } catch {
+    return null;
+  }
+}
 
 export function mediaAssetIdFromUrl(url: string): string | null {
   if (!url) return null;
   const ar = parseArweaveMediaPath(url);
   if (ar.fileTxId) return ar.fileTxId;
   const cid = extractIPFSHash(url);
-  return cid || null;
+  if (cid) return cid;
+  return extractAlchemyMediaId(url);
 }
 
 function isUsableUrl(url?: string): url is string {

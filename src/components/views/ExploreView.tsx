@@ -18,6 +18,9 @@ import {
   isPodMember,
 } from '../../constants/community';
 import { getBioText } from '../../utils/format';
+import { SUGGESTED_MUSIC_VIDEOS } from '../../data/suggestedMusicVideos';
+import { getMediaKey } from '../../utils/media';
+import type { NFT } from '../../types/nft';
 
 type ExploreFilter = 'all' | 'farcaster' | 'ens';
 
@@ -29,6 +32,8 @@ interface ExploreViewProps {
   recentSearches: SearchedUser[];
   handleDirectUserSelect: (user: FarcasterUser) => void;
   userFid?: number;
+  onPlayNFT?: (nft: NFT, context?: { queue?: NFT[]; queueType?: string }) => Promise<void>;
+  currentlyPlaying?: string | null;
 }
 
 function toFarcasterUser(user: FarcasterUser | SearchedUser | FollowedUser): FarcasterUser {
@@ -80,6 +85,9 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
     isSearching,
     recentSearches,
     handleDirectUserSelect,
+    onPlayNFT,
+    currentlyPlaying,
+    isPlaying,
   } = props;
 
   const [followedUsers, setFollowedUsers] = useState<Record<number, boolean>>({});
@@ -425,6 +433,73 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
     );
   };
 
+  const musicVideos = useMemo(() => {
+    const items = [...SUGGESTED_MUSIC_VIDEOS];
+    for (let i = items.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [items[i], items[j]] = [items[j], items[i]];
+    }
+    return items;
+  }, []);
+
+  const playSuggestedVideo = (nft: NFT) => {
+    if (!onPlayNFT) return;
+    void onPlayNFT(nft, { queue: musicVideos, queueType: 'suggested-music-videos' });
+  };
+
+  const renderMusicVideosRail = () => {
+    if (musicVideos.length === 0) return null;
+
+    return (
+      <section>
+        <h2 className="text-sm font-semibold text-white/80 mb-3 px-1">Music videos</h2>
+        <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 hide-scrollbar">
+          {musicVideos.map((nft) => {
+            const isThisPlaying = Boolean(
+              isPlaying &&
+              currentlyPlaying &&
+              (currentlyPlaying === `${nft.contract}-${nft.tokenId}` || currentlyPlaying === getMediaKey(nft))
+            );
+            return (
+              <button
+                key={`music-video-${nft.contract}-${nft.tokenId}`}
+                type="button"
+                onClick={() => playSuggestedVideo(nft)}
+                className="flex-shrink-0 w-24 text-center active:scale-95 touch-manipulation"
+                aria-label={`Play ${nft.name}`}
+              >
+                <div className="relative mx-auto w-14 h-14">
+                  <div
+                    className={`relative rounded-full overflow-hidden flex-shrink-0 ring-2 bg-purple-900/30 ${
+                      isThisPlaying ? 'ring-green-400/80' : 'ring-purple-400/25'
+                    }`}
+                    style={{ width: 56, height: 56 }}
+                  >
+                    <Image
+                      src={nft.image || '/default-avatar.png'}
+                      alt={nft.name}
+                      className="object-cover"
+                      fill
+                      sizes="56px"
+                      unoptimized
+                    />
+                  </div>
+                  <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 text-[9px] px-1.5 py-0.5 rounded-full bg-purple-500/90 text-white">
+                    {isThisPlaying ? 'Playing' : 'Play'}
+                  </span>
+                </div>
+                <p className="mt-2 text-xs text-white truncate">{nft.name}</p>
+                <p className="text-[10px] text-white/40 truncate">
+                  {nft.collection?.name || 'Music video'}
+                </p>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+    );
+  };
+
   return (
     <>
       <div
@@ -522,6 +597,7 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
               </div>
             )}
 
+            {filter !== 'ens' && renderMusicVideosRail()}
             {filter !== 'ens' && renderRail('thepod', podUsers)}
             {filter !== 'ens' && renderRail('ACYL', acylUsers)}
             {effectiveUserFid > 0 && filter !== 'ens' && circleOverlap.length > 0 && renderRail('In your circle', circleOverlap)}
