@@ -18,7 +18,7 @@ interface RecentlyPlayedProps {
   handlePlayPause?: () => void;
   onLikeToggle?: (nft: NFT) => Promise<void>;
   isNFTLiked?: (nft: NFT) => boolean;
-  currentPlayingNFT?: NFT | null; // Add currentPlayingNFT prop
+  currentPlayingNFT?: NFT | null;
 }
 
 const RecentlyPlayed: React.FC<RecentlyPlayedProps> = ({ 
@@ -33,11 +33,13 @@ const RecentlyPlayed: React.FC<RecentlyPlayedProps> = ({
 }) => {
   const [firebaseRecentlyPlayed, setFirebaseRecentlyPlayed] = useState<NFT[]>([]);
   const [localRecentlyPlayed, setLocalRecentlyPlayed] = useState<NFT[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  /** True until the first Firebase playHistory snapshot — don't paint stale local order. */
+  const [firebaseReady, setFirebaseReady] = useState(false);
   const unsubscribeRef = useRef<(() => void) | null>(null);
 
-  // Initialize local recently played from localStorage if available
+  // Warm local cache for optimistic prepends after Firebase hydrates — never for first paint.
   useEffect(() => {
+    if (!userFid) return;
     try {
       const storedNFTs = localStorage.getItem(`recentlyPlayed_${userFid}`);
       if (storedNFTs) {
@@ -50,8 +52,6 @@ const RecentlyPlayed: React.FC<RecentlyPlayedProps> = ({
     }
   }, [userFid]);
 
-  // We'll handle localStorage updates directly when modifying localRecentlyPlayed
-  // instead of using a useEffect dependency that causes infinite loops
   const saveToLocalStorage = React.useCallback((items: NFT[]) => {
     if (userFid && items.length > 0) {
       try {
@@ -65,15 +65,26 @@ const RecentlyPlayed: React.FC<RecentlyPlayedProps> = ({
 
   // Set up Firebase subscription for recently played NFTs
   useEffect(() => {
+    setFirebaseReady(false);
+    setFirebaseRecentlyPlayed([]);
+
     if (!userFid) {
-      setIsLoading(false);
+      // No FID yet — stay gated (parent should wait for isFidReady).
       return;
     }
 
     try {
       const unsubscribe = subscribeToRecentPlays(userFid, (nfts) => {
         setFirebaseRecentlyPlayed(nfts);
-        setIsLoading(false);
+        setFirebaseReady(true);
+        // Keep localStorage aligned with Firebase so the next cold start matches.
+        if (nfts.length > 0) {
+          try {
+            localStorage.setItem(`recentlyPlayed_${userFid}`, JSON.stringify(nfts));
+          } catch {
+            /* ignore quota */
+          }
+        }
       });
 
       unsubscribeRef.current = unsubscribe;
@@ -86,13 +97,13 @@ const RecentlyPlayed: React.FC<RecentlyPlayedProps> = ({
       };
     } catch (error) {
       recentlyPlayedLogger.error('Error setting up recently played subscription:', error);
-      setIsLoading(false);
+      setFirebaseReady(true);
     }
   }, [userFid]);
   
-  // Instant local prepend so the row updates the moment playback starts.
+  // Instant local prepend so the row updates the moment playback starts (after hydrate).
   useEffect(() => {
-    if (!currentPlayingNFT) return;
+    if (!firebaseReady || !currentPlayingNFT) return;
     const mediaKey = getMediaKey(currentPlayingNFT);
     if (!mediaKey) return;
 
@@ -111,7 +122,7 @@ const RecentlyPlayed: React.FC<RecentlyPlayedProps> = ({
       saveToLocalStorage(updatedList);
       return updatedList;
     });
-  }, [currentPlayingNFT, saveToLocalStorage]);
+  }, [currentPlayingNFT, saveToLocalStorage, firebaseReady]);
 
   const nftIdentity = (nft: NFT) => nft.mediaKey || getMediaKey(nft) || `${nft.contract}-${nft.tokenId}`.toLowerCase();
 
@@ -127,10 +138,11 @@ const RecentlyPlayed: React.FC<RecentlyPlayedProps> = ({
     return hasDisplayInfo && hasMedia;
   };
 
-  // Local recency is the display order. Firebase only fills in older items
-  // that this session has not played yet. Replaying an NFT already in Firebase
-  // must still move it to the front immediately.
+  // Firebase order is canonical after hydrate. Local / currentPlaying only
+  // optimistic-prepend session plays that Firebase has not caught up with yet.
   const validRecentlyPlayedNFTs = useMemo(() => {
+    if (!firebaseReady) return [];
+
     const seen = new Set<string>();
     const ordered: NFT[] = [];
 
@@ -142,12 +154,45 @@ const RecentlyPlayed: React.FC<RecentlyPlayedProps> = ({
       ordered.push(nft);
     };
 
-    if (currentPlayingNFT) push(currentPlayingNFT);
-    localRecentlyPlayed.forEach(push);
+    const firebaseKeys = new Set(
+      firebaseRecentlyPlayed.map(nftIdentity).filter(Boolean) as string[]
+    );
+    const firebaseFirstKey =
+      firebaseRecentlyPlayed[0] ? nftIdentity(firebaseRecentlyPlayed[0]) : '';
+
+    // Optimistic: now-playing / just-played local head that Firebase hasn't moved yet.
+    if (currentPlayingNFT) {
+      const playingKey = nftIdentity(currentPlayingNFT);
+      if (playingKey && playingKey !== firebaseFirstKey) {
+        push(currentPlayingNFT);
+      }
+    }
+    const localHead = localRecentlyPlayed[0];
+    if (localHead) {
+      const localKey = nftIdentity(localHead);
+      if (
+        localKey &&
+        localKey !== firebaseFirstKey &&
+        (!currentPlayingNFT || localKey !== nftIdentity(currentPlayingNFT))
+      ) {
+        const localAt = localHead.addedToRecentlyPlayedAt || 0;
+        const firebaseAt = firebaseRecentlyPlayed[0]?.addedToRecentlyPlayedAt || 0;
+        if (localAt > firebaseAt) {
+          push(localHead);
+        }
+      }
+    }
+
     firebaseRecentlyPlayed.forEach(push);
 
+    // Local-only items not yet in Firebase (offline / lag) — after Firebase order.
+    localRecentlyPlayed.forEach((nft) => {
+      const key = nftIdentity(nft);
+      if (key && !firebaseKeys.has(key)) push(nft);
+    });
+
     return ordered;
-  }, [localRecentlyPlayed, firebaseRecentlyPlayed, currentPlayingNFT]);
+  }, [localRecentlyPlayed, firebaseRecentlyPlayed, currentPlayingNFT, firebaseReady]);
 
   const [scrollRoot, setScrollRoot] = useState<HTMLDivElement | null>(null);
   const { visibleItems, hasMore, sentinelRef } = usePagedItems(validRecentlyPlayedNFTs, {
@@ -157,7 +202,7 @@ const RecentlyPlayed: React.FC<RecentlyPlayedProps> = ({
     rootMargin: '0px 400px',
   });
 
-  if (isLoading && validRecentlyPlayedNFTs.length === 0) {
+  if (!firebaseReady) {
     return (
       <section className="w-full">
         <div className="container mx-auto px-4">

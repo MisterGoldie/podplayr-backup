@@ -18,6 +18,7 @@ let featuredNFTsInitialized = false;
 interface HomeViewProps {
   recentlyPlayedNFTs?: NFT[];
   topPlayedNFTs: { nft: NFT; count: number }[];
+  topPlayedLoading?: boolean;
   onPlayNFT: (nft: NFT, context?: { queue?: NFT[], queueType?: string }) => Promise<void>;
   currentlyPlaying: string | null;
   isPlaying: boolean;
@@ -32,6 +33,7 @@ interface HomeViewProps {
 
 const HomeView: React.FC<HomeViewProps> = ({
   topPlayedNFTs,
+  topPlayedLoading = false,
   onPlayNFT,
   currentlyPlaying,
   isPlaying,
@@ -43,7 +45,7 @@ const HomeView: React.FC<HomeViewProps> = ({
   currentPlayingNFT,
   recentlyAddedNFT,
 }) => {
-  const { fid } = useContext(UserFidContext);
+  const { fid, isFidReady } = useContext(UserFidContext);
 
   useEffect(() => {
     const initializeFeaturedNFTs = async () => {
@@ -113,19 +115,50 @@ const HomeView: React.FC<HomeViewProps> = ({
       <NFTNotification onReset={onReset} />
 
       <div className="space-y-6 pt-20 pb-40 overflow-y-auto overscroll-y-contain min-h-screen bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082] h-[calc(100vh-130px)] md:h-[calc(100vh-150px)]">
-        <RecentlyPlayed
-          userFid={fid ?? 0}
-          onPlayNFT={onPlayNFT}
-          currentlyPlaying={currentlyPlaying}
-          isPlaying={isPlaying}
-          handlePlayPause={handlePlayPause}
-          onLikeToggle={onLikeToggle}
-          isNFTLiked={checkDirectlyLiked}
-          currentPlayingNFT={currentPlayingNFT}
-          recentlyAddedNFT={recentlyAddedNFT}
-        />
+        {!isFidReady ? (
+          <section className="w-full">
+            <div className="container mx-auto px-4">
+              <h2 className="text-lg font-semibold text-white/90 mb-3">Recently played</h2>
+              <div className="flex gap-4 overflow-hidden">
+                {[...Array(4)].map((_, i) => (
+                  <div key={i} className="w-[180px] aspect-square bg-purple-900/30 rounded-2xl flex-shrink-0 animate-pulse" />
+                ))}
+              </div>
+            </div>
+          </section>
+        ) : fid ? (
+          <RecentlyPlayed
+            userFid={fid}
+            onPlayNFT={onPlayNFT}
+            currentlyPlaying={currentlyPlaying}
+            isPlaying={isPlaying}
+            handlePlayPause={handlePlayPause}
+            onLikeToggle={onLikeToggle}
+            isNFTLiked={checkDirectlyLiked}
+            currentPlayingNFT={currentPlayingNFT}
+            recentlyAddedNFT={recentlyAddedNFT}
+          />
+        ) : (
+          <section className="w-full">
+            <div className="container mx-auto px-4">
+              <h2 className="text-lg font-semibold text-white/90 mb-1">Recently played</h2>
+              <p className="text-sm text-white/40">Sign in to see your listening history.</p>
+            </div>
+          </section>
+        )}
 
-        {topPlayedNFTs.length > 0 && (
+        {topPlayedLoading ? (
+          <section className="w-full">
+            <div className="container mx-auto px-4">
+              <h2 className="text-lg font-semibold text-white/90 mb-3">Top played</h2>
+              <div className="flex gap-4 overflow-hidden">
+                {[...Array(3)].map((_, i) => (
+                  <div key={i} className="w-[180px] aspect-square bg-purple-900/30 rounded-2xl flex-shrink-0 animate-pulse" />
+                ))}
+              </div>
+            </div>
+          </section>
+        ) : topPlayedNFTs.length > 0 ? (
           <section className="w-full">
             <div className="container mx-auto px-4">
               <h2 className="text-lg font-semibold text-white/90 mb-3">Top played</h2>
@@ -165,7 +198,7 @@ const HomeView: React.FC<HomeViewProps> = ({
               </div>
             </div>
           </section>
-        )}
+        ) : null}
 
         <FeaturedSection
           onPlayNFT={onPlayNFT}

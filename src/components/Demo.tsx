@@ -97,7 +97,7 @@ const DemoBase: React.FC = () => {
   const isLoadingLikedNFTsRef = useRef(false);
   const skipEmptyLikeCacheWrite = useRef(true);
 
-  const { topPlayed: topPlayedNFTs } = useTopPlayedNFTs();
+  const { topPlayed: topPlayedNFTs, loading: topPlayedLoading } = useTopPlayedNFTs();
   const {
     isPlaying,
     currentPlayingNFT,
@@ -468,6 +468,7 @@ const DemoBase: React.FC = () => {
       {currentPage.isHome && (
         <HomeView
           topPlayedNFTs={topPlayedNFTs}
+          topPlayedLoading={topPlayedLoading}
           onPlayNFT={handlePlayNFT}
           currentlyPlaying={currentlyPlaying}
           isPlaying={isPlaying}
