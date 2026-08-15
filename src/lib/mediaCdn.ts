@@ -28,11 +28,39 @@ const CDN_BASE = (process.env.NEXT_PUBLIC_MEDIA_CDN_BASE || '').replace(/\/+$/, 
  * Optional per-id overrides (Cloudflare Stream HLS, Mux, etc.).
  * Key = Arweave tx id or IPFS CID.
  */
+const muxHls = (playbackId: string) => `https://stream.mux.com/${playbackId}.m3u8`;
+
 const PLAYBACK_OVERRIDES: Record<string, { mobile: string; desktop?: string }> = {
-  // 'qsVEbTD0FUZ8VebK4yxOrKWDQtW8BpNWj7o46HzKsV8': {
-  //   mobile: 'https://customer-xxx.cloudflarestream.com/UID/manifest/video.m3u8',
-  //   desktop: 'https://customer-xxx.cloudflarestream.com/UID/manifest/video.m3u8',
-  // },
+  // ACYL RADIO - Chili Sounds 🌶️
+  GujXDFCEk4FmJl9b_TlofLEmx_YnY_LRSB2aSY8AcRg: {
+    mobile: muxHls('CHno5MdpD02WNJzrX1R4vEerYBs021RE4zraz00I00q2MZs'),
+    desktop: muxHls('CHno5MdpD02WNJzrX1R4vEerYBs021RE4zraz00I00q2MZs'),
+  },
+  // ACYL RADIO - Topia Hour
+  'YV3PQYn-NAX3cC6t6yhlmMtSzZ_SxIcAb3Np6SKBCuQ': {
+    mobile: muxHls('odx02ZC8FxRV01JLxoJ02Mhz3v1m012e5HpSuw9fWdhck02c'),
+    desktop: muxHls('odx02ZC8FxRV01JLxoJ02Mhz3v1m012e5HpSuw9fWdhck02c'),
+  },
+  // I Found It
+  qsVEbTD0FUZ8VebK4yxOrKWDQtW8BpNWj7o46HzKsV8: {
+    mobile: muxHls('sQK66svaOrzGdPAjhtuqe00mhTLMe02AXL00bF9jUKJ01B00'),
+    desktop: muxHls('sQK66svaOrzGdPAjhtuqe00mhTLMe02AXL00bF9jUKJ01B00'),
+  },
+  // Group (Think) Love
+  'KPKrKgdACqggYesQqRCR4MeLWDlpR6i16xL-Q_e35q4': {
+    mobile: muxHls('skHAVIRP6ujsh5eCF5GMPpBPzECaTHl00sW6LuxekWh00'),
+    desktop: muxHls('skHAVIRP6ujsh5eCF5GMPpBPzECaTHl00sW6LuxekWh00'),
+  },
+  // Salem Tries - The Forest EP1
+  'Df6hOV1--hsJBtTL1cEbhBkRZuggxSpR9eM0DXsdcv0': {
+    mobile: muxHls('WxcAI5024DWcKveO202ipEZU00rVHsxUy02DTGLWJrBEp9o'),
+    desktop: muxHls('WxcAI5024DWcKveO202ipEZU00rVHsxUy02DTGLWJrBEp9o'),
+  },
+  // ACYL RADIO - WILL01
+  'FXMkBkgV79p3QIL8589uh68-sKuXbmuBzQwvWH10v74': {
+    mobile: muxHls('ZEKVzDhMOAQZ6iJKypsqCZHDrw019Vs11DfLoA23HO7c'),
+    desktop: muxHls('ZEKVzDhMOAQZ6iJKypsqCZHDrw019Vs11DfLoA23HO7c'),
+  },
 };
 
 export function mediaAssetIdFromUrl(url: string): string | null {

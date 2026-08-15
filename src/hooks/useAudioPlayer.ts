@@ -52,6 +52,7 @@ import {
   clearNftMediaUrlCache,
 } from '../utils/media';
 import { resolveCdnPlaybackUrls } from '../lib/mediaCdn';
+import { attachPlaybackSource, detachHlsPlayback, isHlsAttached, isHlsUrl } from '../lib/hlsPlayback';
 import { restorePageScroll } from '../utils/pageScroll';
 
 function findNftInQueue(queue: NFT[], nft: NFT): number {
@@ -485,6 +486,8 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       setAudioDuration(0);
     }
 
+    detachHlsPlayback(visualPlaybackRef.current || audioRef.current);
+
     const previousClock = visualPlaybackRef.current;
     if (previousClock) {
       previousClock.onerror = null;
@@ -687,15 +690,13 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       media.pause();
       media.preload = 'auto';
       const nextUrl = playbackUrls[index];
-      const existing = media.currentSrc || media.src;
-      if (existing && existing !== nextUrl && existing !== window.location.href) {
-        media.removeAttribute('src');
-        media.load();
+      if (!isHlsUrl(nextUrl)) {
+        const existing = media.currentSrc || media.src;
+        if (existing && existing !== nextUrl && existing !== window.location.href) {
+          media.removeAttribute('src');
+          media.load();
+        }
       }
-      if ((media.currentSrc || media.src) !== nextUrl) {
-        media.src = nextUrl;
-      }
-      switchingUrl = false;
 
       const currentUrlForTimer = playbackUrls[index] || '';
       const isIpfsDirCandidate =
@@ -747,7 +748,18 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
             paused: media.paused,
             url: shortUrl(playbackUrls[index]),
           });
-          // Hard failover if still no bytes after another window (hung LOADING).
+          if (isHlsUrl(playbackUrls[index]) && isHlsAttached()) {
+            failoverTimerRef.current = setTimeout(() => {
+              if (playAttempt !== playAttemptRef.current || playbackStarted) return;
+              if (media.readyState > 0 || media.currentTime > 0) return;
+              playbackSpeedLog('failover — HLS never started', {
+                from: shortUrl(playbackUrls[index]),
+                next: shortUrl(playbackUrls[index + 1]),
+              });
+              tryUrl(index + 1);
+            }, 25000);
+            return;
+          }
           failoverTimerRef.current = setTimeout(() => {
             if (playAttempt !== playAttemptRef.current || playbackStarted) return;
             if (media.readyState > 0) return;
@@ -773,7 +785,17 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
         tryUrl(index + 1);
       }, failoverMs);
 
-      kickPlay();
+      void attachPlaybackSource(media, nextUrl, () => {
+        if (playAttempt !== playAttemptRef.current || urlIndex !== index) return;
+        tryUrl(index + 1);
+      }).then(() => {
+        if (playAttempt !== playAttemptRef.current || urlIndex !== index) return;
+        switchingUrl = false;
+        kickPlay();
+      }).catch(() => {
+        if (playAttempt !== playAttemptRef.current || urlIndex !== index) return;
+        switchingUrl = false;
+      });
     };
 
     media.onerror = () => {
@@ -791,13 +813,18 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
         return;
       }
 
-      playDebug(playbackStarted ? 'stream died after start — next gateway' : 'media.onerror', audioDebugSnapshot(media));
+      playDebug(playbackStarted ? 'stream died after start — next gateway' : 'media.onerror', {
+        mediaError: media.error ? { code: media.error.code, message: media.error.message } : null,
+        ...audioDebugSnapshot(media),
+      });
       playbackSpeedLog('media error — next URL', {
         afterStart: playbackStarted,
         failed: shortUrl(failedSrc),
         next: shortUrl(playbackUrls[urlIndex + 1]),
       });
-      rememberDeadGateway(rawAudioUrl, failedSrc);
+      if (!isHlsUrl(failedSrc) && !/stream\.mux\.com/i.test(failedSrc)) {
+        rememberDeadGateway(rawAudioUrl, failedSrc);
+      }
       playbackStarted = false;
 
       if (failedSrc === getRememberedMediaUrl(mediaKey, 'audio')) {
@@ -838,6 +865,10 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       // gateway and try the next instead of freezing on a still.
       if (playbackStarted && media.readyState <= 2 && media.currentTime < 8) {
         const failedSrc = media.currentSrc || media.src;
+        if (isHlsUrl(playbackUrls[urlIndex]) || isHlsUrl(failedSrc) || /stream\.mux\.com/i.test(failedSrc)) {
+          playDebug('early stall ignored for HLS');
+          return;
+        }
         playDebug('early stall after start — next gateway', { failedSrc });
         rememberDeadGateway(rawAudioUrl, failedSrc);
         forgetMediaUrl(mediaKey, 'audio');
@@ -871,7 +902,11 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       // Only remember a gateway after it has actually streamed, not on the first frame.
       if (!rememberedGateway && media.currentTime >= 5) {
         rememberedGateway = true;
-        rememberWorkingMediaUrl(mediaKey, 'audio', media.currentSrc || media.src);
+        const playingUrl = playbackUrls[urlIndex];
+        const toRemember = isHlsUrl(playingUrl) ? playingUrl : (media.currentSrc || media.src);
+        if (toRemember && !toRemember.startsWith('blob:')) {
+          rememberWorkingMediaUrl(mediaKey, 'audio', toRemember);
+        }
       }
 
       const knownDuration = Number.isFinite(media.duration) && media.duration > 0;

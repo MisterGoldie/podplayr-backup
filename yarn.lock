@@ -8852,6 +8852,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"hls.js@npm:^1.7.0":
+  version: 1.7.0
+  resolution: "hls.js@npm:1.7.0"
+  checksum: 10c0/c224397767705ebceb9cbdbeb9077b875be4e6634da988654a35705d1e2f2646a15096b776739215d0ad2556eafa42912b7f19d909a0007f3cd20edb5dead33b
+  languageName: node
+  linkType: hard
+
 "hmac-drbg@npm:^1.0.1":
   version: 1.0.1
   resolution: "hmac-drbg@npm:1.0.1"
@@ -11159,6 +11166,7 @@ __metadata:
     firebase: "npm:11.2.0"
     firebase-admin: "npm:^13.1.0"
     framer-motion: "npm:^12.4.7"
+    hls.js: "npm:^1.7.0"
     lodash: "npm:^4.17.21"
     next: "npm:15.5.23"
     next-auth: "npm:^4.24.11"

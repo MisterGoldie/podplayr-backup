@@ -51,7 +51,7 @@ const writeStore = (store: MemoryStore) => {
 
 /** Record that `url` successfully loaded for this piece of media. */
 export const rememberWorkingMediaUrl = (mediaKey: string, mediaType: MediaType, url: string): void => {
-  if (!mediaKey || !url) return;
+  if (!mediaKey || !url || url.startsWith('blob:')) return;
   const store = readStore();
   store[buildKey(mediaKey, mediaType)] = { url, ts: Date.now() };
   writeStore(store);
