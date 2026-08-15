@@ -5,12 +5,13 @@ import { logger } from '../utils/logger';
 import { NFTCard } from './nft/NFTCard';
 import { getMediaKey } from '../utils/media';
 import { usePagedItems } from '../hooks/usePagedItems';
+import { isRealFid } from '../utils/platform';
 
 // Create a dedicated logger for this component
 const recentlyPlayedLogger = logger.getModuleLogger('RecentlyPlayed');
 
 interface RecentlyPlayedProps {
-  userFid: number;
+  userFid?: number;
   onPlayNFT: (nft: NFT, context?: { queue?: NFT[], queueType?: string }) => void;
   recentlyAddedNFT?: React.MutableRefObject<string | null>;
   currentlyPlaying?: string | null;
@@ -31,15 +32,16 @@ const RecentlyPlayed: React.FC<RecentlyPlayedProps> = ({
   isNFTLiked,
   currentPlayingNFT
 }) => {
+  const persistHistory = isRealFid(userFid);
   const [firebaseRecentlyPlayed, setFirebaseRecentlyPlayed] = useState<NFT[]>([]);
   const [localRecentlyPlayed, setLocalRecentlyPlayed] = useState<NFT[]>([]);
   /** True until the first Firebase playHistory snapshot — don't paint stale local order. */
-  const [firebaseReady, setFirebaseReady] = useState(false);
+  const [firebaseReady, setFirebaseReady] = useState(!persistHistory);
   const unsubscribeRef = useRef<(() => void) | null>(null);
 
   // Warm local cache for optimistic prepends after Firebase hydrates — never for first paint.
   useEffect(() => {
-    if (!userFid) return;
+    if (!persistHistory || !userFid) return;
     try {
       const storedNFTs = localStorage.getItem(`recentlyPlayed_${userFid}`);
       if (storedNFTs) {
@@ -50,28 +52,28 @@ const RecentlyPlayed: React.FC<RecentlyPlayedProps> = ({
     } catch (error) {
       recentlyPlayedLogger.warn('⚠️ Error loading recently played from localStorage:', error);
     }
-  }, [userFid]);
+  }, [userFid, persistHistory]);
 
   const saveToLocalStorage = React.useCallback((items: NFT[]) => {
-    if (userFid && items.length > 0) {
-      try {
-        localStorage.setItem(`recentlyPlayed_${userFid}`, JSON.stringify(items));
-        recentlyPlayedLogger.debug(`💾 Saved ${items.length} local recently played NFTs to localStorage`);
-      } catch (error) {
-        recentlyPlayedLogger.warn('⚠️ Error saving recently played to localStorage:', error);
-      }
+    if (!persistHistory || !userFid || items.length === 0) return;
+    try {
+      localStorage.setItem(`recentlyPlayed_${userFid}`, JSON.stringify(items));
+      recentlyPlayedLogger.debug(`💾 Saved ${items.length} local recently played NFTs to localStorage`);
+    } catch (error) {
+      recentlyPlayedLogger.warn('⚠️ Error saving recently played to localStorage:', error);
     }
-  }, [userFid]);
+  }, [userFid, persistHistory]);
 
   // Set up Firebase subscription for recently played NFTs
   useEffect(() => {
-    setFirebaseReady(false);
-    setFirebaseRecentlyPlayed([]);
-
-    if (!userFid) {
-      // No FID yet — stay gated (parent should wait for isFidReady).
+    if (!persistHistory || !userFid) {
+      setFirebaseReady(true);
+      setFirebaseRecentlyPlayed([]);
       return;
     }
+
+    setFirebaseReady(false);
+    setFirebaseRecentlyPlayed([]);
 
     try {
       const unsubscribe = subscribeToRecentPlays(userFid, (nfts) => {
@@ -99,7 +101,7 @@ const RecentlyPlayed: React.FC<RecentlyPlayedProps> = ({
       recentlyPlayedLogger.error('Error setting up recently played subscription:', error);
       setFirebaseReady(true);
     }
-  }, [userFid]);
+  }, [userFid, persistHistory]);
   
   // Instant local prepend so the row updates the moment playback starts (after hydrate).
   useEffect(() => {
@@ -222,7 +224,9 @@ const RecentlyPlayed: React.FC<RecentlyPlayedProps> = ({
       <section className="w-full">
         <div className="container mx-auto px-4">
           <h2 className="text-lg font-semibold text-white/90 mb-1">Recently played</h2>
-          <p className="text-sm text-white/40">Play something and it will show up here.</p>
+          {!persistHistory ? (
+            <p className="text-sm text-white/40">Sign in on Farcaster or Base to keep this list after you leave.</p>
+          ) : null}
         </div>
       </section>
     );
@@ -263,7 +267,7 @@ const RecentlyPlayed: React.FC<RecentlyPlayedProps> = ({
                     currentlyPlaying={currentlyPlaying || null}
                     handlePlayPause={handlePlayPause || (() => {})}
                     onLikeToggle={onLikeToggle ? () => onLikeToggle(nft) : undefined}
-                    userFid={userFid.toString()}
+                    userFid={(userFid ?? 0).toString()}
                     isNFTLiked={isNFTLiked ? () => isNFTLiked(nft) : undefined}
                     animationDelay={0.2 + (index * 0.05)}
                     smallCard

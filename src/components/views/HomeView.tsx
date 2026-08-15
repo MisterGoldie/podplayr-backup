@@ -126,7 +126,7 @@ const HomeView: React.FC<HomeViewProps> = ({
               </div>
             </div>
           </section>
-        ) : fid ? (
+        ) : (
           <RecentlyPlayed
             userFid={fid}
             onPlayNFT={onPlayNFT}
@@ -138,13 +138,6 @@ const HomeView: React.FC<HomeViewProps> = ({
             currentPlayingNFT={currentPlayingNFT}
             recentlyAddedNFT={recentlyAddedNFT}
           />
-        ) : (
-          <section className="w-full">
-            <div className="container mx-auto px-4">
-              <h2 className="text-lg font-semibold text-white/90 mb-1">Recently played</h2>
-              <p className="text-sm text-white/40">Sign in to see your listening history.</p>
-            </div>
-          </section>
         )}
 
         {topPlayedLoading ? (
