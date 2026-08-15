@@ -108,7 +108,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({
   isNFTLiked: isNFTLikedProp,
   onUserProfileClick
 }) => {
-  const { walletAddress, fid: contextFid } = useContext(UserFidContext);
+  const { walletAddress, fid: contextFid, environment, isFidReady } = useContext(UserFidContext);
   const [likedNFTs, setLikedNFTs] = useState<NFT[]>([]);
   const toast = useToast();
   const [isLoading, setIsLoading] = useState(false);
@@ -192,16 +192,25 @@ const ProfileView: React.FC<ProfileViewProps> = ({
     [farcasterContext.user?.fid, contextFid]
   );
 
-  // Replace the NFT loading useEffect with cached version:
+  const canLoadCollection =
+    isFidReady &&
+    environment !== 'web' &&
+    isUserLoggedIn() &&
+    Boolean(userFid && userFid > 0);
+
   useEffect(() => {
     const loadNFTs = async () => {
-      if (!isUserLoggedIn()) {
-        console.log('🚫 No FID found in farcasterContext:', farcasterContext);
+      if (!isFidReady) return;
+
+      if (!canLoadCollection) {
+        setIsLoading(false);
+        setHasCompletedInitialLoad(true);
         return;
       }
       
       if (!userFid) {
-        console.log('🚫 FID is undefined even though user is logged in');
+        setIsLoading(false);
+        setHasCompletedInitialLoad(true);
         return;
       }
 
@@ -265,12 +274,12 @@ const ProfileView: React.FC<ProfileViewProps> = ({
 
     console.log('🎯 ProfileView useEffect triggered with FID:', userFid);
     loadNFTs();
-  }, [userFid]);
+  }, [userFid, isFidReady, canLoadCollection]);
 
   // Replace liked NFTs useEffect with cached version:
   useEffect(() => {
     const loadLikedNFTs = async () => {
-      if (!farcasterContext?.user?.fid || loadingLikedNFTs.current) return;
+      if (!canLoadCollection || !farcasterContext?.user?.fid || loadingLikedNFTs.current) return;
       
       const userFid = farcasterContext.user.fid;
       const cached = profileDataCache.get(userFid);
@@ -301,13 +310,13 @@ const ProfileView: React.FC<ProfileViewProps> = ({
     };
 
     loadLikedNFTs();
-  }, [farcasterContext?.user?.fid]);
+  }, [farcasterContext?.user?.fid, canLoadCollection]);
 
   // Replace follow counts useEffect with cached version:
   useEffect(() => {
     const fetchFollowCounts = async () => {
       const userFid = farcasterContext?.user?.fid;
-      if (!userFid || loadingFollowCounts.current) return;
+      if (!canLoadCollection || !userFid || loadingFollowCounts.current) return;
       
       const cached = profileDataCache.get(userFid);
       const now = Date.now();
@@ -342,9 +351,11 @@ const ProfileView: React.FC<ProfileViewProps> = ({
 
     fetchFollowCounts();
     
+    if (!canLoadCollection) return;
+
     const interval = setInterval(fetchFollowCounts, 10 * 60 * 1000);
     return () => clearInterval(interval);
-  }, [farcasterContext?.user?.fid]);
+  }, [farcasterContext?.user?.fid, canLoadCollection]);
 
   const handleBackgroundUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const input = e.target;
@@ -449,31 +460,35 @@ const ProfileView: React.FC<ProfileViewProps> = ({
             </div>
           )}
 
-          <input
-            type="file"
-            ref={fileInputRef}
-            className="hidden"
-            accept="image/*"
-            onChange={handleBackgroundUpload}
-          />
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className={`absolute bottom-4 right-4 z-10 px-3 py-2 rounded-full flex items-center gap-2 text-sm text-white border border-white/20 backdrop-blur-md touch-manipulation ${
-              isUploading ? 'bg-black/50 cursor-not-allowed' : 'bg-black/45 active:bg-black/70'
-            }`}
-            disabled={isUploading}
-            aria-label="Change background"
-          >
-            {isUploading ? (
-              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-            ) : (
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
-            )}
-            {backgroundImage ? 'Edit cover' : 'Add cover'}
-          </button>
+          {canLoadCollection ? (
+            <>
+              <input
+                type="file"
+                ref={fileInputRef}
+                className="hidden"
+                accept="image/*"
+                onChange={handleBackgroundUpload}
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className={`absolute bottom-4 right-4 z-10 px-3 py-2 rounded-full flex items-center gap-2 text-sm text-white border border-white/20 backdrop-blur-md touch-manipulation ${
+                  isUploading ? 'bg-black/50 cursor-not-allowed' : 'bg-black/45 active:bg-black/70'
+                }`}
+                disabled={isUploading}
+                aria-label="Change background"
+              >
+                {isUploading ? (
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                ) : (
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                )}
+                {backgroundImage ? 'Edit cover' : 'Add cover'}
+              </button>
+            </>
+          ) : null}
         </div>
 
         <div className="relative px-4 -mt-14 mb-8">
@@ -582,12 +597,10 @@ const ProfileView: React.FC<ProfileViewProps> = ({
         </div>
 
         <div className="container mx-auto px-4">
-          <h2 className="text-lg font-semibold text-white/90 mb-4">Your collection</h2>
-          {/* Enhanced loading state check - show loading state during any uncertainty */}
-          {(() => {
-            const shouldShowLoading = (isLoading || (filteredNFTs.length === 0 && !hasCompletedInitialLoad));
-            return shouldShowLoading;
-          })() ? (
+          {canLoadCollection ? (
+            <h2 className="text-lg font-semibold text-white/90 mb-4">Your collection</h2>
+          ) : null}
+          {canLoadCollection && (isLoading || !hasCompletedInitialLoad) ? (
             <div className="flex flex-col items-center justify-center py-16 space-y-6 -mt-6">
               <div className="relative">
                 <div className="w-16 h-16 border-4 border-purple-900/40 rounded-full"></div>
@@ -595,9 +608,9 @@ const ProfileView: React.FC<ProfileViewProps> = ({
               </div>
               <div className="text-lg text-purple-200">Loading your collection…</div>
             </div>
-          ) : !isUserLoggedIn() ? (
-            <div className="text-center py-12">
-              <p className="text-gray-400 text-lg">ONLY AVAILABLE AS A MINI-APP ON FARCASTER/THE BASE APP</p>
+          ) : environment === 'web' || !isUserLoggedIn() ? (
+            <div className="text-center py-16 px-6">
+              <p className="text-lg text-white mb-2">Only available as a mini-app on Farcaster / the Base App</p>
             </div>
           ) : combinedError ? (
             <div className="text-center py-12">
