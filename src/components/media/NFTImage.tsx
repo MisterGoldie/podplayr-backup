@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { processMediaUrl, IPFS_GATEWAYS, isAudioUrlUsedAsImage, getCleanIPFSUrl, processArweaveUrl, getMediaKey, buildArweaveImageFallbackUrls, buildIpfsFallbackUrls, buildHttpCdnImageFallbackUrls, extractIPFSPath, getNftMediaUrl, toIpfsGatewayUrl, clearNftMediaUrlCache, pickImageCandidates, shouldProbeIpfsDirectory } from '../../utils/media';
-import { getCardThumbUrl, getCardThumbAlternates, shouldPreserveAnimation, isBrowserFriendlyCdnUrl, isArweaveMediaUrl, isIpfsMediaUrl, isVideoMediaUrl } from '../../utils/imageOptimizer';
+import { getCardThumbUrl, getCardThumbAlternates, shouldPreserveAnimation, isBrowserFriendlyCdnUrl, isArweaveMediaUrl, isIpfsMediaUrl, isVideoMediaUrl, isLikelyTokenVideoCoverUrl, getVideoCoverStillUrl } from '../../utils/imageOptimizer';
 import Image from 'next/image';
 import type { SyntheticEvent } from 'react';
 import type { NFT } from '../../types/user';
@@ -292,8 +292,32 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       nftImgLog('display:preserve-animation', nft, { url: shortUrl(url) });
       return url;
     }
-    // MP4/WebM "covers" (Nifty Island, etc.) — never send through wsrv/Next Image.
-    if (isVideoMediaUrl(url)) {
+    // Card thumbs: never start with raw <video> (iOS blank first frame).
+    // Alchemy peer for video NFTs is usually the mp4 hash — use video/fetch still,
+    // NOT thumbnailv2 (400 on video hashes, Coinage Subscriber).
+    if (useCardThumb && (isVideoMediaUrl(url) || isLikelyTokenVideoCoverUrl(url))) {
+      const size = Math.max(width * 2, 360);
+      const alchemyPeer = [
+        nft?.audio,
+        nft?.metadata?.animation_url,
+        nft?.animationUrl,
+        nft?.videoUrl,
+        nft?.image,
+        nft?.metadata?.image,
+      ].find((u) => !!u && /nft2?-cdn\.alchemy\.com/i.test(u)) as string | undefined;
+      const still =
+        getVideoCoverStillUrl(alchemyPeer || '', size, { assumeVideo: true }) ||
+        getVideoCoverStillUrl(url, size) ||
+        getCardThumbUrl(url, size);
+      nftImgLog('display:card-video-still', nft, {
+        original: shortUrl(url),
+        alchemyPeer: shortUrl(alchemyPeer),
+        display: shortUrl(still),
+      });
+      return still;
+    }
+    // Detail / non-card: play MP4 covers natively (Nifty Island, etc.).
+    if (isVideoMediaUrl(url) || isLikelyTokenVideoCoverUrl(url)) {
       nftImgLog('display:direct-video-cover', nft, { url: shortUrl(url) });
       return url;
     }
@@ -808,9 +832,20 @@ export const NFTImage: React.FC<NFTImageProps> = ({
         attemptedFallbacks.current[`${imgSrc}-hang`] = true;
         const hungIsVideo =
           /video\/fetch/i.test(imgSrc) ||
-          /video\/fetch/i.test(originalUrlRef.current);
+          /video\/fetch/i.test(originalUrlRef.current) ||
+          isLikelyTokenVideoCoverUrl(originalUrlRef.current) ||
+          isVideoMediaUrl(originalUrlRef.current);
+        const alchemyCdnPeer = [
+          nft?.audio,
+          nft?.metadata?.animation_url,
+          nft?.animationUrl,
+          nft?.videoUrl,
+          nft?.image,
+          nft?.metadata?.image,
+        ].find((u) => !!u && /nft2?-cdn\.alchemy\.com/i.test(u)) as string | undefined;
         const alt = getCardThumbAlternates(originalUrlRef.current, size, {
           includeVideoStill: hungIsVideo,
+          alchemyCdnPeer,
         }).find(
           (u) => u !== imgSrc && !attemptedFallbacks.current[`${u}-hang`]
         );
@@ -938,9 +973,24 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       if (useCardThumb) {
         const size = Math.max(width * 2, 360);
         attemptedFallbacks.current[`${failedSrc}-card`] = true;
-        // Hard fail: try video still (Squig Dao / SCAN ME / Neybors need it).
-        const nextAlt = getCardThumbAlternates(originalUrlRef.current, size, {
-          includeVideoStill: true,
+        const alchemyCdnPeer = [
+          nft?.audio,
+          nft?.metadata?.animation_url,
+          nft?.animationUrl,
+          nft?.videoUrl,
+          nft?.image,
+          nft?.metadata?.image,
+        ].find((u) => !!u && /nft2?-cdn\.alchemy\.com/i.test(u)) as string | undefined;
+        const orig = originalUrlRef.current;
+        const nextAlt = getCardThumbAlternates(orig, size, {
+          // video/fetch only when origin is a video cover, already on video/fetch,
+          // or Alchemy CDN (thumbnailv2 can 400 on video hashes like Neybors).
+          includeVideoStill:
+            isLikelyTokenVideoCoverUrl(orig) ||
+            isVideoMediaUrl(orig) ||
+            /video\/fetch/i.test(failedSrc) ||
+            /nft2?-cdn\.alchemy\.com/i.test(orig),
+          alchemyCdnPeer,
         }).find(
           (u) => u !== failedSrc && !attemptedFallbacks.current[`${u}-card`]
         );
@@ -951,6 +1001,20 @@ export const NFTImage: React.FC<NFTImageProps> = ({
             next: shortUrl(nextAlt),
           });
           setImgSrc(nextAlt);
+          setError(false);
+          setIsLoadingFallback(false);
+          return;
+        }
+        // Stills exhausted — native <video> cover (desktop paints; iOS may still blank).
+        if (
+          orig &&
+          (isLikelyTokenVideoCoverUrl(orig) || isVideoMediaUrl(orig)) &&
+          !attemptedFallbacks.current[`${orig}-native-video`]
+        ) {
+          attemptedFallbacks.current[`${orig}-native-video`] = true;
+          nftImgLog('retry:card-thumb → native-video', nft, { next: shortUrl(orig) });
+          setIsVideo(true);
+          setImgSrc(orig);
           setError(false);
           setIsLoadingFallback(false);
           return;
@@ -1465,12 +1529,19 @@ export const NFTImage: React.FC<NFTImageProps> = ({
   // Check if this is an Arweave URL using proper validation
   const isArweave = isArweaveUrl(finalSrc);
   const isAnimated = shouldPreserveAnimation(finalSrc) || shouldPreserveAnimation(src);
+  // Only treat as <video> when the *display* URL is still a video file.
+  // Cards rewrite SeaDN/Nifty mp4 → Alchemy PNG still; don't keep isVideo/src forcing <video>
+  // (iOS leaves preload=metadata blank — Coinage Subscriber, etc.).
   const isVideoCover =
-    isVideo ||
-    isVideoMediaUrl(finalSrc) ||
-    isVideoMediaUrl(src) ||
-    alchemyCdnAsVideoCover.has(finalSrc) ||
-    alchemyCdnAsVideoCover.has(originalUrlRef.current || '');
+    !error &&
+    !isLoadingFallback &&
+    (isVideoMediaUrl(finalSrc) ||
+      isLikelyTokenVideoCoverUrl(finalSrc) ||
+      alchemyCdnAsVideoCover.has(finalSrc) ||
+      (!useCardThumb &&
+        (isVideo ||
+          isVideoMediaUrl(src) ||
+          alchemyCdnAsVideoCover.has(originalUrlRef.current || ''))));
   const useNativeImg =
     isArweave ||
     isAnimated ||
