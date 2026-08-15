@@ -111,21 +111,23 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
     async function initializeEnvironmentContext() {
       try {
         const applyMiniKitUser = () => {
-          const miniFid = miniKitContext?.user?.fid;
-          if (!isRealFid(miniFid)) return;
+          const miniUser = miniKitContext?.user;
+          const miniFid = miniUser?.fid;
+          if (!miniUser || !isRealFid(miniFid)) return;
           setFid(miniFid);
           setUserContext({
             fid: miniFid,
-            username: miniKitContext.user.username,
-            displayName: miniKitContext.user.displayName,
-            pfp: miniKitContext.user.pfpUrl,
-            bio: (miniKitContext.user as any).bio,
+            username: miniUser.username,
+            displayName: miniUser.displayName,
+            pfp: miniUser.pfpUrl,
+            bio: (miniUser as any).bio,
           });
-          if (miniKitContext.client) {
+          const miniClient = miniKitContext?.client;
+          if (miniClient) {
             setClientContext({
-              clientFid: miniKitContext.client.clientFid || miniFid,
-              added: miniKitContext.client.added || false,
-              safeAreaInsets: miniKitContext.client.safeAreaInsets,
+              clientFid: miniClient.clientFid || miniFid,
+              added: miniClient.added || false,
+              safeAreaInsets: miniClient.safeAreaInsets,
             });
           }
         };
@@ -157,16 +159,17 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
           console.log('🚨 App is RUNNING in Farcaster mini-app');
           console.log('🔍 FULL FARCASTER CONTEXT:', context);
 
-          if (isRealFid(context?.user?.fid)) {
-            setFid(context.user.fid);
-            const sdkUser = context.user as any;
+          const sdkUser = context?.user;
+          if (context && sdkUser && isRealFid(sdkUser.fid)) {
+            setFid(sdkUser.fid);
+            const user = sdkUser as any;
             setUserContext({
               fid: sdkUser.fid,
-              username: sdkUser.username,
-              displayName: sdkUser.displayName,
-              pfp: sdkUser.pfpUrl,
-              bio: sdkUser.bio,
-              location: sdkUser.location
+              username: user.username,
+              displayName: user.displayName,
+              pfp: user.pfpUrl,
+              bio: user.bio,
+              location: user.location
             });
 
             if (context.client) {

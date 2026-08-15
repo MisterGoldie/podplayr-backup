@@ -46,7 +46,7 @@ export function isWarpcastClientFid(clientFid?: number | null): boolean {
 }
 
 /** MiniKit/Farcaster inject fid -1 in a regular browser tab. */
-export function isRealFid(fid?: number | null): boolean {
+export function isRealFid(fid?: number | null): fid is number {
   return typeof fid === 'number' && fid > 0;
 }
 

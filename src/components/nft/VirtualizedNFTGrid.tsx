@@ -45,7 +45,7 @@ export const VirtualizedNFTGrid: React.FC<VirtualizedNFTGridProps> = ({
     return isNFTLiked(nftToCheck, true);
   }, [isNFTLiked]);
 
-  const handlePlay = useCallback((played: NFT) => {
+  const handlePlay = useCallback(async (played: NFT) => {
     onPlayNFT(played);
   }, [onPlayNFT]);
 

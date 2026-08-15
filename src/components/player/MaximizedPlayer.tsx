@@ -628,7 +628,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
               {canLike && (
                 <button
                   type="button"
-                  onClick={() => onLikeToggle(nft)}
+                  onClick={() => onLikeToggle?.(nft)}
                   className={`${iconButtonClass} ${isLiked ? 'text-red-500' : ''}`}
                   aria-label={isLiked ? 'Unlike' : 'Like'}
                 >
