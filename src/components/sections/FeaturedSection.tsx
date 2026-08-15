@@ -26,6 +26,25 @@ export const FEATURED_NFTS: NFT[] = [
     }
   },
   {
+    name: 'Seasoning with Sazón - COD Zombies Terminus EP1',
+    image: 'https://arweave.net/HvZ4oE2mDf6G1o1rX9Y_lkqegYA_0ZsRyY1JxQpL2v0',
+    contract: '0x27430c3ef4b04f7d223df7f280ae8fc0b3a407b7',
+    tokenId: '50dc9fb449e0',
+    network: 'base',
+    audio: 'https://arweave.net/noYvGupxQyo2P7C2GMNNUseml29HEN6HLyvXOBD7jYQ',
+    isVideo: true,
+    playbackMode: 'video-with-audio',
+    metadata: {
+      animation_url: 'https://arweave.net/noYvGupxQyo2P7C2GMNNUseml29HEN6HLyvXOBD7jYQ',
+      mimeType: 'video/mp4',
+      description: 'Seasoning with Sazón, Call of Duty Black Ops 6 - Zombies - Terminus Episode 1 of 5 | @themrsazon',
+      attributes: [
+        {"trait_type":"Game","value":"Call of Duty Black Ops 6"},
+        {"trait_type":"Map","value":"Terminus"}
+      ]
+    }
+  },
+  {
     name: 'ACYL RADIO - Topia Hour',
     image: 'https://arweave.net/rGhe8lAX2D9hrbOKeoozySiZvVsSnJqblZ7ofZ2ADnY',
     contract: '0xA59Fa4555264B256fD43cd51B5794348F859dA51',

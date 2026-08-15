@@ -71,6 +71,11 @@ const PLAYBACK_OVERRIDES: Record<string, { mobile: string; desktop?: string }> =
     mobile: muxHls('fUxKFIvWyFTKKjrdLnGMQYUGbL01SIkjsIdI02pJi3bW8'),
     desktop: muxHls('fUxKFIvWyFTKKjrdLnGMQYUGbL01SIkjsIdI02pJi3bW8'),
   },
+  // Seasoning with Sazón - COD Zombies Terminus EP1
+  noYvGupxQyo2P7C2GMNNUseml29HEN6HLyvXOBD7jYQ: {
+    mobile: muxHls('oTt2eSe8ONvIQ5U9iJ013kRyYWj2LRU2fxSLMuhm3tC00'),
+    desktop: muxHls('oTt2eSe8ONvIQ5U9iJ013kRyYWj2LRU2fxSLMuhm3tC00'),
+  },
 };
 
 export function mediaAssetIdFromUrl(url: string): string | null {
