@@ -68,7 +68,7 @@ const App: React.FC = () => {
   return (
     <FirebaseProvider>
       {/* Remove PlayerProvider from here since it's already in providers.tsx */}
-      <main className="min-h-screen flex flex-col">
+      <main className="flex flex-col">
         <Demo />
       </main>
     </FirebaseProvider>

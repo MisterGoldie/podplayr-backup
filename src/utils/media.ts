@@ -1050,7 +1050,7 @@ export const PLAYBACK_VIDEO_CLASSNAME =
 
 /** Keep the element in the compositor without using display:none.
  *  WebKit scroll-into-view on a hidden playing <video> breaks nested page scroll. */
-function parkPlaybackVideo(video: HTMLVideoElement) {
+export function parkPlaybackVideo(video: HTMLVideoElement) {
   video.style.cssText =
     'position:fixed;left:0;bottom:5rem;width:1px;height:1px;opacity:0;pointer-events:none;overflow:hidden;z-index:-1;border:0;';
 }

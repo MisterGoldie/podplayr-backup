@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect, useLayoutEffect, useCallback } from 'react';
 import { NFTImage } from '../media/NFTImage';
-import { processMediaUrl, getMediaKey, formatTime, safeProgressPercent, getDisplayTimes, rewriteLegacyOpenSeaMediaUrl, adoptPlaybackVideoElement } from '../../utils/media';
+import { processMediaUrl, getMediaKey, formatTime, safeProgressPercent, getDisplayTimes, rewriteLegacyOpenSeaMediaUrl, adoptPlaybackVideoElement, parkPlaybackVideo, applyPlaybackVideoPresentation } from '../../utils/media';
 import { applyPlaybackPlanToNft, getNftPlaybackPlan } from '../../utils/isMediaNFT';
 import type { NFT } from '../../types/user';
 import { logger } from '../../utils/logger';
@@ -369,6 +369,11 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
     video.setAttribute('playsinline', 'true');
     video.setAttribute('webkit-playsinline', 'true');
     video.playsInline = true;
+    if (isMinimized) {
+      parkPlaybackVideo(video);
+    } else {
+      applyPlaybackVideoPresentation(video);
+    }
 
     const videoIsClock = playbackPlan.mode === 'video-with-audio' && !playbackPlan.muteVideo;
     const onLoadedMetadata = () => {
@@ -414,7 +419,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
       video.removeEventListener('loadedmetadata', onLoadedMetadata);
       video.removeEventListener('error', onError);
     };
-  }, [rawVideoSrc, nft, playbackPlan, nft.contract, nft.tokenId, nft.network]);
+  }, [rawVideoSrc, nft, playbackPlan, nft.contract, nft.tokenId, nft.network, isMinimized]);
 
   const handleMinimizeToggle = () => {
     onMinimizeToggle();
