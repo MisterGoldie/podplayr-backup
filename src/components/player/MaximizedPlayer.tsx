@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { NFTImage } from '../media/NFTImage';
-import { processMediaUrl, getMediaKey, formatTime, safeProgressPercent, getDisplayTimes } from '../../utils/media';
+import { processMediaUrl, getMediaKey, formatTime, safeProgressPercent, getDisplayTimes, rewriteLegacyOpenSeaMediaUrl } from '../../utils/media';
 import { applyPlaybackPlanToNft, getNftPlaybackPlan } from '../../utils/isMediaNFT';
 import type { NFT } from '../../types/user';
 import { logger } from '../../utils/logger';
@@ -74,7 +74,9 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
   const progressBarRef = useRef<HTMLDivElement>(null);
   const [pipActive, setPipActive] = useState(false);
   const [resolvedImageUrl, setResolvedImageUrl] = useState(() =>
-    nft.image ? processMediaUrl(nft.image, '', 'image') : ''
+    nft.image
+      ? processMediaUrl(rewriteLegacyOpenSeaMediaUrl(nft.image, nft.contract, nft.network), '', 'image')
+      : ''
   );
   const [videoLayerFailed, setVideoLayerFailed] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
@@ -116,8 +118,12 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
   }, [nft.contract, nft.tokenId, nft.audio, nft.videoUrl, nft.isVideo, nft.playbackMode, nft.metadata?.animation_url]);
 
   useEffect(() => {
-    setResolvedImageUrl(nft.image ? processMediaUrl(nft.image, '', 'image') : '');
-  }, [nft.contract, nft.tokenId, nft.image]);
+    setResolvedImageUrl(
+      nft.image
+        ? processMediaUrl(rewriteLegacyOpenSeaMediaUrl(nft.image, nft.contract, nft.network), '', 'image')
+        : ''
+    );
+  }, [nft.contract, nft.tokenId, nft.image, nft.network]);
   
   // Auto-hide controls after inactivity
   useEffect(() => {
@@ -328,7 +334,11 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
     const rawVideo = rawVideoSrc || '';
     if (!rawVideo) return null;
 
-    const videoUrl = processMediaUrl(rawVideo, '', 'audio');
+    const videoUrl = processMediaUrl(
+      rewriteLegacyOpenSeaMediaUrl(rawVideo, nft.contract, nft.network),
+      '',
+      'audio'
+    );
     const currentMediaKey = getMediaKey(nft);
     const videoIsClock = playbackPlan.mode === 'video-with-audio' && !playbackPlan.muteVideo;
 

@@ -1,15 +1,32 @@
 import { useState, useEffect, useRef } from 'react';
-import { processMediaUrl, IPFS_GATEWAYS, isAudioUrlUsedAsImage, getCleanIPFSUrl, processArweaveUrl, getMediaKey, buildArweaveMediaFallbackUrls, buildIpfsFallbackUrls, extractIPFSPath, getNftMediaUrl } from '../../utils/media';
-import { getResizedImageUrl, shouldPreserveAnimation } from '../../utils/imageOptimizer';
+import { processMediaUrl, IPFS_GATEWAYS, isAudioUrlUsedAsImage, getCleanIPFSUrl, processArweaveUrl, getMediaKey, buildArweaveImageFallbackUrls, buildIpfsFallbackUrls, buildHttpCdnImageFallbackUrls, extractIPFSPath, getNftMediaUrl, toIpfsGatewayUrl, clearNftMediaUrlCache, pickImageCandidates, shouldProbeIpfsDirectory } from '../../utils/media';
+import { getResizedImageUrl, shouldPreserveAnimation, isBrowserFriendlyCdnUrl, isArweaveMediaUrl, isIpfsMediaUrl } from '../../utils/imageOptimizer';
 import Image from 'next/image';
 import type { SyntheticEvent } from 'react';
 import type { NFT } from '../../types/user';
-import { logger } from '../../utils/logger';
 import { markNftMediaDead } from '../../utils/deadNftRegistry';
 import { rememberWorkingMediaUrl, forgetMediaUrl, getRememberedMediaUrl } from '../../utils/gatewayMemory';
+import { enrichNftMediaFromChain, nftNeedsChainMediaEnrich } from '../../lib/nft';
 
-// Create a dedicated logger for NFT images
-const imageLogger = logger.getModuleLogger('nftImage');
+const IMG_LOG = true; // flip off when done debugging broken NFT thumbs
+
+const shortUrl = (url?: string | null, max = 120): string => {
+  if (!url) return '(empty)';
+  return url.length <= max ? url : `${url.slice(0, max)}…`;
+};
+
+const nftImgLog = (
+  stage: string,
+  nft: NFT | undefined,
+  details: Record<string, unknown> = {}
+) => {
+  if (!IMG_LOG) return;
+  console.log(`[NFT-IMG] ${stage}`, {
+    name: nft?.name || '(no nft)',
+    id: nft ? `${nft.contract?.slice(0, 10)}…/${nft.tokenId}` : undefined,
+    ...details,
+  });
+};
 
 interface NFTImageProps {
   src: string;
@@ -53,7 +70,7 @@ const isArweaveUrl = (url: string): boolean => {
   } catch (error) {
     // Only log for non-default images to reduce console spam
     if (!url.includes('default-nft.png')) {
-      imageLogger.warn('Invalid URL in Arweave check', { url });
+      console.warn('[NFT-IMG] Invalid URL in Arweave check', shortUrl(url));
     }
     return false;
   }
@@ -96,7 +113,7 @@ const isIpfsUrl = (url: string): boolean => {
   } catch (error) {
     // Only log for non-default images to reduce console spam
     if (!url.includes('default-nft.png') && !url.startsWith('/')) {
-      imageLogger.warn('Invalid URL in IPFS check', { url });
+      console.warn('[NFT-IMG] Invalid URL in IPFS check', shortUrl(url));
     }
     return false;
   }
@@ -109,19 +126,19 @@ const getNextIPFSUrl = (url: string, currentIndex: number): { url: string; nextI
   url = getCleanIPFSUrl(url);
 
   if (currentIndex >= IPFS_GATEWAYS.length - 1) {
-    imageLogger.warn('All IPFS gateways have been tried', { url });
+    console.warn('[NFT-IMG] All IPFS gateways exhausted', shortUrl(url));
     return null;
   }
 
   const path = extractIPFSPath(url);
   if (!path) {
-    imageLogger.warn('Could not extract IPFS path from URL', { url });
+    console.warn('[NFT-IMG] Could not extract IPFS path', shortUrl(url));
     return null;
   }
 
   const nextIndex = currentIndex + 1;
   return {
-    url: `${IPFS_GATEWAYS[nextIndex]}${path}`,
+    url: toIpfsGatewayUrl(path, IPFS_GATEWAYS[nextIndex]),
     nextIndex
   };
 };
@@ -237,6 +254,14 @@ export const NFTImage: React.FC<NFTImageProps> = ({
   const arweaveFallbackIndex = useRef(0);
   const ipfsFallbackUrls = useRef<string[]>([]);
   const ipfsFallbackIndex = useRef(0);
+  const httpCdnFallbackUrls = useRef<string[]>([]);
+  const httpCdnFallbackIndex = useRef(0);
+  const imageCandidates = useRef<string[]>([]);
+  const imageCandidateIndex = useRef(0);
+  /** Last URL that decoded with naturalWidth>0 — avoid hang-timer thrash on re-resolve. */
+  const loadedOkSrcRef = useRef<string | null>(null);
+  const attemptedFallbacks = useRef<Record<string, boolean>>({});
+  const alchemyEnrichAttemptedRef = useRef(false);
   const nftContract = nft?.contract;
   const nftTokenId = nft?.tokenId;
   const nftImage = nft?.image;
@@ -250,37 +275,137 @@ export const NFTImage: React.FC<NFTImageProps> = ({
     }
     // Never send GIFs through the static WebP proxy — it freezes animation
     // and large Pinata GIFs often never finish loading.
-    if (shouldPreserveAnimation(url)) {
+    // Check prop/nft sources too: turbo /raw/ rewrites strip the .gif extension.
+    if (
+      shouldPreserveAnimation(url) ||
+      shouldPreserveAnimation(src) ||
+      shouldPreserveAnimation(nft?.image || '') ||
+      shouldPreserveAnimation(nft?.metadata?.image || '')
+    ) {
+      nftImgLog('display:preserve-animation', nft, { url: shortUrl(url) });
       return url;
     }
-    return useCardThumb ? getResizedImageUrl(url, Math.max(width * 2, 360)) : url;
+    if (isBrowserFriendlyCdnUrl(url)) {
+      nftImgLog('display:direct-cdn', nft, { url: shortUrl(url) });
+      return url;
+    }
+    if (isArweaveMediaUrl(url)) {
+      nftImgLog('display:direct-arweave', nft, { url: shortUrl(url) });
+      return url;
+    }
+    if (isIpfsMediaUrl(url)) {
+      nftImgLog('display:direct-ipfs', nft, { url: shortUrl(url) });
+      return url;
+    }
+    if (useCardThumb) {
+      const proxied = getResizedImageUrl(url, Math.max(width * 2, 360));
+      nftImgLog('display:card-thumb', nft, {
+        original: shortUrl(url),
+        display: shortUrl(proxied),
+        proxied: proxied !== url,
+      });
+      return proxied;
+    }
+    nftImgLog('display:full-size', nft, { url: shortUrl(url) });
+    return url;
   };
   
   useEffect(() => {
     // Reset states when src changes, but only if src is valid
     const isValidSrc = src && src !== '' && src !== 'undefined' && src !== 'null';
-    arweaveFallbackUrls.current = [];
-    arweaveFallbackIndex.current = 0;
-    ipfsFallbackUrls.current = [];
-    ipfsFallbackIndex.current = 0;
+
+    // Resolve the URL we would display *before* resetting loading — if it already
+    // decoded successfully, a re-resolve (e.g. metadataImage filling in) must NOT
+    // set imgLoading=true. Same src won't re-fire onLoad → false arweave hang hops.
+    let nextDisplayUrl = '';
+    if (isValidSrc && nft) {
+      nextDisplayUrl = toDisplaySrc(getNftMediaUrl(nft, 'image'));
+    } else if (isValidSrc) {
+      nextDisplayUrl = toDisplaySrc(processMediaUrl(src, fallbackSrc, 'image'));
+    }
+
+    const alreadyLoaded =
+      !!nextDisplayUrl &&
+      !!loadedOkSrcRef.current &&
+      (loadedOkSrcRef.current === nextDisplayUrl ||
+        loadedOkSrcRef.current === originalUrlRef.current ||
+        loadedOkSrcRef.current.replace(/\/+$/, '') === nextDisplayUrl.replace(/\/+$/, ''));
+
+    if (!alreadyLoaded) {
+      arweaveFallbackUrls.current = [];
+      arweaveFallbackIndex.current = 0;
+      ipfsFallbackUrls.current = [];
+      ipfsFallbackIndex.current = 0;
+      httpCdnFallbackUrls.current = [];
+      httpCdnFallbackIndex.current = 0;
+      attemptedFallbacks.current = {};
+      loadedOkSrcRef.current = null;
+      alchemyEnrichAttemptedRef.current = false;
+    }
+
+    imageCandidates.current = nft ? pickImageCandidates(nft) : [];
+    imageCandidateIndex.current = 0;
+
+    nftImgLog('resolve:start', nft, {
+      propSrc: shortUrl(src),
+      nftImage: shortUrl(nft?.image),
+      metadataImage: shortUrl(nft?.metadata?.image),
+      imageCandidates: imageCandidates.current.map((u) => shortUrl(u)),
+      remembered: nft ? shortUrl(getRememberedMediaUrl(getMediaKey(nft), 'image')) : undefined,
+      alreadyLoaded,
+      width,
+      height,
+      useCardThumb,
+    });
     
     if (isValidSrc) {
       // Check if we've already processed this URL
       const cacheKey = nft ? `${nft.contract}-${nft.tokenId}` : src;
-      
-      if (processedUrlCache.current[cacheKey]) {
-        setImgSrc(toDisplaySrc(processedUrlCache.current[cacheKey]));
+      const cached = processedUrlCache.current[cacheKey];
+      const alchemySrc =
+        (src && /nft2?-cdn\.alchemy\.com/i.test(src) && src) ||
+        (nft?.image && /nft2?-cdn\.alchemy\.com/i.test(nft.image) && nft.image) ||
+        '';
+      // Don't stick to a dead IPFS cache hit after Alchemy enrich.
+      if (
+        cached &&
+        alchemySrc &&
+        extractIPFSPath(cached) &&
+        !extractIPFSPath(alchemySrc)
+      ) {
+        delete processedUrlCache.current[cacheKey];
+        clearNftMediaUrlCache(nft, 'image');
+      }
+
+      if (processedUrlCache.current[cacheKey] && !alchemySrc) {
+        const hit = processedUrlCache.current[cacheKey];
+        nftImgLog('resolve:component-cache-hit', nft, { cached: shortUrl(hit) });
+        setImgSrc(toDisplaySrc(hit));
+      } else if (alchemySrc) {
+        processedUrlCache.current[cacheKey] = alchemySrc;
+        clearNftMediaUrlCache(nft, 'image');
+        nftImgLog('resolve:alchemy-cdn', nft, { mediaUrl: shortUrl(alchemySrc) });
+        setImgSrc(toDisplaySrc(alchemySrc));
+      } else if (processedUrlCache.current[cacheKey]) {
+        const hit = processedUrlCache.current[cacheKey];
+        nftImgLog('resolve:component-cache-hit', nft, { cached: shortUrl(hit) });
+        setImgSrc(toDisplaySrc(hit));
       } else {
         // Use a consistent approach for all URL types
         if (nft) {
           const mediaUrl = getNftMediaUrl(nft, 'image');
           processedUrlCache.current[cacheKey] = mediaUrl;
+          nftImgLog('resolve:getNftMediaUrl', nft, { mediaUrl: shortUrl(mediaUrl) });
           setImgSrc(toDisplaySrc(mediaUrl));
         } else {
           // Process the URL to handle all special protocols (ar://, ipfs://, etc.)
           // using our improved processMediaUrl function
           const processedSrc = processMediaUrl(src, fallbackSrc, 'image');
           processedUrlCache.current[cacheKey] = processedSrc;
+          nftImgLog('resolve:processMediaUrl', undefined, {
+            src: shortUrl(src),
+            processed: shortUrl(processedSrc),
+          });
           setImgSrc(toDisplaySrc(processedSrc));
         }
       }
@@ -289,9 +414,10 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       setRetryCount(0);
       setCurrentGatewayIndex(0);
       setIsLoadingFallback(false);
-      setImgLoading(true);
+      setImgLoading(!alreadyLoaded);
     } else {
       // Invalid source, use fallback immediately
+      nftImgLog('resolve:invalid-src → default', nft, { propSrc: shortUrl(src) });
       setImgSrc(fallbackSrc);
       setError(true);
       setIsLoadingFallback(true);
@@ -315,19 +441,26 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       
       // Check if image URL matches any audio URL
       if (nft && isAudioUrlUsedAsImage(nft, thumbnailUrl)) {
-        imageLogger.warn('NFT using audio URL as image, using fallback:', {
-          contract: nft.contract,
-          tokenId: nft.tokenId
+        nftImgLog('resolve:BLOCKED audio-url-as-image', nft, {
+          thumbnailUrl: shortUrl(thumbnailUrl),
+          audio: shortUrl(nft.audio),
+          animation_url: shortUrl(nft.metadata?.animation_url),
         });
         setImgSrc(fallbackSrc);
         return;
       }
       
       if (nft) {
-        setImgSrc(toDisplaySrc(getNftMediaUrl(nft, 'image')));
+        const mediaUrl = getNftMediaUrl(nft, 'image');
+        nftImgLog('resolve:thumbnail-path', nft, {
+          thumbnailUrl: shortUrl(thumbnailUrl),
+          mediaUrl: shortUrl(mediaUrl),
+        });
+        setImgSrc(toDisplaySrc(mediaUrl));
       } else {
         setImgSrc(toDisplaySrc(processMediaUrl(thumbnailUrl, fallbackSrc, 'image')));
       }
+      if (alreadyLoaded) setImgLoading(false);
       return;
     }
 
@@ -337,9 +470,9 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       if (nft && isAudioUrlUsedAsImage(nft, src)) {
         setIsVideo(false);
         setImgSrc(fallbackSrc);
-        imageLogger.warn('NFT using audio URL as image, using fallback:', {
-          contract: nft.contract,
-          tokenId: nft.tokenId
+        nftImgLog('resolve:BLOCKED audio-url-as-image (src)', nft, {
+          src: shortUrl(src),
+          audio: shortUrl(nft.audio),
         });
         return;
       }
@@ -355,35 +488,118 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       } else {
         setImgSrc(toDisplaySrc(processMediaUrl(src, fallbackSrc, 'image')));
       }
+      if (alreadyLoaded) setImgLoading(false);
     }
     // Fallback
     else {
       setIsVideo(false);
+      nftImgLog('resolve:no-image → default', nft);
       setImgSrc(fallbackSrc);
     }
   }, [src, nftContract, nftTokenId, nftImage, nftMetadataImage, width, height]);
 
-  // If the thumb proxy hangs (common for large GIFs / slow Arweave), show the original.
+  // If the thumb proxy hangs, fall back. Arweave gets a long window — large
+  // PNGs (e.g. 7MB) need more than a few seconds and must not thrash gateways.
   useEffect(() => {
     const isProxy =
       imgSrc.includes('wsrv.nl') ||
       imgSrc.includes('images.weserv.nl') ||
       imgSrc.includes('img-width=');
-    if (!imgLoading || !isProxy || !originalUrlRef.current || originalUrlRef.current === imgSrc) {
+    const isArweaveHangCandidate =
+      isArweaveMediaUrl(imgSrc) || isArweaveUrl(imgSrc) || isArweaveUrl(src);
+    if (
+      !imgLoading ||
+      (!isProxy && !isArweaveHangCandidate) ||
+      !originalUrlRef.current
+    ) {
       return;
     }
+    // Proxy: 3s. Arweave: 20s (multi-MB images). Cap arweave hang hops at 3.
+    const waitMs = isProxy ? 3000 : 20000;
     const timeout = window.setTimeout(() => {
-      setImgSrc(originalUrlRef.current);
+      // Re-resolve often sets imgLoading=true for the same URL; onLoad won't
+      // re-fire, so this timer must not thrash a URL that already decoded.
+      if (
+        loadedOkSrcRef.current &&
+        (loadedOkSrcRef.current === imgSrc ||
+          loadedOkSrcRef.current === originalUrlRef.current ||
+          loadedOkSrcRef.current.replace(/\/+$/, '') === (imgSrc || '').replace(/\/+$/, ''))
+      ) {
+        nftImgLog('timeout:hang — ignore, already decoded', nft, {
+          hung: shortUrl(imgSrc),
+          loadedOk: shortUrl(loadedOkSrcRef.current),
+        });
+        setImgLoading(false);
+        return;
+      }
+
+      if (nft) {
+        const key = getMediaKey(nft);
+        forgetMediaUrl(key, 'image');
+        clearNftMediaUrlCache(nft, 'image');
+        delete processedUrlCache.current[`${nft.contract}-${nft.tokenId}`];
+      }
+
+      const raw = nft?.image || nft?.metadata?.image || src;
+      const fresh = nft
+        ? getNftMediaUrl(nft, 'image')
+        : processMediaUrl(raw, fallbackSrc, 'image');
+
+      let next = fresh && fresh !== imgSrc ? fresh : originalUrlRef.current;
+      if (isArweaveUrl(raw) || isArweaveMediaUrl(raw) || isArweaveMediaUrl(imgSrc)) {
+        if (arweaveFallbackUrls.current.length === 0) {
+          arweaveFallbackUrls.current = buildArweaveImageFallbackUrls(raw || next).slice(0, 3);
+          arweaveFallbackIndex.current = 0;
+        }
+        while (
+          arweaveFallbackIndex.current < arweaveFallbackUrls.current.length &&
+          (arweaveFallbackUrls.current[arweaveFallbackIndex.current] === imgSrc ||
+            arweaveFallbackUrls.current[arweaveFallbackIndex.current] ===
+              originalUrlRef.current ||
+            attemptedFallbacks.current[
+              `${arweaveFallbackUrls.current[arweaveFallbackIndex.current]}-hang`
+            ])
+        ) {
+          arweaveFallbackIndex.current += 1;
+        }
+        if (arweaveFallbackIndex.current < arweaveFallbackUrls.current.length) {
+          next = arweaveFallbackUrls.current[arweaveFallbackIndex.current];
+          attemptedFallbacks.current[`${next}-hang`] = true;
+          arweaveFallbackIndex.current += 1;
+        } else {
+          // Exhausted short list — keep waiting on current URL rather than
+          // marking a valid large image dead.
+          nftImgLog('timeout:arweave-hang — keeping current (no more hops)', nft, {
+            hung: shortUrl(imgSrc),
+          });
+          setImgLoading(false);
+          return;
+        }
+      } else if (isProxy && originalUrlRef.current && originalUrlRef.current !== imgSrc) {
+        next = originalUrlRef.current;
+      }
+
+      if (!next || next === imgSrc) {
+        nftImgLog('timeout:hang — no alternate URL', nft, {
+          hung: shortUrl(imgSrc),
+        });
+        return;
+      }
+
+      nftImgLog(isProxy ? 'timeout:proxy-hang → fallback' : 'timeout:arweave-hang → fallback', nft, {
+        hung: shortUrl(imgSrc),
+        next: shortUrl(next),
+        fresh: shortUrl(fresh),
+      });
+      originalUrlRef.current = next;
+      setImgSrc(next);
       setError(false);
       setIsLoadingFallback(false);
       setImgLoading(true);
-    }, 3000);
+    }, waitMs);
     return () => window.clearTimeout(timeout);
   }, [imgSrc, imgLoading]);
 
-  // Track already attempted fallback strategies to avoid redundant retries
-  const attemptedFallbacks = useRef<Record<string, boolean>>({});
-  
   const handleError = async (error: SyntheticEvent<HTMLVideoElement | HTMLImageElement>) => {
     // Get the current failing URL
     const failedSrc = error.currentTarget.src || imgSrc;
@@ -391,20 +607,27 @@ export const NFTImage: React.FC<NFTImageProps> = ({
     // Skip if we've already tried this fallback strategy
     const fallbackKey = `${failedSrc}-${retryCount}`;
     if (attemptedFallbacks.current[fallbackKey]) {
-      // Go straight to fallback image without logging
+      nftImgLog('error:duplicate → default', nft, {
+        failed: shortUrl(failedSrc),
+        retryCount,
+      });
       setImgSrc(fallbackSrc);
       return;
     }
     
-    // Only log errors in development mode and only for non-default images
-    // This reduces console spam for expected fallbacks
-    if (process.env.NODE_ENV === 'development' && !failedSrc.includes('/default-nft.png')) {
-      imageLogger.warn('NFT Image load failed', { 
-        nftName: nft?.name || 'Unknown',
-        mediaKey: nft ? getMediaKey(nft) : 'unknown',
-        attemptedUrl: failedSrc.substring(0, 100) // Truncate long URLs
-      });
-    }
+    nftImgLog('error:load-failed', nft, {
+      failed: shortUrl(failedSrc),
+      original: shortUrl(originalUrlRef.current),
+      propSrc: shortUrl(src),
+      retryCount,
+      isProxy:
+        failedSrc.includes('wsrv.nl') ||
+        failedSrc.includes('images.weserv.nl') ||
+        failedSrc.includes('img-width='),
+      isIpfs: isIpfsUrl(failedSrc),
+      isArweave: isArweaveUrl(failedSrc) || isArweaveUrl(src),
+      isCdn: isBrowserFriendlyCdnUrl(failedSrc),
+    });
     
     // Mark this fallback as attempted
     attemptedFallbacks.current[fallbackKey] = true;
@@ -414,6 +637,9 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       failedSrc.includes('images.weserv.nl') ||
       failedSrc.includes('img-width=');
     if (isThumbProxy && originalUrlRef.current && originalUrlRef.current !== failedSrc) {
+      nftImgLog('retry:proxy-fail → original', nft, {
+        next: shortUrl(originalUrlRef.current),
+      });
       setImgSrc(originalUrlRef.current);
       setError(false);
       setIsLoadingFallback(false);
@@ -424,14 +650,15 @@ export const NFTImage: React.FC<NFTImageProps> = ({
     if (nft) {
       const mediaKeyForMemory = getMediaKey(nft);
       if (failedSrc === getRememberedMediaUrl(mediaKeyForMemory, 'image')) {
+        nftImgLog('memory:forget-dead-gateway', nft, { failed: shortUrl(failedSrc) });
         forgetMediaUrl(mediaKeyForMemory, 'image');
       }
     }
     
-    // Special handling for Arweave / PODs URLs — cycle turbo/permagate /raw/ fallbacks
+    // Special handling for Arweave / PODs URLs — short image gateway list
     if (src && isArweaveUrl(src)) {
       if (arweaveFallbackUrls.current.length === 0) {
-        arweaveFallbackUrls.current = buildArweaveMediaFallbackUrls(src);
+        arweaveFallbackUrls.current = buildArweaveImageFallbackUrls(src);
         arweaveFallbackIndex.current = 0;
       }
 
@@ -448,12 +675,19 @@ export const NFTImage: React.FC<NFTImageProps> = ({
         const nextUrl = arweaveFallbackUrls.current[arweaveFallbackIndex.current];
         attemptedFallbacks.current[`${nextUrl}-ar`] = true;
         arweaveFallbackIndex.current += 1;
+        nftImgLog('retry:arweave-gateway', nft, {
+          index: arweaveFallbackIndex.current,
+          next: shortUrl(nextUrl),
+        });
         setImgSrc(nextUrl);
         setRetryCount(retryCount + 1);
         setError(false);
         setIsLoadingFallback(false);
         return;
       }
+      nftImgLog('retry:arweave-exhausted', nft, {
+        tried: arweaveFallbackUrls.current.length,
+      });
     }
 
     // Cycle working IPFS gateways (cloudflare-ipfs.com and others may fail)
@@ -475,6 +709,52 @@ export const NFTImage: React.FC<NFTImageProps> = ({
         const nextUrl = ipfsFallbackUrls.current[ipfsFallbackIndex.current];
         attemptedFallbacks.current[`${nextUrl}-ipfs`] = true;
         ipfsFallbackIndex.current += 1;
+        nftImgLog('retry:ipfs-gateway', nft, {
+          index: ipfsFallbackIndex.current,
+          next: shortUrl(nextUrl),
+        });
+        setImgSrc(nextUrl);
+        setRetryCount(retryCount + 1);
+        setError(false);
+        setIsLoadingFallback(false);
+        return;
+      }
+      nftImgLog('retry:ipfs-exhausted', nft, {
+        tried: ipfsFallbackUrls.current.length,
+      });
+    }
+
+    // OpenSea / generic HTTP CDN — try alternate widths / strip query params
+    const httpSource = src || failedSrc || originalUrlRef.current;
+    if (
+      httpSource &&
+      (httpSource.startsWith('http://') || httpSource.startsWith('https://')) &&
+      !isIpfsUrl(httpSource) &&
+      !isArweaveUrl(httpSource)
+    ) {
+      if (httpCdnFallbackUrls.current.length === 0) {
+        httpCdnFallbackUrls.current = buildHttpCdnImageFallbackUrls(httpSource, {
+          contract: nft?.contract,
+          network: nft?.network,
+        });
+        httpCdnFallbackIndex.current = 0;
+      }
+      while (
+        httpCdnFallbackIndex.current < httpCdnFallbackUrls.current.length &&
+        (httpCdnFallbackUrls.current[httpCdnFallbackIndex.current] === failedSrc ||
+          attemptedFallbacks.current[`${httpCdnFallbackUrls.current[httpCdnFallbackIndex.current]}-cdn`])
+      ) {
+        httpCdnFallbackIndex.current += 1;
+      }
+      if (httpCdnFallbackIndex.current < httpCdnFallbackUrls.current.length) {
+        const nextUrl = httpCdnFallbackUrls.current[httpCdnFallbackIndex.current];
+        attemptedFallbacks.current[`${nextUrl}-cdn`] = true;
+        httpCdnFallbackIndex.current += 1;
+        nftImgLog('retry:http-cdn', nft, {
+          index: httpCdnFallbackIndex.current,
+          next: shortUrl(nextUrl),
+        });
+        originalUrlRef.current = nextUrl;
         setImgSrc(nextUrl);
         setRetryCount(retryCount + 1);
         setError(false);
@@ -482,14 +762,88 @@ export const NFTImage: React.FC<NFTImageProps> = ({
         return;
       }
     }
+
+    // Same asset failed across gateways — try the next metadata image field
+    // (image_url, properties.files, collection image, etc.).
+    if (nft && imageCandidates.current.length > 0) {
+      while (imageCandidateIndex.current < imageCandidates.current.length - 1) {
+        imageCandidateIndex.current += 1;
+        const nextRaw = imageCandidates.current[imageCandidateIndex.current];
+        if (!nextRaw || attemptedFallbacks.current[`${nextRaw}-candidate`]) continue;
+        attemptedFallbacks.current[`${nextRaw}-candidate`] = true;
+
+        const nextProcessed = processMediaUrl(nextRaw, fallbackSrc, 'image');
+        if (!nextProcessed || nextProcessed === fallbackSrc || nextProcessed === failedSrc) {
+          continue;
+        }
+
+        // Reset per-asset gateway lists for the new candidate.
+        arweaveFallbackUrls.current = [];
+        arweaveFallbackIndex.current = 0;
+        ipfsFallbackUrls.current = isIpfsUrl(nextRaw) || !!extractIPFSPath(nextRaw)
+          ? buildIpfsFallbackUrls(nextRaw)
+          : [];
+        ipfsFallbackIndex.current = 0;
+        if (isArweaveUrl(nextRaw)) {
+          arweaveFallbackUrls.current = buildArweaveImageFallbackUrls(nextRaw);
+        }
+
+        nftImgLog('retry:next-image-candidate', nft, {
+          index: imageCandidateIndex.current,
+          next: shortUrl(nextProcessed),
+          raw: shortUrl(nextRaw),
+        });
+        originalUrlRef.current = nextProcessed;
+        setImgSrc(toDisplaySrc(nextProcessed));
+        setRetryCount(retryCount + 1);
+        setError(false);
+        setIsLoadingFallback(false);
+        return;
+      }
+    }
     
+    // Public IPFS unreplicated — Alchemy CDN often still has the cover.
+    if (nft && !alchemyEnrichAttemptedRef.current && nftNeedsChainMediaEnrich(nft)) {
+      alchemyEnrichAttemptedRef.current = true;
+      nftImgLog('retry:alchemy-enrich', nft, { failed: shortUrl(failedSrc) });
+      void enrichNftMediaFromChain(nft).then((enriched) => {
+        const next =
+          enriched.image &&
+          enriched.image !== failedSrc &&
+          enriched.image !== fallbackSrc &&
+          !/\/ipfs\//i.test(enriched.image)
+            ? enriched.image
+            : enriched.collection?.image || '';
+        if (!next || attemptedFallbacks.current[`${next}-alchemy`]) {
+          nftImgLog('alchemy-enrich:no-better-image', nft, {});
+          return;
+        }
+        Object.assign(nft, {
+          image: enriched.image || nft.image,
+          metadata: enriched.metadata,
+          collection: enriched.collection,
+        });
+        clearNftMediaUrlCache(nft, 'image');
+        attemptedFallbacks.current[`${next}-alchemy`] = true;
+        originalUrlRef.current = next;
+        setImgSrc(toDisplaySrc(next));
+        setRetryCount((c) => c + 1);
+        setError(false);
+        setIsLoadingFallback(false);
+        nftImgLog('alchemy-enrich:using', nft, { next: shortUrl(next) });
+      });
+      return;
+    }
+
     // Every gateway/fallback has been tried at this point — safe to remember
     // this NFT's image as dead so other views don't retry it needlessly.
     if (nft) {
+      nftImgLog('dead:mark-image', nft, { failed: shortUrl(failedSrc) });
       markNftMediaDead(nft, 'image');
     }
 
     // CRITICAL: Immediately switch to fallback image and force re-render
+    nftImgLog('give-up → default-nft.png', nft, { failed: shortUrl(failedSrc) });
     setTimeout(() => {
       // Use setTimeout to ensure state updates happen in new event loop
       setError(true);
@@ -506,8 +860,33 @@ export const NFTImage: React.FC<NFTImageProps> = ({
 
   // A successful load means whatever URL is currently displayed actually works —
   // remember it so future renders of this same media skip straight past dead gateways.
-  const handleLoad = (loadedSrc: string) => {
-    if (!nft || !loadedSrc || loadedSrc.includes('default-nft.png')) return;
+  const handleLoad = (loadedSrc: string, imgEl?: HTMLImageElement | null) => {
+    const width = imgEl?.naturalWidth ?? 0;
+    const height = imgEl?.naturalHeight ?? 0;
+    // Only reject when nothing decoded. Gateways often resolve directory CIDs
+    // (trailing slash) to a real image — naturalWidth>0 means keep it.
+    // HTML directory listings typically decode as 0×0.
+    if (imgEl && (width === 0 || height === 0)) {
+      nftImgLog('success:rejected-non-image', nft, {
+        loaded: shortUrl(loadedSrc),
+        naturalWidth: width,
+        naturalHeight: height,
+        looksLikeDir: shouldProbeIpfsDirectory(loadedSrc),
+      });
+      void handleError({
+        currentTarget: imgEl,
+      } as SyntheticEvent<HTMLImageElement>);
+      return;
+    }
+
+    nftImgLog('success:loaded', nft, {
+      loaded: shortUrl(loadedSrc),
+      naturalWidth: width || undefined,
+      naturalHeight: height || undefined,
+    });
+    if (!loadedSrc || loadedSrc.includes('default-nft.png')) return;
+    loadedOkSrcRef.current = loadedSrc;
+    if (!nft) return;
     if (loadedSrc.includes('wsrv.nl') || loadedSrc.includes('images.weserv.nl') || loadedSrc.includes('img-width=')) {
       return;
     }
@@ -515,10 +894,11 @@ export const NFTImage: React.FC<NFTImageProps> = ({
   };
 
   // SECURITY: Use proper URL validation for determining render method
-  // Use regular img tag for IPFS/Arweave content to bypass Next.js image optimization
+  // Use regular img tag for IPFS/Arweave/CDN content to bypass Next.js image optimization
   const isSpecialProtocol = isIpfsUrl(imgSrc) || isArweaveUrl(imgSrc) ||
     imgSrc.includes('wsrv.nl') || imgSrc.includes('images.weserv.nl') || imgSrc.includes('img-width=') ||
-    /amazonaws\.com|cloudfront\.net/i.test(imgSrc);
+    /amazonaws\.com|cloudfront\.net/i.test(imgSrc) ||
+    isBrowserFriendlyCdnUrl(imgSrc);
   
   // CRITICAL: Additional validation before finalizing source
   // This ensures we NEVER show a blank card, even for malformed NFT data
@@ -564,33 +944,41 @@ export const NFTImage: React.FC<NFTImageProps> = ({
   // Check if this is an Arweave URL using proper validation
   const isArweave = isArweaveUrl(finalSrc);
   const isAnimated = shouldPreserveAnimation(finalSrc) || shouldPreserveAnimation(src);
+  const useNativeImg =
+    isArweave || isAnimated || isBrowserFriendlyCdnUrl(finalSrc) || isSpecialProtocol;
 
-  // Native <img> for Arweave and GIFs. Next/Image re-encodes GIFs as a static frame.
-  if (isArweave || isAnimated) {
+  // Native <img> for Arweave, GIFs, OpenSea/CDN hosts, and thumb proxies.
+  // Next/Image re-encodes GIFs and often fails fetching seadn/cloudinary from the optimizer.
+  if (useNativeImg && !isVideo) {
     // Convert ar:// to https://arweave.net/ if needed
-    const arweaveUrl = finalSrc.startsWith('ar://') 
+    const nativeUrl = finalSrc.startsWith('ar://') 
       ? processArweaveUrl(finalSrc)
       : finalSrc;
       
     return (
       <img
-        src={arweaveUrl}
+        src={nativeUrl}
         alt={alt}
         className={className}
         width={width || 300}
         height={height || 300}
         onError={handleError}
-        onLoad={() => handleLoad(arweaveUrl)}
+        onLoad={(e) => {
+          setImgLoading(false);
+          handleLoad(nativeUrl, e.currentTarget);
+        }}
         decoding="async"
+        loading={priority ? 'eager' : loading}
         data-nft-image-status={error ? 'error' : 'loaded'}
         data-nft-id={nft ? `${nft.contract}-${nft.tokenId}` : 'unknown'}
         data-original-src={src}
         key={`nft-img-${nft?.contract || 'unknown'}-${nft?.tokenId || 'unknown'}`}
+        style={{ objectFit: 'cover' }}
       />
     );
   }
   
-  // For other content types, use Next.js Image or regular img based on protocol type
+  // For other content types, use Next.js Image
   if (isVideo || !isSpecialProtocol) {
     return (
       <Image
@@ -604,7 +992,10 @@ export const NFTImage: React.FC<NFTImageProps> = ({
         loading={priority ? 'eager' : loading}
         placeholder={placeholder}
         onError={handleError}
-        onLoad={() => handleLoad(finalSrc)}
+        onLoad={(e) => {
+          setImgLoading(false);
+          handleLoad(finalSrc, e.currentTarget);
+        }}
         data-nft-image-status={error ? 'error' : 'loaded'}
         data-nft-id={nft ? `${nft.contract}-${nft.tokenId}` : 'unknown'}
         key={`nft-img-${nft?.contract || 'unknown'}-${nft?.tokenId || 'unknown'}`}
@@ -622,7 +1013,10 @@ export const NFTImage: React.FC<NFTImageProps> = ({
         width={width || 300}
         height={height || 300}
         onError={handleError}
-        onLoad={() => { setImgLoading(false); handleLoad(finalSrc); }}
+        onLoad={(e) => {
+          setImgLoading(false);
+          handleLoad(finalSrc, e.currentTarget);
+        }}
         decoding="async"
         data-nft-image-status={error ? 'error' : 'loaded'}
         data-nft-id={nft ? `${nft.contract}-${nft.tokenId}` : 'unknown'}

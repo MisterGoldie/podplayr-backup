@@ -3,8 +3,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { NFT, UserContext } from '../../types/user';
 import { NFTImage } from '../media/NFTImage';
+import { NFTGifImage } from '../media/NFTGifImage';
 import { NFTCard } from '../nft/NFTCard';
 import { getMediaKey } from '~/utils/media';
+import { shouldPreserveAnimation } from '../../utils/imageOptimizer';
 import NotificationHeader from '../NotificationHeader';
 import NFTNotification from '../NFTNotification';
 import { PAGE_SIZE, usePagedItems } from '../../hooks/usePagedItems';
@@ -126,17 +128,27 @@ const SimpleNFTCard: React.FC<SimpleNFTCardProps> = ({
         className="flex items-center gap-3 min-w-0 flex-1 text-left active:scale-[0.99]"
       >
         <div className="w-12 h-12 rounded-md overflow-hidden flex-shrink-0 bg-purple-900/30">
-          <NFTImage
-            src={nft.metadata?.image || ''}
-            alt={nft.name}
-            className="w-full h-full object-cover"
-            width={48}
-            height={48}
-            sizes="48px"
-            quality={50}
-            priority
-            nft={nft}
-          />
+          {shouldPreserveAnimation(nft.metadata?.image || nft.image || '') ? (
+            <NFTGifImage
+              nft={nft}
+              className="w-full h-full object-cover"
+              width={48}
+              height={48}
+              priority
+            />
+          ) : (
+            <NFTImage
+              src={nft.metadata?.image || ''}
+              alt={nft.name}
+              className="w-full h-full object-cover"
+              width={48}
+              height={48}
+              sizes="48px"
+              quality={50}
+              priority
+              nft={nft}
+            />
+          )}
         </div>
         <div className="min-w-0 flex-1">
           <h3 className="text-white truncate">{nft.name}</h3>

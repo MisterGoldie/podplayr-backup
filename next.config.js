@@ -24,6 +24,8 @@ const nextConfig = {
         hostname: '**',
       },
     ],
+    // Allowlist every quality prop used by NFTImage / cards / library / player
+    qualities: [50, 60, 65, 75, 90],
     deviceSizes: [320, 420, 640, 750, 828],
     imageSizes: [64, 96, 128, 160, 180, 256, 384],
   },

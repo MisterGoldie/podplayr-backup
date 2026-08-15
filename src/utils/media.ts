@@ -3,8 +3,23 @@
 import { useState } from 'react';
 import { NFT as UserNFT } from '../types/user';
 import { v4 as uuidv4 } from 'uuid';
-import { getRememberedMediaUrl } from './gatewayMemory';
+import { getRememberedMediaUrl, forgetMediaUrl } from './gatewayMemory';
 import { playbackSpeedLog, shortUrl } from './playDebug';
+import {
+  rewriteLegacyOpenSeaMediaUrl,
+  unwrapMediaProxyUrl,
+  isOpenSeaCdnHost,
+  toOpenSeaProxyUrl,
+  preferBrowserReachableMediaUrl,
+} from './openSeaMedia';
+
+export {
+  rewriteLegacyOpenSeaMediaUrl,
+  unwrapMediaProxyUrl,
+  isOpenSeaCdnHost,
+  toOpenSeaProxyUrl,
+  preferBrowserReachableMediaUrl,
+} from './openSeaMedia';
 
 // List of reliable IPFS gateways in order of preference
 // Helper function to clean IPFS URLs
@@ -17,18 +32,249 @@ export const getCleanIPFSUrl = (url: string): string => {
 
 // Prefer gateways that currently resolve and serve NFT media reliably.
 // cloudflare-ipfs.com is dead (ERR_NAME_NOT_RESOLVED).
-// Pinata is fast when the CID is pinned there; ipfs.io is the public fallback
-// when it is not. nftstorage.link often CORS-blocks browser probes.
+// Pinata / ipfs.io: usable from the browser (img + CORS HEAD for mime probes).
+// w3s.link / nftstorage.link / dweb.link: often CORS-block fetch or return 500 —
+// keep only as last-resort fallbacks for <img>/<video>, never first for probes.
 export const PRIMARY_IPFS_GATEWAY = 'https://gateway.pinata.cloud/ipfs/';
+
+const IMAGE_FILE_EXT_RE = /\.(png|jpe?g|gif|webp|avif|svg|bmp|apng)(?:\?|#|$)/i;
+const VIDEO_FILE_EXT_RE = /\.(mp4|webm|mov|m4v)(?:\?|#|$)/i;
+
+/** Common filenames inside IPFS directory CIDs (many mints point `image` at a folder). */
+const COMMON_IPFS_IMAGE_NAMES = [
+  'image.png',
+  'image.jpg',
+  'image.jpeg',
+  'image.gif',
+  'image.webp',
+  'cover.png',
+  'cover.jpg',
+  'cover.jpeg',
+  'cover.gif',
+  'cover.webp',
+  'thumbnail.png',
+  'thumbnail.jpg',
+  'thumb.png',
+  'thumb.jpg',
+  'media.png',
+  'media.jpg',
+  'media.gif',
+  'nft.png',
+  'nft.jpg',
+  'nft.gif',
+];
+
+/** Common playable filenames when `animation_url` / `audio` points at a directory CID. */
+const COMMON_IPFS_MEDIA_NAMES = [
+  'audio.mp3',
+  'audio.wav',
+  'audio.m4a',
+  'audio.ogg',
+  'audio.aac',
+  'audio.flac',
+  'sound.mp3',
+  'music.mp3',
+  'track.mp3',
+  'song.mp3',
+  'animation.mp4',
+  'video.mp4',
+  'media.mp4',
+  'animation.webm',
+  'video.webm',
+  'media.webm',
+];
+
+export type IpfsFallbackKind = 'image' | 'media';
+
+const looksLikeAudioFileUrl = (url: string): boolean =>
+  /\.(mp3|wav|ogg|m4a|flac|aac)(?:\?|#|$)/i.test(url);
+
+const looksLikeVideoFileUrl = (url: string): boolean => VIDEO_FILE_EXT_RE.test(url);
+
+const normalizeMediaUrlKey = (url: string): string => {
+  if (!url) return '';
+  try {
+    const u = new URL(url.startsWith('ipfs://') ? toIpfsGatewayUrl(url.replace(/^ipfs:\/\//, '')) : url);
+    return `${u.hostname}${u.pathname}`.replace(/\/+$/, '').toLowerCase();
+  } catch {
+    return url.replace(/\/+$/, '').toLowerCase();
+  }
+};
+
+/** True when CID is raw codec (single file) — never a UnixFS directory. */
+const isRawIpfsCid = (cid: string): boolean => /^bafkrei/i.test(cid);
+
+/**
+ * Only probe common filenames when metadata clearly points at a directory.
+ * - `bafkrei…` is always a single file (raw codec) — never probe.
+ * - Trailing slash after CID (`…/Qm…/`) is the usual directory-wrap signal.
+ * - Multi-segment paths without a file extension (CID/subdir) also probe.
+ * Bare `Qm…` / `bafybei…` without a slash are left alone — many are single-file images.
+ */
+export const shouldProbeIpfsDirectory = (url: string, ipfsPath?: string | null): boolean => {
+  const path = (ipfsPath || extractIPFSPath(url) || '').replace(/^\/+/, '').replace(/\/+$/, '');
+  if (!path) return false;
+  const parts = path.split('/').filter(Boolean);
+  const cid = parts[0] || '';
+  if (!cid || isRawIpfsCid(cid)) return false;
+
+  if (parts.length > 1) {
+    const last = parts[parts.length - 1];
+    return !/\.[a-z0-9]{2,5}$/i.test(last);
+  }
+
+  // Trailing slash after the CID in the original URL
+  if (/\/ipfs\/[^/?#]+\/(?:\?|#|$)/i.test(url) || /ipfs:\/\/[^/?#]+\/(?:\?|#|$)/i.test(url)) {
+    return true;
+  }
+  // Subdomain gateway with trailing path slash: cid.ipfs.w3s.link/
+  try {
+    const u = new URL(url);
+    if (/\.ipfs\./i.test(u.hostname) && (u.pathname === '/' || u.pathname === '')) {
+      return true;
+    }
+  } catch {
+    // ignore
+  }
+  return false;
+};
+
+/** @deprecated Prefer shouldProbeIpfsDirectory(url) — path-only checks mis-label raw CIDs. */
+export const isBareIpfsDirectoryPath = (ipfsPath: string): boolean => {
+  if (!ipfsPath) return false;
+  const parts = ipfsPath.replace(/\/+$/, '').split('/').filter(Boolean);
+  if (parts.length === 0) return false;
+  if (isRawIpfsCid(parts[0])) return false;
+  if (parts.length === 1) return false; // ambiguous without URL trailing-slash signal
+  const last = parts[parts.length - 1];
+  return !/\.[a-z0-9]{2,5}$/i.test(last);
+};
+
+/**
+ * Expand a bare IPFS directory CID into candidate file paths.
+ * Gateway rotation alone cannot recover unreplicated CIDs; file probes can when
+ * the mint stored media under a conventional name inside the directory.
+ *
+ * `kind: 'image'` → cover filenames. `kind: 'media'` → audio/video filenames
+ * (playback must never probe image.png).
+ */
+export const expandIpfsDirectoryImagePaths = (
+  ipfsPath: string,
+  sourceUrl?: string,
+  kind: IpfsFallbackKind = 'image'
+): string[] => {
+  const clean = ipfsPath.replace(/^\/+/, '').replace(/\/+$/, '');
+  if (!clean) return [];
+  const probe =
+    sourceUrl != null
+      ? shouldProbeIpfsDirectory(sourceUrl, clean)
+      : isBareIpfsDirectoryPath(clean);
+  if (!probe) return [clean];
+  const cid = clean.split('/')[0];
+  const names = kind === 'media' ? COMMON_IPFS_MEDIA_NAMES : COMMON_IPFS_IMAGE_NAMES;
+  // Bare CID first (some gateways resolve a single wrapped file), then names.
+  return [clean, ...names.map((name) => `${cid}/${name}`)];
+};
+
+/**
+ * Collect every plausible cover URL from NFT metadata — not just `image`.
+ * Skips clear audio/video file URLs. Order = preference for display.
+ */
+export const pickImageCandidates = (nft: UserNFT | null | undefined): string[] => {
+  if (!nft) return [];
+  const meta = nft.metadata;
+  const raw: string[] = [];
+
+  const push = (url?: string | null) => {
+    if (!url || typeof url !== 'string') return;
+    const trimmed = url.trim();
+    if (!trimmed) return;
+    // Never use dedicated sound/video files as cover art.
+    if (looksLikeAudioFileUrl(trimmed) || looksLikeVideoFileUrl(trimmed)) return;
+    raw.push(trimmed);
+  };
+
+  push(nft.image);
+  push(meta?.image);
+  push(meta?.image_url);
+  push(meta?.properties?.image);
+  push(meta?.properties?.visual?.url);
+
+  for (const file of meta?.properties?.files || []) {
+    if (!file) continue;
+    const fileUrl = file.uri || file.url;
+    const mime = (file.type || file.mimeType || '').toLowerCase();
+    if (mime.startsWith('image/') || (fileUrl && IMAGE_FILE_EXT_RE.test(fileUrl))) {
+      push(fileUrl);
+    }
+  }
+
+  // Collection image is a last-resort cover when token media is missing/broken.
+  push(nft.collection?.image);
+
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const url of raw) {
+    const rewritten = rewriteLegacyOpenSeaMediaUrl(url, nft.contract, nft.network);
+    const key = normalizeMediaUrlKey(rewritten) || rewritten.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(rewritten);
+    // Keep original as secondary candidate when rewrite changed it.
+    if (rewritten !== url) {
+      const origKey = normalizeMediaUrlKey(url) || url.toLowerCase();
+      if (!seen.has(origKey)) {
+        seen.add(origKey);
+        out.push(url);
+      }
+    }
+  }
+  // Alchemy CDN survives unreplicated IPFS — prefer it over gateway URLs.
+  out.sort((a, b) => Number(isAlchemyCdnMediaUrl(b)) - Number(isAlchemyCdnMediaUrl(a)));
+  return out;
+};
+
+const isAlchemyCdnMediaUrl = (url?: string | null): boolean =>
+  !!url && /nft2?-cdn\.alchemy\.com|res\.cloudinary\.com\/alchemyapi/i.test(url);
+
+/**
+ * True only when the "image" field is clearly an audio file URL (e.g. .mp3).
+ * Do NOT treat shared IPFS directory CIDs as blocked — remints often set
+ * image === animation_url to a folder; blocking those forced default-nft.png.
+ */
+export const isAudioUrlUsedAsImage = (nft: UserNFT, imageUrl: string): boolean => {
+  if (!imageUrl || !looksLikeAudioFileUrl(imageUrl)) return false;
+
+  const imageKey = normalizeMediaUrlKey(imageUrl);
+  const audioUrls = [
+    nft?.audio,
+    (nft?.metadata as { audio?: string } | undefined)?.audio,
+    nft?.metadata?.animation_url,
+  ].filter(Boolean) as string[];
+
+  return audioUrls.some((audio) => normalizeMediaUrlKey(audio) === imageKey);
+};
 
 export const IPFS_GATEWAYS = [
   'https://gateway.pinata.cloud/ipfs/',
   'https://ipfs.io/ipfs/',
+  'https://gateway.ipfs.io/ipfs/',
   'https://w3s.link/ipfs/',
   'https://dweb.link/ipfs/',
   'https://nftstorage.link/ipfs/',
-  'https://gateway.ipfs.io/ipfs/',
 ];
+
+/** Hosts that break browser fetch(CORS) MIME probes — skip for HEAD/Range GET. */
+export const IPFS_CORS_HOSTILE =
+  /(?:^|\.)(?:w3s\.link|nftstorage\.link|dweb\.link|gateway\.ipfs\.io)$/i;
+
+export const isIpfsCorsHostileUrl = (url: string): boolean => {
+  try {
+    return IPFS_CORS_HOSTILE.test(new URL(url).hostname);
+  } catch {
+    return /w3s\.link|nftstorage\.link|dweb\.link/i.test(url);
+  }
+};
 
 const DEAD_IPFS_HOSTS = new Set([
   'cloudflare-ipfs.com',
@@ -64,7 +310,11 @@ export const toIpfsGatewayUrl = (
 };
 
 /** Ordered IPFS URLs across working gateways (preserves CID subpaths). */
-export const buildIpfsFallbackUrls = (url: string): string[] => {
+export const buildIpfsFallbackUrls = (
+  url: string,
+  options?: { kind?: IpfsFallbackKind }
+): string[] => {
+  const kind = options?.kind ?? 'image';
   const path = extractIPFSPath(url);
   if (!path) return url ? [url] : [];
 
@@ -76,14 +326,111 @@ export const buildIpfsFallbackUrls = (url: string): string[] => {
     urls.push(u);
   };
 
-  // Whatever gateway the NFT already named is the one most likely to have the CID.
-  if (url.startsWith('http://') || url.startsWith('https://')) {
+  const isHttp = url.startsWith('http://') || url.startsWith('https://');
+  const originalHostile = isHttp && isIpfsCorsHostileUrl(url);
+  const isDir = shouldProbeIpfsDirectory(url, path);
+  const pathVariants = expandIpfsDirectoryImagePaths(path, url, kind);
+
+  if (isDir) {
+    const bare = path.replace(/\/+$/, '');
+    const fileVariants = pathVariants.slice(1);
+    // Skip CORS-hostile / flaky hosts for directory probes — they burn the
+    // short playback candidate budget without helping.
+    const gateways =
+      kind === 'media'
+        ? IPFS_GATEWAYS.filter((g) => !/w3s\.link|nftstorage\.link|dweb\.link/i.test(g))
+        : IPFS_GATEWAYS;
+
+    if (kind === 'media') {
+      // Playback budget is tiny (MAX_PLAYBACK_CANDIDATES=6). Do NOT fill it with
+      // the same bare CID on 6 gateways — include audio/video filenames early.
+      push(toIpfsGatewayUrl(bare, PRIMARY_IPFS_GATEWAY));
+      for (const variant of fileVariants.slice(0, 4)) {
+        push(toIpfsGatewayUrl(variant, PRIMARY_IPFS_GATEWAY));
+      }
+      for (const gateway of gateways.slice(1)) {
+        push(toIpfsGatewayUrl(bare, gateway));
+      }
+      if (gateways[1] && fileVariants[0]) {
+        push(toIpfsGatewayUrl(fileVariants[0], gateways[1]));
+      }
+      return urls;
+    }
+
+    // Images: primary bare + cover filenames, then other gateways.
+    push(toIpfsGatewayUrl(bare, PRIMARY_IPFS_GATEWAY));
+    for (const variant of fileVariants) {
+      push(toIpfsGatewayUrl(variant, PRIMARY_IPFS_GATEWAY));
+    }
+    for (const gateway of gateways.slice(1, 3)) {
+      push(toIpfsGatewayUrl(bare, gateway));
+      for (const variant of fileVariants.slice(0, 4)) {
+        push(toIpfsGatewayUrl(variant, gateway));
+      }
+    }
+    return urls;
+  }
+
+  // Prefer a CORS-friendly gateway before a hostile original (w3s / nft.storage / dweb).
+  if (isHttp && !originalHostile) {
     push(url);
   }
   for (const gateway of IPFS_GATEWAYS) {
     push(toIpfsGatewayUrl(path, gateway));
   }
+  if (isHttp && originalHostile) {
+    push(url);
+  }
   return urls;
+};
+
+/** Unwrap `/api/media-proxy?url=` back to the upstream OpenSea URL. */
+// (defined in openSeaMedia.ts — re-exported above)
+
+/**
+ * HTTP CDN image fallbacks (OpenSea). Prefer raw2 rewrite when contract is known,
+ * then proxy/dead-host variants — never burn five width retries on NXDOMAIN.
+ */
+export const buildHttpCdnImageFallbackUrls = (
+  url: string,
+  opts?: { contract?: string; network?: string }
+): string[] => {
+  const source = unwrapMediaProxyUrl(url);
+  if (!source || (!source.startsWith('http://') && !source.startsWith('https://'))) return [];
+  try {
+    const u = new URL(source);
+    const host = u.hostname.toLowerCase();
+    const out: string[] = [];
+    const seen = new Set<string>();
+    const push = (next: string) => {
+      if (!next || seen.has(next)) return;
+      seen.add(next);
+      out.push(next);
+    };
+
+    if (isOpenSeaCdnHost(host)) {
+      const raw2 = rewriteLegacyOpenSeaMediaUrl(source, opts?.contract, opts?.network);
+      if (raw2 && raw2 !== source) push(raw2);
+      push(toOpenSeaProxyUrl(source));
+      const bare = new URL(source);
+      bare.search = '';
+      const bareRaw2 = rewriteLegacyOpenSeaMediaUrl(bare.toString(), opts?.contract, opts?.network);
+      if (bareRaw2 && bareRaw2 !== bare.toString()) push(bareRaw2);
+      push(toOpenSeaProxyUrl(bare.toString()));
+      push(source);
+      return out;
+    }
+
+    push(source);
+    if (u.search) {
+      const bare = new URL(source);
+      bare.search = '';
+      push(bare.toString());
+    }
+    return out;
+  } catch {
+    return [source];
+  }
 };
 
 // Enhanced Arweave fallback with immediate default
@@ -110,6 +457,7 @@ export const getAlternativeIPFSUrl = (url: string, failedGateways: Set<string> =
 /**
  * Extract CID (+ optional subpath) from ipfs:// or gateway URLs.
  * Preserves paths like Qm.../file.mp4 needed for directory CIDs.
+ * Also handles subdomain gateways: {cid}.ipfs.w3s.link/file.gif
  */
 export const extractIPFSPath = (url: string): string | null => {
   if (!url || typeof url !== 'string') return null;
@@ -127,6 +475,16 @@ export const extractIPFSPath = (url: string): string | null => {
       if (pathParts.length > 1) {
         return decodeURIComponent(pathParts.slice(1).join('/ipfs/')).replace(/^\/+/, '') || null;
       }
+    }
+
+    // Subdomain style: bafy….ipfs.w3s.link/COMPRESSED.gif
+    const host = parsedUrl.hostname;
+    const subMatch = host.match(
+      /^(Qm[1-9A-HJ-NP-Za-km-z]{44}|bafy[a-z0-9]+|[a-z0-9]{46})\.ipfs\./i
+    );
+    if (subMatch?.[1]) {
+      const subpath = parsedUrl.pathname.replace(/^\/+/, '');
+      return subpath ? `${subMatch[1]}/${subpath}` : subMatch[1];
     }
   } catch {
     // continue
@@ -149,21 +507,6 @@ export const extractIPFSHash = (url: string): string | null => {
   const path = extractIPFSPath(url);
   if (!path) return null;
   return path.split('/')[0];
-};
-
-// Check if an NFT is using the same URL for both image and audio
-export const isAudioUrlUsedAsImage = (nft: UserNFT, imageUrl: string): boolean => {
-  if (!imageUrl) return false;
-  
-  // Get all possible audio URLs
-  const audioUrls = [
-    nft?.audio,
-    (nft?.metadata as any)?.audio,
-    nft?.metadata?.animation_url
-  ].filter(Boolean);
-  
-  // Return true if imageUrl matches any audio URL
-  return audioUrls.includes(imageUrl);
 };
 
 // Function to process Arweave URLs into valid HTTP URLs
@@ -360,26 +703,73 @@ export const buildArweaveMediaFallbackUrls = (rawUrl: string): string[] => {
   return urls;
 };
 
+/**
+ * Short image-only gateway list. Full playback lists are too long for <img>
+ * hang timeouts — a 7MB PNG needs time, not 12×5s retries.
+ */
+export const buildArweaveImageFallbackUrls = (rawUrl: string): string[] => {
+  if (!rawUrl || typeof rawUrl !== 'string') return [];
+  const { fileTxId, manifestId, filePath } = parseArweaveMediaPath(rawUrl);
+  const urls: string[] = [];
+  const seen = new Set<string>();
+  const push = (url: string) => {
+    if (!url || seen.has(url)) return;
+    seen.add(url);
+    urls.push(url);
+  };
+
+  if (fileTxId) {
+    push(toArweaveRawUrl(fileTxId, 'https://turbo-gateway.com/'));
+    push(toArweaveRawUrl(fileTxId, 'https://permagate.io/'));
+    push(`https://arweave.net/${fileTxId}`);
+  } else if (manifestId && filePath) {
+    push(toArweaveRawUrl(filePath.replace(MEDIA_EXT_RE, ''), 'https://turbo-gateway.com/'));
+    push(`https://turbo-gateway.com/${manifestId}/${filePath}`);
+    push(`https://arweave.net/${manifestId}/${filePath}`);
+  }
+
+  if (rawUrl.startsWith('http')) push(rawUrl);
+  return urls;
+};
+
 // Function to process media URLs to ensure they're properly formatted
 export const processMediaUrl = (url: string, fallbackUrl: string = '/default-nft.png', mediaType: 'image' | 'audio' | 'metadata' = 'image'): string => {
   if (!url) return fallbackUrl;
   if (typeof url !== 'string') return fallbackUrl;
   
   // Rewrite dead IPFS gateway hosts (cloudflare-ipfs.com DNS no longer resolves)
-  if ((url.startsWith('http://') || url.startsWith('https://')) && url.includes('/ipfs/')) {
+  if ((url.startsWith('http://') || url.startsWith('https://')) && (url.includes('/ipfs/') || /\.ipfs\./i.test(url))) {
     try {
       const parsed = new URL(url);
-      if (DEAD_IPFS_HOSTS.has(parsed.hostname)) {
-        const path = extractIPFSPath(url);
+      const host = parsed.hostname.toLowerCase();
+      const path = extractIPFSPath(url);
+
+      if (DEAD_IPFS_HOSTS.has(host) || host.endsWith('.cloudflare-ipfs.com')) {
         if (path) {
-          url = toIpfsGatewayUrl(path);
+          return toIpfsGatewayUrl(path);
         }
-      } else {
+      }
+
+      // Dedicated Pinata + flaky w3s subdomain hosts — rewrite to public Pinata.
+      // Keep nftstorage/dweb path URLs as-is (they often work for <img>);
+      // NFTImage still cycles gateways via buildIpfsFallbackUrls on error.
+      if (/mypinata\.cloud$/i.test(host) || /(?:^|\.)w3s\.link$/i.test(host)) {
+        if (path) {
+          return toIpfsGatewayUrl(path);
+        }
+      }
+
+      if (url.includes('/ipfs/')) {
         const hasDoubleIpfs = url.includes('/ipfs/ipfs/');
         if (!hasDoubleIpfs) {
           return url;
         }
         return url.replace(/\/ipfs\/ipfs\//g, '/ipfs/');
+      }
+
+      // Other subdomain gateways ({cid}.ipfs.dweb.link, …) → primary gateway
+      if (path && /\.ipfs\./i.test(host)) {
+        return toIpfsGatewayUrl(path);
       }
     } catch {
       // fall through
@@ -419,12 +809,42 @@ export const processMediaUrl = (url: string, fallbackUrl: string = '/default-nft
     return toArweaveRawUrl(url.replace('ar://', '').split('/')[0]);
   }
 
+  // Same PODs rewrite for https://arweave.net/<manifest>/<file>.ext
+  // Only multi-segment paths — single-tx IDs often work on arweave.net and
+  // break (or hang) when forced through turbo /raw/.
+  if (
+    /arweave\.(net|dev)|permagate\.io|turbo-gateway\.com|irys\.xyz|ar-io\.dev|g8way\.io/i.test(
+      url
+    )
+  ) {
+    const { fileTxId, manifestId, filePath } = parseArweaveMediaPath(url);
+    if (fileTxId && manifestId && filePath && !url.includes('/raw/')) {
+      return toArweaveRawUrl(fileTxId);
+    }
+  }
+
+  // Dedicated Pinata gateways (*.mypinata.cloud) often stall in mini-app /
+  // tunnel browsers for multi-MB GIFs. Prefer the public Pinata gateway.
+  if (/mypinata\.cloud/i.test(url) && url.includes('/ipfs/')) {
+    const path = extractIPFSPath(url);
+    if (path) {
+      return preferBrowserReachableMediaUrl(toIpfsGatewayUrl(path));
+    }
+  }
+
+  // OpenSea CDNs often fail DNS inside Farcaster mini-app webviews.
+  if (mediaType === 'image' || mediaType === 'audio') {
+    return preferBrowserReachableMediaUrl(url) || fallbackUrl;
+  }
+
   return url || fallbackUrl;
 };
 
 export const PLAYBACK_STALL_MS = 2000;
 /** Only abandon a URL that is not actually downloading (see failover guard). */
 export const FIRST_BYTE_FAILOVER_MS = 8000;
+/** Faster hop when the URL is clearly a bare IPFS directory (often unreplicated). */
+export const IPFS_DIR_FAILOVER_MS = 3000;
 export const MAX_PLAYBACK_CANDIDATES = 6;
 const GATEWAY_RACE_MS = 1400;
 
@@ -454,9 +874,14 @@ export const canonicalizeArweaveGatewayUrl = (url: string): string => {
 };
 
 /** Short candidate list so hanging gateways cannot stall playback for minutes. */
-export const buildFastPlaybackUrls = (rawUrl: string): string[] => {
+export const buildFastPlaybackUrls = (
+  rawUrl: string,
+  opts?: { contract?: string; network?: string }
+): string[] => {
   if (!rawUrl || typeof rawUrl !== 'string') return [];
-  rawUrl = canonicalizeArweaveGatewayUrl(rawUrl);
+  rawUrl = canonicalizeArweaveGatewayUrl(
+    rewriteLegacyOpenSeaMediaUrl(rawUrl, opts?.contract, opts?.network)
+  );
 
   const urls: string[] = [];
   const seen = new Set<string>();
@@ -491,7 +916,26 @@ export const buildFastPlaybackUrls = (rawUrl: string): string[] => {
   }
 
   if (rawUrl.startsWith('ipfs://') || extractIPFSPath(rawUrl)) {
-    return buildIpfsFallbackUrls(rawUrl).slice(0, MAX_PLAYBACK_CANDIDATES);
+    // Playback: probe audio/video filenames inside directory CIDs — never image.png.
+    return buildIpfsFallbackUrls(rawUrl, { kind: 'media' }).slice(0, MAX_PLAYBACK_CANDIDATES);
+  }
+
+  // OpenSea user media: rewrite dead hosts → raw2, then proxy as last resort.
+  try {
+    const openSeaSource = unwrapMediaProxyUrl(rawUrl);
+    const host = new URL(openSeaSource).hostname.toLowerCase();
+    if (isOpenSeaCdnHost(host)) {
+      const raw2 = rewriteLegacyOpenSeaMediaUrl(openSeaSource, opts?.contract, opts?.network);
+      if (raw2) push(raw2);
+      push(toOpenSeaProxyUrl(openSeaSource));
+      const bare = new URL(openSeaSource);
+      bare.search = '';
+      push(rewriteLegacyOpenSeaMediaUrl(bare.toString(), opts?.contract, opts?.network));
+      push(openSeaSource);
+      return urls.filter(Boolean).slice(0, MAX_PLAYBACK_CANDIDATES);
+    }
+  } catch {
+    // fall through
   }
 
   const processed = processMediaUrl(rawUrl, '', 'audio');
@@ -736,6 +1180,25 @@ const IMAGE_FALLBACK = '/default-nft.png';
 const AUDIO_FALLBACK = '/default-audio.mp3';
 const nftMediaUrlCache: Record<string, Record<string, string>> = {};
 
+/** Drop cached image/audio URLs so the next resolve re-runs processMediaUrl. */
+export const clearNftMediaUrlCache = (
+  nft?: UserNFT | null,
+  mediaType?: 'image' | 'audio'
+): void => {
+  if (!nft) {
+    Object.keys(nftMediaUrlCache).forEach((key) => delete nftMediaUrlCache[key]);
+    return;
+  }
+  const cacheKey = `${nft.contract}-${nft.tokenId}`;
+  if (!mediaType) {
+    delete nftMediaUrlCache[cacheKey];
+    return;
+  }
+  if (nftMediaUrlCache[cacheKey]) {
+    delete nftMediaUrlCache[cacheKey][mediaType];
+  }
+};
+
 /** Resolve an NFT image/audio URL, preferring a gateway that already worked. */
 export const getNftMediaUrl = (nft: UserNFT, mediaType: 'image' | 'audio'): string => {
   if (!nft) {
@@ -743,20 +1206,90 @@ export const getNftMediaUrl = (nft: UserNFT, mediaType: 'image' | 'audio'): stri
   }
 
   const cacheKey = `${nft.contract}-${nft.tokenId}`;
-  const cached = nftMediaUrlCache[cacheKey]?.[mediaType];
-  if (cached) return cached;
-
   const mediaKey = getMediaKey(nft);
-  const remembered = getRememberedMediaUrl(mediaKey, mediaType);
-  if (remembered) {
+  const imageCandidates = mediaType === 'image' ? pickImageCandidates(nft) : [];
+  const alchemyPreferred =
+    mediaType === 'image'
+      ? [nft.image, ...imageCandidates].find((u) => isAlchemyCdnMediaUrl(u))
+      : [nft.audio, nft.videoUrl, nft.metadata?.animation_url].find((u) =>
+          isAlchemyCdnMediaUrl(u)
+        );
+  const rawSourceUrl =
+    mediaType === 'image'
+      ? alchemyPreferred ||
+        imageCandidates[0] ||
+        nft.image ||
+        nft.metadata?.image ||
+        ''
+      : alchemyPreferred || nft.audio || nft.metadata?.animation_url || '';
+  const sourceUrl = rewriteLegacyOpenSeaMediaUrl(rawSourceUrl, nft.contract, nft.network);
+
+  const pods = parseArweaveMediaPath(sourceUrl);
+  const isPodsStyle = !!(pods.manifestId && pods.filePath);
+  const isPoisonedRaw = (candidate: string) =>
+    mediaType === 'image' &&
+    candidate.includes('/raw/') &&
+    !!sourceUrl &&
+    !sourceUrl.includes('/raw/') &&
+    !isPodsStyle;
+
+  const isPoisonedMypinata = (candidate: string) =>
+    mediaType === 'image' && /mypinata\.cloud/i.test(candidate);
+
+  // Subdomain / CORS-hostile gateways often fail in the mini-app (Chili Sounds
+  // on *.ipfs.w3s.link). Prefer pinata rewrite via processMediaUrl instead.
+  const isPoisonedHostileIpfs = (candidate: string) => {
+    if (mediaType !== 'image') return false;
+    try {
+      return /(?:^|\.)w3s\.link$/i.test(new URL(candidate).hostname);
+    } catch {
+      return /w3s\.link/i.test(candidate);
+    }
+  };
+
+  // Stale cache/memory often holds dead public IPFS after Alchemy enrich.
+  const isPoisonedStaleIpfs = (candidate: string) =>
+    !!alchemyPreferred &&
+    !isAlchemyCdnMediaUrl(candidate) &&
+    (!!extractIPFSPath(candidate) || /\/ipfs\//i.test(candidate));
+
+  if (alchemyPreferred) {
     if (!nftMediaUrlCache[cacheKey]) nftMediaUrlCache[cacheKey] = {};
-    nftMediaUrlCache[cacheKey][mediaType] = remembered;
-    return remembered;
+    nftMediaUrlCache[cacheKey][mediaType] = alchemyPreferred;
+    return preferBrowserReachableMediaUrl(alchemyPreferred);
   }
 
-  const sourceUrl = mediaType === 'image'
-    ? nft.image || nft.metadata?.image || ''
-    : nft.audio || nft.metadata?.animation_url || '';
+  const cached = nftMediaUrlCache[cacheKey]?.[mediaType];
+  if (cached) {
+    if (
+      !isPoisonedRaw(cached) &&
+      !isPoisonedMypinata(cached) &&
+      !isPoisonedHostileIpfs(cached) &&
+      !isPoisonedStaleIpfs(cached)
+    ) {
+      return preferBrowserReachableMediaUrl(cached);
+    }
+    delete nftMediaUrlCache[cacheKey][mediaType];
+    forgetMediaUrl(mediaKey, mediaType);
+  }
+
+  const remembered = getRememberedMediaUrl(mediaKey, mediaType);
+  if (remembered) {
+    // Single-tx Arweave images remembered as turbo /raw/ often hang; PODs
+    // (manifest/file) still need /raw/. Skip poisoned memory for plain txs.
+    // Dedicated mypinata hosts stall on large GIFs (Chili Sounds) — skip those too.
+    if (
+      !isPoisonedRaw(remembered) &&
+      !isPoisonedMypinata(remembered) &&
+      !isPoisonedHostileIpfs(remembered) &&
+      !isPoisonedStaleIpfs(remembered)
+    ) {
+      if (!nftMediaUrlCache[cacheKey]) nftMediaUrlCache[cacheKey] = {};
+      nftMediaUrlCache[cacheKey][mediaType] = remembered;
+      return preferBrowserReachableMediaUrl(remembered);
+    }
+    forgetMediaUrl(mediaKey, mediaType);
+  }
 
   if (!sourceUrl) {
     return mediaType === 'image' ? IMAGE_FALLBACK : AUDIO_FALLBACK;
@@ -765,7 +1298,7 @@ export const getNftMediaUrl = (nft: UserNFT, mediaType: 'image' | 'audio'): stri
   const url = processMediaUrl(sourceUrl, mediaType === 'image' ? IMAGE_FALLBACK : AUDIO_FALLBACK, mediaType);
   if (!nftMediaUrlCache[cacheKey]) nftMediaUrlCache[cacheKey] = {};
   nftMediaUrlCache[cacheKey][mediaType] = url;
-  return url;
+  return preferBrowserReachableMediaUrl(url);
 };
 
 /** Warm the browser cache for an NFT's display image. Audio starts on play. */

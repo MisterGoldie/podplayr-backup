@@ -2,6 +2,7 @@ import type { NFT, NFTFile, NFTMetadata } from '../types/user';
 import {
   buildArweaveMediaFallbackUrls,
   buildIpfsFallbackUrls,
+  isIpfsCorsHostileUrl,
   extractIPFSPath,
   processMediaUrl,
 } from './media';
@@ -542,16 +543,16 @@ export const probeMediaContentType = async (url: string): Promise<string> => {
     if (primary) candidates.add(primary);
     buildArweaveMediaFallbackUrls(url).slice(0, 4).forEach((u) => candidates.add(u));
   } else if (url.startsWith('ipfs://') || extractIPFSPath(url)) {
-    // Same order as playback: original gateway first. Do not rewrite to Pinata
-    // before probing — that CID may only exist on ipfs.io / the source gateway.
-    buildIpfsFallbackUrls(url)
-      .filter((u) => !/nftstorage\.link/i.test(u))
+    // Prefer Pinata / ipfs.io. Skip w3s / nft.storage / dweb — they CORS-fail
+    // from the mini-app / tunnel origin and stall NFT card hydration.
+    buildIpfsFallbackUrls(url, { kind: 'media' })
+      .filter((u) => !isIpfsCorsHostileUrl(u))
       .slice(0, 4)
       .forEach((u) => candidates.add(u));
   } else {
     const primary = processMediaUrl(url, '', 'audio');
     if (primary) candidates.add(primary);
-    candidates.add(url);
+    if (!isIpfsCorsHostileUrl(url)) candidates.add(url);
   }
 
   const store = (ct: string, sourceUrl: string) => {
@@ -573,11 +574,15 @@ export const probeMediaContentType = async (url: string): Promise<string> => {
     );
   };
 
-  for (const probeUrl of candidates) {
+  const probeList = filterLivePlaybackUrls(url, Array.from(candidates)).filter(
+    (u) => !isIpfsCorsHostileUrl(u)
+  );
+
+  for (const probeUrl of probeList) {
     try {
       const head = await timedFetch(probeUrl, { method: 'HEAD' });
       const headCt = head.headers.get('content-type');
-      if (head.status === 404 || head.status === 410) {
+      if (head.status === 404 || head.status === 410 || head.status >= 500) {
         rememberDeadGateway(url, probeUrl);
         continue;
       }
@@ -586,7 +591,9 @@ export const probeMediaContentType = async (url: string): Promise<string> => {
         if (mime) return mime;
       }
     } catch {
-      // try Range GET
+      // CORS / network — do not keep hammering this host for this CID
+      rememberDeadGateway(url, probeUrl);
+      continue;
     }
 
     try {
@@ -595,7 +602,7 @@ export const probeMediaContentType = async (url: string): Promise<string> => {
         headers: { Range: 'bytes=0-0' },
       });
       const getCt = get.headers.get('content-type');
-      if (get.status === 404 || get.status === 410) {
+      if (get.status === 404 || get.status === 410 || get.status >= 500) {
         rememberDeadGateway(url, probeUrl);
         continue;
       }
@@ -604,7 +611,7 @@ export const probeMediaContentType = async (url: string): Promise<string> => {
         if (mime) return mime;
       }
     } catch {
-      // next candidate
+      rememberDeadGateway(url, probeUrl);
     }
   }
 
@@ -696,7 +703,7 @@ export const confirmAudioOnlyPlayback = async (nfts: NFT[]): Promise<boolean> =>
       if (sync.mode !== 'audio-only' || nft.isVideo || nft.videoUrl) {
         applyPlaybackPlanToNft(
           nft,
-          { mode: 'audio-only', audioUrl: url, videoUrl: null, muteVideo: true },
+          { mode: 'audio-only', audioUrl: url || null, videoUrl: null, muteVideo: true },
           known
         );
         changed = true;

@@ -1,9 +1,10 @@
 export const IPFS_GATEWAYS = [
-  'https://ipfs.io/ipfs/',              // Most reliable
-  'https://nftstorage.link/ipfs/',
+  'https://gateway.pinata.cloud/ipfs/',
+  'https://ipfs.io/ipfs/',
+  'https://gateway.ipfs.io/ipfs/',
   'https://w3s.link/ipfs/',
-  'https://4everland.io/ipfs/',
-  'https://gateway.ipfs.io/ipfs/'       // Keep as fallback
+  'https://dweb.link/ipfs/',
+  'https://nftstorage.link/ipfs/',
 ];
 
 export const SUPPORTED_AUDIO_FORMATS = [

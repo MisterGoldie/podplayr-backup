@@ -37,7 +37,7 @@ const isCellularConnection = (): {
 
 const resolveMediaUrls = (rawUrl: string): string[] => {
   if (rawUrl.startsWith('ipfs://') || extractIPFSPath(rawUrl)) {
-    return buildIpfsFallbackUrls(rawUrl);
+    return buildIpfsFallbackUrls(rawUrl, { kind: 'media' });
   }
   const processed = processMediaUrl(rawUrl, '', 'audio');
   return processed ? [processed] : [];

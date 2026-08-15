@@ -115,6 +115,7 @@ const NFTCardInner: React.FC<NFTCardProps> = ({
               className="w-full h-full object-cover"
               width={smallCard ? 160 : 180}
               height={smallCard ? 160 : 180}
+              priority={!smallCard}
             />
           ) : (
             <NFTImage

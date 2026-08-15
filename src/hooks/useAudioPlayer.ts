@@ -42,8 +42,12 @@ import {
   canonicalizeArweaveGatewayUrl,
   abortMediaElement,
   ensurePlaybackVideoElement,
+  shouldProbeIpfsDirectory,
+  extractIPFSPath,
   PLAYBACK_STALL_MS,
   FIRST_BYTE_FAILOVER_MS,
+  IPFS_DIR_FAILOVER_MS,
+  clearNftMediaUrlCache,
 } from '../utils/media';
 import { resolveCdnPlaybackUrls } from '../lib/mediaCdn';
 
@@ -77,6 +81,7 @@ import { useToast } from './useToast';
 import { reviveNftMedia } from '../utils/deadNftRegistry';
 import { prioritizeRememberedUrl, rememberWorkingMediaUrl, forgetMediaUrl, getRememberedMediaUrl } from '../utils/gatewayMemory';
 import { playDebugStart, playDebug, playbackSpeedLog, shortUrl, audioDebugSnapshot } from '../utils/playDebug';
+import { enrichNftMediaFromChain, nftNeedsChainMediaEnrich } from '../lib/nft';
 
 // Create a dedicated logger for this module
 const audioLogger = logger.getModuleLogger('audioPlayer');
@@ -315,43 +320,70 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     audioLogger.info('handlePlayAudio called with NFT:', nft);
     reviveNftMedia(nft, 'audio');
 
+    // Likes / recently-played often store raw IPFS URLs. When public gateways
+    // hang or 404, Alchemy still has cached CDN copies — refresh via /api/nft.
+    let playNft = nft;
+    if (nftNeedsChainMediaEnrich(nft)) {
+      playDebug('enriching media via /api/nft (IPFS may be unreplicated)');
+      playNft = await enrichNftMediaFromChain(nft);
+      if (playNft !== nft) {
+        clearNftMediaUrlCache(nft, 'image');
+        clearNftMediaUrlCache(nft, 'audio');
+        Object.assign(nft, {
+          image: playNft.image,
+          audio: playNft.audio,
+          videoUrl: playNft.videoUrl,
+          playbackMode: playNft.playbackMode,
+          isVideo: playNft.isVideo,
+          hasValidAudio: playNft.hasValidAudio,
+          metadata: playNft.metadata,
+          collection: playNft.collection,
+        });
+      }
+    }
+
     // Extensionless CIDs can be audio (Late #7) or video (Community.eth).
     // Probe before mounting <video>, even if metadata put the sound in animation_url.
-    let plan = getNftPlaybackPlan(nft);
-    const probeUrl = plan.videoUrl || plan.audioUrl || nft.audio;
-    if (urlLooksLike3dModel(probeUrl) || !isPlayableMediaNFT(nft)) {
+    let plan = getNftPlaybackPlan(playNft);
+    const probeUrl = plan.videoUrl || plan.audioUrl || playNft.audio;
+    if (urlLooksLike3dModel(probeUrl) || !isPlayableMediaNFT(playNft)) {
       playDebug('rejected non-audio/video media (3D/model)', {
-        name: nft.name,
+        name: playNft.name,
         url: probeUrl,
       });
-      audioLogger.info('Skipping non-playable media NFT', { name: nft.name, url: probeUrl });
+      audioLogger.info('Skipping non-playable media NFT', { name: playNft.name, url: probeUrl });
       return;
     }
     const knownMime = String(
-      nft.metadata?.mimeType || nft.metadata?.mime_type || ''
+      playNft.metadata?.mimeType || playNft.metadata?.mime_type || ''
     ).toLowerCase();
-    if (
-      mediaUrlNeedsMimeProbe(probeUrl) &&
-      !knownMime.startsWith('audio/') &&
-      !knownMime.startsWith('video/')
-    ) {
+    const skipMimeProbe =
+      /nft2-cdn\.alchemy\.com|nft-cdn\.alchemy\.com/i.test(probeUrl || '') ||
+      knownMime.startsWith('audio/') ||
+      knownMime.startsWith('video/');
+    if (mediaUrlNeedsMimeProbe(probeUrl) && !skipMimeProbe) {
       playDebug('extensionless media — probing Content-Type');
-      plan = await resolveNftPlaybackPlan(nft);
-    } else if (knownMime) {
-      playDebug('skipping MIME probe — metadata already has type', { knownMime });
+      plan = await resolveNftPlaybackPlan(playNft);
+    } else if (knownMime || skipMimeProbe) {
+      playDebug('skipping MIME probe', { knownMime: knownMime || '(alchemy-cdn)' });
     }
+    applyPlaybackPlanToNft(playNft, plan);
     applyPlaybackPlanToNft(nft, plan);
     audioLogger.info('NFT playback plan:', {
       mode: plan.mode,
       audioUrl: plan.audioUrl?.slice(0, 80),
       videoUrl: plan.videoUrl?.slice(0, 80),
-      name: nft.name,
+      name: playNft.name,
     });
 
     // Sound source: dedicated audio, or the video file's audio track
-    const rawAudioUrl = [plan.audioUrl, nft.audio, plan.videoUrl, nft.metadata?.animation_url].find(
-      (url): url is string => Boolean(url) && !urlLooksLike3dModel(url)
-    );
+    const rawAudioUrl = [
+      plan.audioUrl,
+      playNft.audio,
+      plan.videoUrl,
+      playNft.videoUrl,
+      playNft.metadata?.animation_url,
+    ].find((url): url is string => Boolean(url) && !urlLooksLike3dModel(url));
 
     if (!rawAudioUrl) {
       playDebug('NO audio URL on NFT — abort');
@@ -359,7 +391,16 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       return;
     }
     
-    const audioUrls = buildFastPlaybackUrls(rawAudioUrl);
+    const audioUrls = buildFastPlaybackUrls(rawAudioUrl, {
+      contract: playNft.contract,
+      network: playNft.network,
+    });
+    // Always try Alchemy CDN first when enrich provided one.
+    if (playNft.videoUrl && /alchemy\.com/i.test(playNft.videoUrl)) {
+      audioUrls.unshift(playNft.videoUrl);
+    } else if (playNft.audio && /alchemy\.com/i.test(playNft.audio)) {
+      audioUrls.unshift(playNft.audio);
+    }
     if (audioUrls.length === 0) {
       audioLogger.error('Failed to generate any valid audio URLs', { raw: rawAudioUrl });
       return;
@@ -638,6 +679,14 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       }
       switchingUrl = false;
 
+      const currentUrlForTimer = playbackUrls[index] || '';
+      const isIpfsDirCandidate =
+        shouldProbeIpfsDirectory(currentUrlForTimer) ||
+        (!!extractIPFSPath(currentUrlForTimer) &&
+          /\/ipfs\/[^/?#]+\/?$/i.test(currentUrlForTimer) &&
+          !/\.(mp3|wav|m4a|aac|ogg|flac|mp4|webm|mov)(?:\?|#|$)/i.test(currentUrlForTimer));
+      const failoverMs = isIpfsDirCandidate ? IPFS_DIR_FAILOVER_MS : FIRST_BYTE_FAILOVER_MS;
+
       playDebug(`tryUrl[${index}/${playbackUrls.length - 1}]`, {
         url: nextUrl,
         assignedSrc: media.src,
@@ -645,7 +694,7 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       });
       playbackSpeedLog(`trying URL ${index + 1}/${playbackUrls.length}`, {
         source: cdnUrls.includes(nextUrl) ? 'cdn' : 'origin',
-        failoverMs: FIRST_BYTE_FAILOVER_MS,
+        failoverMs,
         url: shortUrl(nextUrl),
       });
 
@@ -660,14 +709,37 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       failoverTimerRef.current = setTimeout(() => {
         if (playAttempt !== playAttemptRef.current || playbackStarted) return;
         if (media.readyState > 0) return;
+
+        const currentUrl = playbackUrls[index] || '';
+        // Directory CIDs often sit in NETWORK_LOADING forever then 404 — don't
+        // wait 30s+; hop to the next audio/video candidate.
+        const hungIpfsDir =
+          shouldProbeIpfsDirectory(currentUrl) ||
+          (!!extractIPFSPath(currentUrl) && /\/ipfs\/[^/?#]+\/?$/i.test(currentUrl));
+
         // Huge Arweave MP4s stay at readyState 0 for a long time while bytes
-        // are in flight. networkState 2 = actually downloading — do not abort.
-        if (media.networkState === HTMLMediaElement.NETWORK_LOADING || !media.paused) {
+        // are in flight. networkState 2 = actually downloading — do not abort
+        // (unless this is a bare IPFS directory that never yields bytes).
+        if (
+          !hungIpfsDir &&
+          (media.networkState === HTMLMediaElement.NETWORK_LOADING || !media.paused)
+        ) {
           playbackSpeedLog('failover skipped — still loading', {
             networkState: media.networkState,
             paused: media.paused,
             url: shortUrl(playbackUrls[index]),
           });
+          // Hard failover if still no bytes after another window (hung LOADING).
+          failoverTimerRef.current = setTimeout(() => {
+            if (playAttempt !== playAttemptRef.current || playbackStarted) return;
+            if (media.readyState > 0) return;
+            playbackSpeedLog('failover — hard (still readyState 0)', {
+              waitedMs: FIRST_BYTE_FAILOVER_MS * 2,
+              from: shortUrl(playbackUrls[index]),
+              next: shortUrl(playbackUrls[index + 1]),
+            });
+            tryUrl(index + 1);
+          }, FIRST_BYTE_FAILOVER_MS);
           return;
         }
         playDebug('no first byte — switching gateway', {
@@ -675,12 +747,13 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
           ...audioDebugSnapshot(media),
         });
         playbackSpeedLog('failover — no first byte', {
-          waitedMs: FIRST_BYTE_FAILOVER_MS,
+          waitedMs: failoverMs,
           from: shortUrl(playbackUrls[index]),
           next: shortUrl(playbackUrls[index + 1]),
+          hungIpfsDir,
         });
         tryUrl(index + 1);
-      }, FIRST_BYTE_FAILOVER_MS);
+      }, failoverMs);
 
       kickPlay();
     };

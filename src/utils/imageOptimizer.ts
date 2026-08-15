@@ -179,13 +179,95 @@ export function shouldPreserveAnimation(url: string): boolean {
   return false;
 }
 
+/**
+ * OpenSea / Cloudinary / Alchemy / similar CDNs already serve sized assets and
+ * often hang or block behind wsrv.nl + Next image-optimizer. Load them direct.
+ */
+export function isBrowserFriendlyCdnUrl(url: string): boolean {
+  if (!url || isLocalOrDataUrl(url)) return false;
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return (
+      host === 'seadn.io' ||
+      host.endsWith('.seadn.io') ||
+      host === 'openseauserdata.com' ||
+      host.endsWith('.openseauserdata.com') ||
+      host === 'res.cloudinary.com' ||
+      host.endsWith('.cloudinary.com') ||
+      host === 'nft-cdn.alchemy.com' ||
+      host === 'nft2-cdn.alchemy.com' ||
+      host.endsWith('.alchemy.com') ||
+      host === 'i.imgur.com' ||
+      host === 'cdn.simplehash.com' ||
+      host.endsWith('.simplehash.com')
+    );
+  } catch {
+    return /seadn\.io|openseauserdata|cloudinary\.com|nft2?-cdn\.alchemy\.com|imgur\.com|simplehash/i.test(
+      url
+    );
+  }
+}
+
+/** Arweave gateways hang or 404 behind wsrv — load them direct. */
+export function isArweaveMediaUrl(url: string): boolean {
+  if (!url || isLocalOrDataUrl(url)) return false;
+  if (url.startsWith('ar://')) return true;
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return (
+      host === 'arweave.net' ||
+      host.endsWith('.arweave.net') ||
+      host === 'turbo-gateway.com' ||
+      host.endsWith('.turbo-gateway.com') ||
+      host === 'permagate.io' ||
+      host.endsWith('.permagate.io') ||
+      host === 'gateway.irys.xyz' ||
+      host === 'ar-io.dev' ||
+      host === 'g8way.io'
+    );
+  } catch {
+    return /arweave|turbo-gateway|permagate|irys|ar-io|g8way/i.test(url);
+  }
+}
+
+/** IPFS thumbs also hang behind wsrv — load gateways direct. */
+export function isIpfsMediaUrl(url: string): boolean {
+  if (!url || isLocalOrDataUrl(url)) return false;
+  if (url.startsWith('ipfs://')) return true;
+  try {
+    const parsed = new URL(url);
+    if (parsed.pathname.startsWith('/ipfs/')) return true;
+    const host = parsed.hostname.toLowerCase();
+    // Includes subdomain gateways: {cid}.ipfs.w3s.link / .dweb.link / etc.
+    return (
+      host === 'ipfs.io' ||
+      host.endsWith('.ipfs.io') ||
+      host === 'gateway.pinata.cloud' ||
+      host.endsWith('.mypinata.cloud') ||
+      host === 'nftstorage.link' ||
+      host.endsWith('.nftstorage.link') ||
+      host === 'dweb.link' ||
+      host.endsWith('.dweb.link') ||
+      host === 'w3s.link' ||
+      host.endsWith('.w3s.link') ||
+      host === 'gateway.ipfs.io' ||
+      /\.ipfs\./i.test(host)
+    );
+  } catch {
+    return /ipfs|pinata|nftstorage|dweb\.link|w3s\.link/i.test(url);
+  }
+}
+
 /** Display-sized card thumbnail so grids don't download full Arweave/IPFS originals. */
 export function getResizedImageUrl(url: string, size = 360): string {
   if (
     isLocalOrDataUrl(url) ||
     isAlreadyResized(url) ||
     /\.svg(\?|$)/i.test(url) ||
-    shouldPreserveAnimation(url)
+    shouldPreserveAnimation(url) ||
+    isBrowserFriendlyCdnUrl(url) ||
+    isArweaveMediaUrl(url) ||
+    isIpfsMediaUrl(url)
   ) {
     return url;
   }
