@@ -66,6 +66,11 @@ const PLAYBACK_OVERRIDES: Record<string, { mobile: string; desktop?: string }> =
     mobile: muxHls('VLW3nHxl5oW02dBMn02kombVDy3B5OtT86jJesGzDl6j00'),
     desktop: muxHls('VLW3nHxl5oW02dBMn02kombVDy3B5OtT86jJesGzDl6j00'),
   },
+  // YOU WIN!! 592
+  bafybeibbsp5qo6xhupb66ychgwwvzv2ae3kwesyvxuv4dynq3rr4jbo23q: {
+    mobile: muxHls('fUxKFIvWyFTKKjrdLnGMQYUGbL01SIkjsIdI02pJi3bW8'),
+    desktop: muxHls('fUxKFIvWyFTKKjrdLnGMQYUGbL01SIkjsIdI02pJi3bW8'),
+  },
 };
 
 export function mediaAssetIdFromUrl(url: string): string | null {
