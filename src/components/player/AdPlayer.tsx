@@ -53,12 +53,6 @@ const AD_CONFIG: AdConfig[] = [
     isVertical: true
   },
   {
-    video: '/podballad1.mp4',
-    url: 'https://farcaster.xyz/miniapps/MBTyTK95-Yif/podball',
-    title: 'PODball',
-    isVertical: false
-  },
-  {
     video: '/podplayrad1.mp4',
     isVertical: false
   },
