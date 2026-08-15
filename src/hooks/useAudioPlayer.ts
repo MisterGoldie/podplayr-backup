@@ -52,7 +52,7 @@ import {
   clearNftMediaUrlCache,
 } from '../utils/media';
 import { resolveCdnPlaybackUrls } from '../lib/mediaCdn';
-import { attachPlaybackSource, detachHlsPlayback, isHlsAttached, isHlsUrl } from '../lib/hlsPlayback';
+import { attachPlaybackSource, detachHlsPlayback, isHlsAttached, isHlsUrl, pauseHlsBuffering, resumeHlsBuffering } from '../lib/hlsPlayback';
 import { restorePageScroll } from '../utils/pageScroll';
 
 function findNftInQueue(queue: NFT[], nft: NFT): number {
@@ -496,6 +496,8 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       previousClock.onpause = null;
       previousClock.onended = null;
       previousClock.onplay = null;
+      previousClock.onseeking = null;
+      previousClock.onseeked = null;
       previousClock.onloadedmetadata = null;
       previousClock.ondurationchange = null;
       previousClock.oncanplay = null;
@@ -543,6 +545,8 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       el.ontimeupdate = null;
       el.onplay = null;
       el.onpause = null;
+      el.onseeking = null;
+      el.onseeked = null;
       el.onended = null;
     };
     detachPlaybackHandlers(audio);
@@ -923,11 +927,21 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
 
     media.onplay = () => {
       playDebug('media.onplay (not marking isPlaying yet — waiting for playing)', audioDebugSnapshot(media));
+      resumeHlsBuffering();
     };
     media.onpause = () => {
       if (playAttempt !== playAttemptRef.current || switchingUrl) return;
       playDebug('media.onpause', audioDebugSnapshot(media));
       if (!media.ended) setIsPlaying(false);
+      pauseHlsBuffering();
+    };
+    media.onseeking = () => {
+      if (playAttempt !== playAttemptRef.current) return;
+      resumeHlsBuffering();
+    };
+    media.onseeked = () => {
+      if (playAttempt !== playAttemptRef.current) return;
+      if (media.paused) pauseHlsBuffering();
     };
     media.onended = () => {
       if (playAttempt !== playAttemptRef.current) return;

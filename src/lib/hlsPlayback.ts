@@ -11,6 +11,36 @@ export function isHlsAttached(): boolean {
   return currentHls !== null;
 }
 
+/** Stop fetching new Mux/HLS segments. Keeps the current buffer so resume is instant. */
+export function pauseHlsBuffering() {
+  if (!currentHls) return;
+  try {
+    currentHls.pauseBuffering();
+    playDebug('hls pause buffering');
+  } catch {
+    try {
+      currentHls.stopLoad();
+    } catch {
+      // ignore
+    }
+  }
+}
+
+/** Resume fragment loading after pauseHlsBuffering / a seek while paused. */
+export function resumeHlsBuffering() {
+  if (!currentHls) return;
+  try {
+    currentHls.resumeBuffering();
+    playDebug('hls resume buffering');
+  } catch {
+    try {
+      currentHls.startLoad();
+    } catch {
+      // ignore
+    }
+  }
+}
+
 export function detachHlsPlayback(media?: HTMLMediaElement | null) {
   if (currentHls) {
     try {
@@ -76,6 +106,9 @@ export async function attachPlaybackSource(
       startLevel: 0,
       capLevelToPlayerSize: false,
       preferManagedMediaSource: false,
+      // Default maxMaxBufferLength is 600s — that is the bufferFullError after pause.
+      maxBufferLength: 20,
+      maxMaxBufferLength: 45,
       xhrSetup: (xhr) => {
         xhr.withCredentials = false;
       },
