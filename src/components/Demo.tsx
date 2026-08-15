@@ -295,12 +295,26 @@ const DemoBase: React.FC = () => {
     console.log('[PLAY-DEBUG] Demo.handlePlayNFT', {
       name: nft.name,
       sameTrack,
+      isPlaying,
       queueType: context?.queueType,
       queueLen: context?.queue?.length,
     });
 
     setIsPlayerMinimized(true);
-    if (sameTrack) return;
+
+    // Same track from Recently Played / cards: toggle pause, or restart so
+    // play-count threshold can fire again after an ended / paused session.
+    if (sameTrack) {
+      if (isPlaying) {
+        handlePlayPause();
+        return;
+      }
+      beforePlay(
+        () => { void handlePlayAudio(nft, context); },
+        undefined
+      );
+      return;
+    }
 
     beforePlay(
       () => { void handlePlayAudio(nft, context); },

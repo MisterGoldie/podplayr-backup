@@ -101,9 +101,12 @@ const nftFromPlayRecord = (data: DocumentData): NFT => {
       name: collectionName,
     },
     network: data.network || nested.network,
-    mediaKey: data.mediaKey,
+    // Prefer canonical contract-tokenId key so play counts match InfoPanel.
+    mediaKey: undefined,
   };
-  return hydrateNftPlayback(nft);
+  const hydrated = hydrateNftPlayback(nft);
+  hydrated.mediaKey = getMediaKey(hydrated) || data.mediaKey;
+  return hydrated;
 };
 const dataLogger = logger.getModuleLogger('data');
 
@@ -728,7 +731,7 @@ export const recordRecentPlay = async (nft: NFT, fid: number) => {
       return;
     }
 
-    const mediaKey = nft.mediaKey || getMediaKey(nft);
+    const mediaKey = getMediaKey(nft);
     if (!mediaKey) {
       firebaseLogger.error('Could not generate mediaKey for recent play:', nft.name);
       return;
@@ -784,8 +787,10 @@ export const trackNFTPlay = async (nft: NFT, fid: number, options?: { forceTrack
       return;
     }
 
-    // Get mediaKey for consistent NFT content identification
-    const mediaKey = nft.mediaKey || getMediaKey(nft);
+    // Canonical global_plays id is always getMediaKey(contract-tokenId).
+    // playHistory may still carry a legacy UUID mediaKey — using that made
+    // InfoPanel (which listens on getMediaKey) miss play-count increments.
+    const mediaKey = getMediaKey(nft);
     if (!mediaKey) {
       firebaseLogger.error('Could not generate mediaKey for NFT:', nft);
       return;

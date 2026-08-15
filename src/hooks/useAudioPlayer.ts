@@ -444,12 +444,24 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       remembered: getRememberedMediaUrl(mediaKeyForMemory, 'audio'),
     });
 
-    // If same NFT is clicked, toggle play/pause
+    // If same NFT is clicked: pause/resume mid-track; restart when ended so a
+    // new play session can hit the 25% play-count threshold again.
     if (currentlyPlaying === `${nft.contract}-${nft.tokenId}`) {
-      playDebug('same NFT — toggle pause/play instead of reload');
-      audioLogger.info('Same NFT clicked, toggling play/pause');
-      handlePlayPause();
-      return;
+      const clock = visualPlaybackRef.current || audioRef.current;
+      const atEnd = Boolean(
+        clock &&
+          (clock.ended ||
+            (Number.isFinite(clock.duration) &&
+              clock.duration > 0 &&
+              clock.currentTime >= clock.duration - 0.35))
+      );
+      if (!atEnd) {
+        playDebug('same NFT — toggle pause/play instead of reload');
+        audioLogger.info('Same NFT clicked, toggling play/pause');
+        handlePlayPause();
+        return;
+      }
+      playDebug('same NFT ended — restart for new play session');
     }
 
     playAttemptRef.current += 1;
