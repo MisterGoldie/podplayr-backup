@@ -86,4 +86,20 @@ export const SUGGESTED_MUSIC_VIDEOS: NFT[] = [
       description: 'Energy (OFFICIAL VISUALIZER)',
     },
   },
+  {
+    name: 'PLATTER',
+    image: 'https://i2c.seadn.io/ethereum/0xd86a103ca84ccbb885980cc910cd6a07bb0b9172/b3b9e13656bdd01e34710810931ae4/05b3b9e13656bdd01e34710810931ae4.jpeg',
+    contract: '0xd86a103ca84ccbb885980cc910cd6a07bb0b9172',
+    tokenId: '22',
+    network: 'ethereum',
+    audio: 'https://raw2.seadn.io/ethereum/0xd86a103ca84ccbb885980cc910cd6a07bb0b9172/83edeeba95c9390959ccd1febaca30/bf83edeeba95c9390959ccd1febaca30.mp4',
+    isVideo: true,
+    playbackMode: 'video-with-audio',
+    collection: { name: 'LATASHÁ' },
+    metadata: {
+      animation_url: 'https://raw2.seadn.io/ethereum/0xd86a103ca84ccbb885980cc910cd6a07bb0b9172/83edeeba95c9390959ccd1febaca30/bf83edeeba95c9390959ccd1febaca30.mp4',
+      mimeType: 'video/mp4',
+      description: 'PLATTER (music video) 22/100',
+    },
+  },
 ];

@@ -26,7 +26,7 @@ const CDN_BASE = (process.env.NEXT_PUBLIC_MEDIA_CDN_BASE || '').replace(/\/+$/, 
 
 /**
  * Optional per-id overrides (Cloudflare Stream HLS, Mux, etc.).
- * Key = Arweave tx id, IPFS CID, or Alchemy nft-cdn filename.
+ * Key = Arweave tx id, IPFS CID, Alchemy nft-cdn filename, or OpenSea seadn filename.
  */
 const muxHls = (playbackId: string) => `https://stream.mux.com/${playbackId}.m3u8`;
 
@@ -111,6 +111,11 @@ const PLAYBACK_OVERRIDES: Record<string, { mobile: string; desktop?: string }> =
     mobile: muxHls('OyxgVCF400m5RVH6Q01sGk01ANkD01nONIMRvw9HLLe02M8M'),
     desktop: muxHls('OyxgVCF400m5RVH6Q01sGk01ANkD01nONIMRvw9HLLe02M8M'),
   },
+  // PLATTER (music video) — OpenSea raw2.seadn.io filename
+  bf83edeeba95c9390959ccd1febaca30: {
+    mobile: muxHls('49KMUH00qnSlvwdqt00qjik02aFFGI02ott3eZqn00neQJv8'),
+    desktop: muxHls('49KMUH00qnSlvwdqt00qjik02aFFGI02ott3eZqn00neQJv8'),
+  },
 };
 
 /** Alchemy NFT CDN media filename, e.g. 7d1b91517fd57375c124c9f8b6a66a2c_animation */
@@ -127,13 +132,26 @@ function extractAlchemyMediaId(url: string): string | null {
   }
 }
 
+/** OpenSea CDN filename, e.g. bf83edeeba95c9390959ccd1febaca30.mp4 */
+function extractOpenSeaMediaId(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    if (!parsed.hostname.toLowerCase().includes('seadn.io')) return null;
+    const last = parsed.pathname.split('/').filter(Boolean).pop();
+    if (!last) return null;
+    return last.replace(/\.(mp4|m3u8|webm|mov|gif|png|jpe?g|webp)$/i, '') || null;
+  } catch {
+    return null;
+  }
+}
+
 export function mediaAssetIdFromUrl(url: string): string | null {
   if (!url) return null;
   const ar = parseArweaveMediaPath(url);
   if (ar.fileTxId) return ar.fileTxId;
   const cid = extractIPFSHash(url);
   if (cid) return cid;
-  return extractAlchemyMediaId(url);
+  return extractAlchemyMediaId(url) || extractOpenSeaMediaId(url);
 }
 
 function isUsableUrl(url?: string): url is string {
