@@ -162,7 +162,116 @@ function isLocalOrDataUrl(url: string): boolean {
 }
 
 function isAlreadyResized(url: string): boolean {
-  return url.includes('wsrv.nl') || url.includes('images.weserv.nl') || url.includes('img-width=');
+  return (
+    url.includes('wsrv.nl') ||
+    url.includes('images.weserv.nl') ||
+    url.includes('/_next/image') ||
+    /[?&]img-width=\d+/.test(url) ||
+    /res\.cloudinary\.com\/alchemyapi\/(?:image\/(?:fetch|upload)|video\/fetch)\/w_\d+/i.test(
+      url
+    )
+  );
+}
+
+/**
+ * Alchemy-hosted card thumbs (no third-party proxy).
+ * Prefer thumbnailv2 / sized video stills — wsrv cold-starts and fails on video blobs.
+ */
+export function getAlchemyNativeCardThumb(url: string, size = 360): string | null {
+  if (!url || isLocalOrDataUrl(url)) return null;
+
+  let u = url;
+  const fetchWrapped = url.match(
+    /res\.cloudinary\.com\/alchemyapi\/image\/fetch\/[^?]+\/(https?:\/\/\S+)/i
+  );
+  if (fetchWrapped?.[1]) u = fetchWrapped[1];
+
+  if (
+    /res\.cloudinary\.com\/alchemyapi\/(?:image\/upload|video\/fetch)/i.test(u) &&
+    /\/w_\d+/.test(u)
+  ) {
+    return u;
+  }
+
+  if (/res\.cloudinary\.com\/alchemyapi\/image\/upload/i.test(u)) {
+    return u.replace(
+      /(\/image\/upload\/)/i,
+      `$1w_${size},h_${size},c_fill,q_70/`
+    );
+  }
+
+  if (/res\.cloudinary\.com\/alchemyapi\/video\/fetch/i.test(u)) {
+    return u.replace(
+      /(\/video\/fetch\/)/i,
+      `$1w_${size},h_${size},c_fill,q_70,f_png,so_0/`
+    );
+  }
+
+  const cdn = u.match(/nft2?-cdn\.alchemy\.com\/([^/?#]+)\/([^/?#]+)/i);
+  if (cdn) {
+    return `https://res.cloudinary.com/alchemyapi/image/upload/w_${size},h_${size},c_fill,q_70/thumbnailv2/${cdn[1]}/${cdn[2]}`;
+  }
+
+  return null;
+}
+
+/** Ordered card fallbacks: Alchemy native → video still → wsrv → weserv mirror. */
+export function getCardThumbAlternates(url: string, size = 360): string[] {
+  const alts: string[] = [];
+  const seen = new Set<string>();
+  const push = (u: string | null | undefined) => {
+    if (!u || seen.has(u)) return;
+    seen.add(u);
+    alts.push(u);
+  };
+
+  push(getAlchemyNativeCardThumb(url, size));
+
+  let underlying = url;
+  const fetchWrapped = url.match(
+    /res\.cloudinary\.com\/alchemyapi\/image\/fetch\/[^?]+\/(https?:\/\/\S+)/i
+  );
+  if (fetchWrapped?.[1]) underlying = fetchWrapped[1];
+  const fromVideo = url.match(/https?:\/\/nft2?-cdn\.alchemy\.com\/[^\s"'?]+/i);
+  if (fromVideo?.[0]) underlying = fromVideo[0];
+
+  const cdnFull = underlying.match(
+    /https?:\/\/nft2?-cdn\.alchemy\.com\/[^/?#]+\/[^/?#]+/i
+  )?.[0];
+  if (cdnFull) {
+    push(
+      `https://res.cloudinary.com/alchemyapi/video/fetch/w_${size},h_${size},c_fill,q_70,f_png,so_0/${cdnFull}`
+    );
+  }
+
+  if (
+    underlying &&
+    !isLocalOrDataUrl(underlying) &&
+    !isVideoMediaUrl(underlying) &&
+    !shouldPreserveAnimation(underlying)
+  ) {
+    let forProxy = underlying;
+    if (
+      forProxy.startsWith('ipfs://') ||
+      forProxy.includes('/ipfs/') ||
+      forProxy.startsWith('ar://')
+    ) {
+      forProxy = getOptimizedImageUrl(forProxy);
+    }
+    const params = new URLSearchParams({
+      url: forProxy,
+      w: String(size),
+      h: String(size),
+      fit: 'cover',
+      q: '65',
+      output: 'webp',
+      n: '-1',
+    });
+    push(`${THUMB_PROXY}${params.toString()}`);
+    push(`https://images.weserv.nl/?${params.toString()}`);
+  }
+
+  return alts;
 }
 
 /**
@@ -272,8 +381,8 @@ export function isVideoMediaUrl(url: string): boolean {
 
 /**
  * Card-grid thumbs: always cap decode size.
- * Alchemy Cloudinary `image/fetch` wrappers 401 for unsigned clients — use wsrv instead.
- * Never return raw nft-cdn / SeaDN / Arweave originals for small cards (8k–14k OOMs).
+ * Alchemy assets → Cloudinary thumbnailv2 / video stills (fast, sized).
+ * Other remotes → wsrv. Never return raw 8k–14k CDN originals.
  */
 export function getCardThumbUrl(url: string, size = 360): string {
   if (
@@ -287,29 +396,15 @@ export function getCardThumbUrl(url: string, size = 360): string {
     return url;
   }
 
-  let resolved = url;
+  const alchemy = getAlchemyNativeCardThumb(url, size);
+  if (alchemy) return alchemy;
 
-  // Unwrap failed Alchemy Cloudinary image/fetch wrappers → underlying asset
+  let resolved = url;
   const fetchWrapped = url.match(
     /res\.cloudinary\.com\/alchemyapi\/image\/fetch\/[^?]+\/(https?:\/\/\S+)/i
   );
   if (fetchWrapped?.[1]) {
     resolved = fetchWrapped[1];
-  }
-
-  // video/fetch stills: prefer underlying nft-cdn URL for wsrv, else inject size
-  if (/res\.cloudinary\.com\/alchemyapi\/video\/fetch/i.test(resolved)) {
-    const underlying = resolved.match(/https?:\/\/nft2?-cdn\.alchemy\.com\/[^\s"'?]+/i);
-    if (underlying?.[0]) {
-      resolved = underlying[0];
-    } else if (!/\/w_\d+/.test(resolved)) {
-      return resolved.replace(
-        /(\/video\/fetch\/)/i,
-        `$1w_${size},h_${size},c_fill,q_70,`
-      );
-    } else {
-      return resolved;
-    }
   }
 
   if (resolved.startsWith('ipfs://') || resolved.includes('/ipfs/') || resolved.startsWith('ar://')) {

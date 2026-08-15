@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { processMediaUrl, IPFS_GATEWAYS, isAudioUrlUsedAsImage, getCleanIPFSUrl, processArweaveUrl, getMediaKey, buildArweaveImageFallbackUrls, buildIpfsFallbackUrls, buildHttpCdnImageFallbackUrls, extractIPFSPath, getNftMediaUrl, toIpfsGatewayUrl, clearNftMediaUrlCache, pickImageCandidates, shouldProbeIpfsDirectory } from '../../utils/media';
-import { getCardThumbUrl, shouldPreserveAnimation, isBrowserFriendlyCdnUrl, isArweaveMediaUrl, isIpfsMediaUrl, isVideoMediaUrl } from '../../utils/imageOptimizer';
+import { getCardThumbUrl, getCardThumbAlternates, shouldPreserveAnimation, isBrowserFriendlyCdnUrl, isArweaveMediaUrl, isIpfsMediaUrl, isVideoMediaUrl } from '../../utils/imageOptimizer';
 import Image from 'next/image';
 import type { SyntheticEvent } from 'react';
 import type { NFT } from '../../types/user';
@@ -754,17 +754,22 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       imgSrc.includes('wsrv.nl') ||
       imgSrc.includes('images.weserv.nl') ||
       imgSrc.includes('img-width=');
+    const isAlchemySizedThumb =
+      /res\.cloudinary\.com\/alchemyapi\/(?:image\/upload|video\/fetch)\/w_\d+/i.test(
+        imgSrc
+      );
+    const isCardHangCandidate = useCardThumb && (isProxy || isAlchemySizedThumb);
     const isArweaveHangCandidate =
       isArweaveMediaUrl(imgSrc) || isArweaveUrl(imgSrc) || isArweaveUrl(src);
     if (
       !imgLoading ||
-      (!isProxy && !isArweaveHangCandidate) ||
+      (!isProxy && !isCardHangCandidate && !isArweaveHangCandidate) ||
       !originalUrlRef.current
     ) {
       return;
     }
-    // Proxy: 3s. Arweave: 20s (multi-MB images). Cap arweave hang hops at 3.
-    const waitMs = isProxy ? 3000 : 20000;
+    // Card/proxy: 4s. Arweave: 20s (multi-MB images). Cap arweave hang hops at 3.
+    const waitMs = isArweaveHangCandidate && !isCardHangCandidate ? 20000 : 4000;
     const timeout = window.setTimeout(() => {
       // Re-resolve often sets imgLoading=true for the same URL; onLoad won't
       // re-fire, so this timer must not thrash a URL that already decoded.
@@ -795,7 +800,27 @@ export const NFTImage: React.FC<NFTImageProps> = ({
         : processMediaUrl(raw, fallbackSrc, 'image');
 
       let next = fresh && fresh !== imgSrc ? fresh : originalUrlRef.current;
-      if (isArweaveUrl(raw) || isArweaveMediaUrl(raw) || isArweaveMediaUrl(imgSrc)) {
+      let skipToDisplay = false;
+
+      if (useCardThumb && originalUrlRef.current) {
+        // Never re-wrap the same hung URL via toDisplaySrc (was looping wsrv→original→wsrv).
+        const size = Math.max(width * 2, 360);
+        attemptedFallbacks.current[`${imgSrc}-hang`] = true;
+        const alt = getCardThumbAlternates(originalUrlRef.current, size).find(
+          (u) => u !== imgSrc && !attemptedFallbacks.current[`${u}-hang`]
+        );
+        if (alt) {
+          next = alt;
+          attemptedFallbacks.current[`${alt}-hang`] = true;
+          skipToDisplay = true;
+        } else {
+          nftImgLog('timeout:card-hang — keeping current (no more sized alts)', nft, {
+            hung: shortUrl(imgSrc),
+          });
+          setImgLoading(false);
+          return;
+        }
+      } else if (isArweaveUrl(raw) || isArweaveMediaUrl(raw) || isArweaveMediaUrl(imgSrc)) {
         if (arweaveFallbackUrls.current.length === 0) {
           arweaveFallbackUrls.current = buildArweaveImageFallbackUrls(raw || next).slice(0, 3);
           arweaveFallbackIndex.current = 0;
@@ -835,18 +860,26 @@ export const NFTImage: React.FC<NFTImageProps> = ({
         return;
       }
 
-      nftImgLog(isProxy ? 'timeout:proxy-hang → fallback' : 'timeout:arweave-hang → fallback', nft, {
-        hung: shortUrl(imgSrc),
-        next: shortUrl(next),
-        fresh: shortUrl(fresh),
-      });
-      setImgSrc(toDisplaySrc(next));
+      nftImgLog(
+        useCardThumb
+          ? 'timeout:card-hang → sized-alt'
+          : isProxy
+            ? 'timeout:proxy-hang → fallback'
+            : 'timeout:arweave-hang → fallback',
+        nft,
+        {
+          hung: shortUrl(imgSrc),
+          next: shortUrl(next),
+          fresh: shortUrl(fresh),
+        }
+      );
+      setImgSrc(skipToDisplay ? next : toDisplaySrc(next));
       setError(false);
       setIsLoadingFallback(false);
       setImgLoading(true);
     }, waitMs);
     return () => window.clearTimeout(timeout);
-  }, [imgSrc, imgLoading]);
+  }, [imgSrc, imgLoading, useCardThumb, width, height]);
 
   const handleError = async (error: SyntheticEvent<HTMLVideoElement | HTMLImageElement>) => {
     // Get the current failing URL
@@ -892,18 +925,24 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       failedSrc.includes('wsrv.nl') ||
       failedSrc.includes('images.weserv.nl') ||
       failedSrc.includes('img-width=') ||
-      /res\.cloudinary\.com\/alchemyapi\/image\/fetch/i.test(failedSrc);
+      /res\.cloudinary\.com\/alchemyapi\/(?:image\/(?:fetch|upload)|video\/fetch)/i.test(
+        failedSrc
+      );
     if (isThumbProxy && originalUrlRef.current && originalUrlRef.current !== failedSrc) {
       // Cards must never decode full-res Alchemy/CDN stills (14k images OOM the tab).
       if (useCardThumb) {
-        const sized = getCardThumbUrl(originalUrlRef.current, Math.max(width * 2, 360));
-        if (sized && sized !== failedSrc && !attemptedFallbacks.current[`${sized}-card`]) {
-          attemptedFallbacks.current[`${sized}-card`] = true;
+        const size = Math.max(width * 2, 360);
+        attemptedFallbacks.current[`${failedSrc}-card`] = true;
+        const nextAlt = getCardThumbAlternates(originalUrlRef.current, size).find(
+          (u) => u !== failedSrc && !attemptedFallbacks.current[`${u}-card`]
+        );
+        if (nextAlt) {
+          attemptedFallbacks.current[`${nextAlt}-card`] = true;
           nftImgLog('retry:card-thumb-alt', nft, {
             failed: shortUrl(failedSrc),
-            next: shortUrl(sized),
+            next: shortUrl(nextAlt),
           });
-          setImgSrc(sized);
+          setImgSrc(nextAlt);
           setError(false);
           setIsLoadingFallback(false);
           return;
