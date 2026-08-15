@@ -8,27 +8,27 @@ interface UseNFTLikeProps {
 }
 
 export const useNFTLike = ({ onLikeToggle, setIsLiked }: UseNFTLikeProps) => {
-  const nftNotification = useNFTNotification();
+  const { showNotification } = useNFTNotification();
 
   const handleUnlike = useCallback(async (nft: NFT) => {
     try {
       await onLikeToggle(nft);
-      nftNotification.showNotification('unlike', nft);
+      showNotification('unlike', nft);
       setIsLiked?.(false);
     } catch (error) {
       console.error('Error unliking NFT:', error);
     }
-  }, [onLikeToggle, nftNotification, setIsLiked]);
+  }, [onLikeToggle, showNotification, setIsLiked]);
 
   const handleLike = useCallback(async (nft: NFT) => {
     try {
       await onLikeToggle(nft);
-      nftNotification.showNotification('like', nft);
+      showNotification('like', nft);
       setIsLiked?.(true);
     } catch (error) {
       console.error('Error liking NFT:', error);
     }
-  }, [onLikeToggle, nftNotification, setIsLiked]);
+  }, [onLikeToggle, showNotification, setIsLiked]);
 
   return {
     handleLike,

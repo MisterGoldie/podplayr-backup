@@ -7,8 +7,6 @@ import { NFTGifImage } from '../media/NFTGifImage';
 import { NFTCard } from '../nft/NFTCard';
 import { getMediaKey } from '~/utils/media';
 import { shouldPreserveAnimation } from '../../utils/imageOptimizer';
-import NotificationHeader from '../NotificationHeader';
-import NFTNotification from '../NFTNotification';
 import { PAGE_SIZE, usePagedItems } from '../../hooks/usePagedItems';
 import { useNFTLike } from '../../hooks/useNFTLike';
 import { isPlayableMediaNFT } from '../../utils/isMediaNFT';
@@ -71,7 +69,6 @@ interface LibraryViewProps {
   currentPlayingNFT: NFT | null;
   handlePlayAudio: (nft: NFT, context?: { queue?: NFT[]; queueType?: string }) => Promise<void>;
   handlePlayPause: () => void;
-  onReset: () => void;
   userContext: UserContext;
   setIsLiked: (isLiked: boolean) => void;
   setIsPlayerVisible: (visible: boolean) => void;
@@ -277,7 +274,6 @@ const LibraryView: React.FC<LibraryViewProps> = ({
   currentPlayingNFT,
   handlePlayAudio,
   handlePlayPause,
-  onReset,
   userContext,
   setIsLiked,
   onLikeToggle,
@@ -313,9 +309,6 @@ const LibraryView: React.FC<LibraryViewProps> = ({
 
   return (
     <>
-      <NotificationHeader show={false} message="" onReset={onReset} />
-      <NFTNotification onReset={onReset} />
-
       <div
         ref={scrollRootRef}
         className="page-scroll space-y-5 pt-20 pb-40 bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082]"

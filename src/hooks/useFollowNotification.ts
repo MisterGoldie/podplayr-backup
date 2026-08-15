@@ -1,8 +1,10 @@
 import { useCallback, useState } from 'react';
 
+export type FollowToastType = 'success' | 'info' | 'error';
+
 export interface FollowNotificationState {
   message: string;
-  type: 'success' | 'info';
+  type: FollowToastType;
   isVisible: boolean;
 }
 
@@ -16,7 +18,7 @@ export function useFollowNotification() {
     isVisible: false
   });
 
-  const showNotification = useCallback((message: string, type: 'success' | 'info' = 'success') => {
+  const showNotification = useCallback((message: string, type: FollowToastType = 'success') => {
     setNotification({ message, type, isVisible: true });
     setTimeout(() => {
       setNotification(prev => ({ ...prev, isVisible: false }));

@@ -28,6 +28,8 @@ import { UserImageProvider } from '../contexts/UserImageContext';
 import { BaseAppSignIn } from './auth/BaseAppSignIn';
 import { parseProfileFid } from '../lib/miniapp';
 import { restorePageScroll } from '../utils/pageScroll';
+import NFTNotification from './NFTNotification';
+import { useNFTNotification } from '../context/NFTNotificationContext';
 
 const demoLogger = logger.getModuleLogger('demo');
 
@@ -112,6 +114,7 @@ const DemoBase: React.FC = () => {
     handlePlayPrevious
   } = usePlayer();
   const { showAd, beforePlay, onAdComplete } = usePrerollAd();
+  const { showNotification } = useNFTNotification();
 
   useEffect(() => {
     try {
@@ -252,7 +255,7 @@ const DemoBase: React.FC = () => {
   const onLikeToggle = useCallback(async (nft: NFT) => {
     if (!fid) {
       demoLogger.warn('No FID available for like toggle');
-      return;
+      throw new Error('No FID available for like toggle');
     }
 
     try {
@@ -285,6 +288,7 @@ const DemoBase: React.FC = () => {
       }
     } catch (likeError) {
       demoLogger.error('Error toggling like:', likeError);
+      throw likeError;
     }
   }, [fid, likedNFTs]);
 
@@ -373,6 +377,16 @@ const DemoBase: React.FC = () => {
   const onReset = useCallback(() => {
     closeUserProfile(HOME_PAGE);
   }, [closeUserProfile]);
+
+  const handlePlayerLikeToggle = useCallback(async (nft: NFT) => {
+    const wasLiked = isNFTLiked(nft);
+    try {
+      await onLikeToggle(nft);
+      showNotification(wasLiked ? 'unlike' : 'like', nft);
+    } catch {
+      // Logged inside onLikeToggle; skip the header banner on failure.
+    }
+  }, [isNFTLiked, onLikeToggle, showNotification]);
 
   const handleDirectUserSelect = useCallback(async (user: FarcasterUser) => {
     try {
@@ -487,6 +501,7 @@ const DemoBase: React.FC = () => {
 
   return (
     <div className="relative bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082] text-white">
+      <NFTNotification onLogoClick={onReset} />
       <BaseAppSignIn variant="banner" />
       {currentPage.isHome && (
         <HomeView
@@ -496,7 +511,6 @@ const DemoBase: React.FC = () => {
           currentlyPlaying={currentlyPlaying}
           isPlaying={isPlaying}
           handlePlayPause={handlePlayPause}
-          onReset={onReset}
           onLikeToggle={onLikeToggle}
           likedNFTs={likedNFTs}
           currentPlayingNFT={currentPlayingNFT}
@@ -510,7 +524,6 @@ const DemoBase: React.FC = () => {
           isSearching={isSearching}
           recentSearches={recentSearches}
           handleDirectUserSelect={handleDirectUserSelect}
-          onReset={onReset}
         />
       )}
       {currentPage.isLibrary && (
@@ -521,7 +534,6 @@ const DemoBase: React.FC = () => {
           currentPlayingNFT={currentPlayingNFT}
           handlePlayAudio={handlePlayNFT}
           handlePlayPause={handlePlayPause}
-          onReset={onReset}
           userContext={{
             user: {
               fid: fid || 0,
@@ -549,7 +561,6 @@ const DemoBase: React.FC = () => {
             isPlaying={isPlaying}
             currentlyPlaying={currentlyPlaying}
             handlePlayPause={handlePlayPause}
-            onReset={onReset}
             onNFTsLoaded={() => {}}
             onLikeToggle={onLikeToggle}
             isNFTLiked={isNFTLiked}
@@ -570,7 +581,6 @@ const DemoBase: React.FC = () => {
           isPlaying={isPlaying}
           currentlyPlaying={currentlyPlaying}
           handlePlayPause={handlePlayPause}
-          onReset={onReset}
           onBack={() => {
             if (navigationSource.fromProfile) {
               closeUserProfile({
@@ -620,7 +630,7 @@ const DemoBase: React.FC = () => {
           isMinimized={isPlayerMinimized}
           onMinimizeToggle={() => setIsPlayerMinimized(!isPlayerMinimized)}
           onPlayNFT={handlePlayNFT}
-          onLikeToggle={() => currentPlayingNFT && onLikeToggle(currentPlayingNFT)}
+          onLikeToggle={handlePlayerLikeToggle}
           isLiked={!!currentPlayingNFT && isNFTLiked(currentPlayingNFT)}
           onPictureInPicture={togglePictureInPicture}
           showAd={showAd}

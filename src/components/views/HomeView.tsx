@@ -6,8 +6,6 @@ import type { NFT } from '~/types/nft';
 import FeaturedSection from '../sections/FeaturedSection';
 import RecentlyPlayed from '../RecentlyPlayed';
 import { getMediaKey } from '../../utils/media';
-import NotificationHeader from '../NotificationHeader';
-import NFTNotification from '../NFTNotification';
 import { logger } from '~/utils/logger';
 import { UserFidContext } from '~/app/providers';
 
@@ -24,7 +22,6 @@ interface HomeViewProps {
   isPlaying: boolean;
   handlePlayPause: () => void;
   isLoading?: boolean;
-  onReset: () => void;
   onLikeToggle: (nft: NFT) => Promise<void>;
   likedNFTs: NFT[];
   currentPlayingNFT?: NFT | null;
@@ -39,7 +36,6 @@ const HomeView: React.FC<HomeViewProps> = ({
   isPlaying,
   handlePlayPause,
   isLoading = false,
-  onReset,
   onLikeToggle,
   likedNFTs,
   currentPlayingNFT,
@@ -90,7 +86,6 @@ const HomeView: React.FC<HomeViewProps> = ({
   if (isLoading) {
     return (
       <>
-        <NotificationHeader show={false} message="" onReset={onReset} />
         <div className="page-scroll space-y-8 animate-pulse pt-20 px-4 bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082]">
           <div className="h-6 w-40 bg-purple-900/40 rounded" />
           <div className="flex gap-4 overflow-hidden">
@@ -111,9 +106,6 @@ const HomeView: React.FC<HomeViewProps> = ({
 
   return (
     <>
-      <NotificationHeader show={false} message="" onReset={onReset} />
-      <NFTNotification onReset={onReset} />
-
       <div className="page-scroll space-y-6 pt-20 pb-40 bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082]">
         {!isFidReady ? (
           <section className="w-full">

@@ -1,14 +1,18 @@
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import React, { createContext, useCallback, useContext, useMemo, useState, ReactNode } from 'react';
 import { NFT } from '../types/user';
 
-type NotificationType = 'like' | 'unlike';
+export type HeaderBannerType = 'success' | 'info' | 'warning' | 'error';
+export type NFTNotificationAction = 'like' | 'unlike';
 
 interface NFTNotificationContextType {
-  showNotification: (type: NotificationType, nft: NFT) => void;
+  showNotification: (type: NFTNotificationAction, nft: NFT) => void;
+  showBanner: (type: HeaderBannerType, message: string, highlightText?: string) => void;
   hideNotification: () => void;
   isVisible: boolean;
-  notificationType: NotificationType | null;
-  nftName: string;
+  bannerId: number;
+  bannerType: HeaderBannerType;
+  message: string;
+  highlightText: string;
 }
 
 const NFTNotificationContext = createContext<NFTNotificationContextType | undefined>(undefined);
@@ -21,58 +25,60 @@ export const useNFTNotification = () => {
   return context;
 };
 
+const ACTION_BANNER: Record<NFTNotificationAction, { type: HeaderBannerType; message: string }> = {
+  like: { type: 'success', message: 'Added to library' },
+  unlike: { type: 'error', message: 'Removed from library' },
+};
+
+function cleanNftName(name?: string) {
+  return name ? name.replace(/\s*[×Xx]\s*$/, '') : '';
+}
+
 interface NFTNotificationProviderProps {
   children: ReactNode;
 }
 
 export const NFTNotificationProvider: React.FC<NFTNotificationProviderProps> = ({ children }) => {
-  const [isVisible, setIsVisible] = useState<boolean>(false);
-  const [notificationType, setNotificationType] = useState<NotificationType | null>(null);
-  const [nftName, setNftName] = useState<string>('');
-  const [timeoutId, setTimeoutId] = useState<NodeJS.Timeout | null>(null);
+  const [isVisible, setIsVisible] = useState(false);
+  const [bannerId, setBannerId] = useState(0);
+  const [bannerType, setBannerType] = useState<HeaderBannerType>('info');
+  const [message, setMessage] = useState('');
+  const [highlightText, setHighlightText] = useState('');
 
-  const showNotification = (type: NotificationType, nft: NFT) => {
-    console.log('🔔 Showing notification:', { type, nftName: nft.name });
-    
-    // Clear any existing timeout
-    if (timeoutId) {
-      clearTimeout(timeoutId);
-      setTimeoutId(null);
-    }
-
-    // Set notification data
-    setNotificationType(type);
-    setNftName(nft.name || 'NFT');
-    
-    // Show notification immediately
+  const revealBanner = useCallback((type: HeaderBannerType, nextMessage: string, nextHighlight = '') => {
+    setBannerType(type);
+    setMessage(nextMessage);
+    setHighlightText(nextHighlight);
+    setBannerId((id) => id + 1);
     setIsVisible(true);
-    console.log('🚨🚨 NOTIFICATION VISIBLE NOW:', { type, name: nft.name });
-  };
+  }, []);
 
-  const hideNotification = () => {
+  const showNotification = useCallback((type: NFTNotificationAction, nft: NFT) => {
+    const banner = ACTION_BANNER[type];
+    revealBanner(banner.type, banner.message, cleanNftName(nft.name) || 'NFT');
+  }, [revealBanner]);
+
+  const showBanner = useCallback((type: HeaderBannerType, nextMessage: string, nextHighlight = '') => {
+    revealBanner(type, nextMessage, nextHighlight);
+  }, [revealBanner]);
+
+  const hideNotification = useCallback(() => {
     setIsVisible(false);
-    
-    // Ensure the logo is visible after any notification is hidden
-    setTimeout(() => {
-      const logoElement = document.querySelector('.logo-image');
-      if (logoElement) {
-        // Force the logo to be visible
-        (logoElement as HTMLElement).style.opacity = '1';
-        (logoElement as HTMLElement).style.visibility = 'visible';
-      }
-    }, 700); // Wait for animation to finish
-  };
+  }, []);
+
+  const value = useMemo(() => ({
+    showNotification,
+    showBanner,
+    hideNotification,
+    isVisible,
+    bannerId,
+    bannerType,
+    message,
+    highlightText,
+  }), [showNotification, showBanner, hideNotification, isVisible, bannerId, bannerType, message, highlightText]);
 
   return (
-    <NFTNotificationContext.Provider
-      value={{
-        showNotification,
-        hideNotification,
-        isVisible,
-        notificationType,
-        nftName
-      }}
-    >
+    <NFTNotificationContext.Provider value={value}>
       {children}
     </NFTNotificationContext.Provider>
   );

@@ -8,9 +8,6 @@ import { getDoc, doc } from 'firebase/firestore';
 import { db, trackUserSearch, isUserFollowed, toggleFollowUser, getFollowingUsers } from '../../lib/firebase';
 import { searchUsers, getPopularSearchedUsers } from '../../lib/firebase/user';
 import { UserFidContext } from '../../app/providers';
-import NotificationHeader from '../NotificationHeader';
-import { useNFTNotification } from '../../context/NFTNotificationContext';
-import NFTNotification from '../NFTNotification';
 import { PAGE_SIZE, usePagedItems } from '../../hooks/usePagedItems';
 import {
   ACYL_FIDS,
@@ -31,7 +28,6 @@ interface ExploreViewProps {
   isSearching: boolean;
   recentSearches: SearchedUser[];
   handleDirectUserSelect: (user: FarcasterUser) => void;
-  onReset: () => void;
   userFid?: number;
 }
 
@@ -84,7 +80,6 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
     isSearching,
     recentSearches,
     handleDirectUserSelect,
-    onReset,
   } = props;
 
   const [followedUsers, setFollowedUsers] = useState<Record<number, boolean>>({});
@@ -95,7 +90,6 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
   const [featuredReady, setFeaturedReady] = useState(false);
   const [popularUsers, setPopularUsers] = useState<SearchedUser[]>([]);
   const [following, setFollowing] = useState<FollowedUser[]>([]);
-  const { hideNotification } = useNFTNotification();
 
   const { visibleItems: visibleSearchResults, hasMore: hasMoreSearch, sentinelRef: searchSentinelRef } = usePagedItems(searchResults, {
     pageSize: PAGE_SIZE,
@@ -172,12 +166,6 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
 
     void checkFollowStatuses();
   }, [effectiveUserFid, searchResults, recentSearches, featuredUsers, popularUsers, following]);
-
-  useEffect(() => {
-    return () => {
-      hideNotification();
-    };
-  }, [hideNotification]);
 
   const getSafeImageUrl = (user: { username?: string; pfp_url?: string; isENS?: boolean }) => {
     if (user.isENS && !user.pfp_url) return '/defaultens.png';
@@ -439,9 +427,6 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
 
   return (
     <>
-      <NotificationHeader show={false} message="" onReset={onReset} />
-      <NFTNotification onReset={onReset} />
-
       <div
         ref={setScrollRoot}
         className="page-scroll space-y-7 pt-20 pb-48 bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082]"

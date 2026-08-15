@@ -11,10 +11,8 @@ import { optimizeImage } from '../../utils/imageOptimizer';
 import { getMediaKey } from '../../utils/media';
 import { filterPlayableMediaNFTs, applyConfirmedPlayback, isPlayableMediaNFT } from '../../utils/isMediaNFT';
 import { useUserImages } from '../../contexts/UserImageContext';
-import NotificationHeader from '../NotificationHeader';
 import FollowsModal from '../FollowsModal';
 import { useNFTNotification } from '../../context/NFTNotificationContext';
-import NFTNotification from '../NFTNotification';
 // Remove this import since we're not using the cache
 // import { useNFTCache } from '../../contexts/NFTCacheContext';
 import { UserProfileNFTGrid } from '../nft/UserProfileNFTGrid';
@@ -36,7 +34,6 @@ interface ProfileViewProps {
   isPlaying: boolean;
   currentlyPlaying: string | null;
   handlePlayPause: () => void;
-  onReset: () => void;
   onNFTsLoaded: (nfts: NFT[]) => void;
   onLikeToggle: (nft: NFT) => Promise<void>;
   isNFTLiked?: (nft: NFT) => boolean;
@@ -102,7 +99,6 @@ const ProfileView: React.FC<ProfileViewProps> = ({
   isPlaying,
   currentlyPlaying,
   handlePlayPause,
-  onReset,
   onNFTsLoaded,
   onLikeToggle,
   isNFTLiked: isNFTLikedProp,
@@ -119,7 +115,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({
   const [scrollRoot, setScrollRoot] = useState<HTMLDivElement | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const { backgroundImage, profileImage, setBackgroundImage } = useUserImages();
-  const [showSuccessBanner, setShowSuccessBanner] = useState(false);
+  const { showBanner } = useNFTNotification();
   
   // Add state for app-specific follower and following counts
   const [appFollowerCount, setAppFollowerCount] = useState<number>(0);
@@ -389,8 +385,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({
       const url = await uploadProfileBackground(farcasterContext.user.fid, optimized.file);
       setBackgroundImage(url);
       input.value = '';
-      setShowSuccessBanner(true);
-      setTimeout(() => setShowSuccessBanner(false), 3000);
+      showBanner('success', 'Background updated successfully');
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to upload background image';
       setError(errorMessage);
@@ -402,21 +397,6 @@ const ProfileView: React.FC<ProfileViewProps> = ({
 
   return (
     <>
-      {/* Add NFTNotification component to ensure notifications work in ProfileView */}
-      <NFTNotification onReset={onReset} />
-      
-      <NotificationHeader
-        show={showSuccessBanner}
-        onHide={() => setShowSuccessBanner(false)}
-        type="success"
-        message="Background updated successfully"
-        autoHideDuration={3000}
-        onReset={onReset}
-        onLogoClick={onReset}
-      />
-      
-      {/* Notifications are now handled by the global NFTNotification component */}
-      
       {/* Follows Modal */}
       {farcasterContext?.user?.fid && showFollowsModal && (
         <FollowsModal

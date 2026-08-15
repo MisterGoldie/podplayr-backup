@@ -118,6 +118,7 @@ const FollowsModal: React.FC<FollowsModalProps> = ({
       }
     } catch (error) {
       console.error('Error toggling follow:', error);
+      showNotification('Failed to update follow status', 'error');
     } finally {
       // Clear processing state
       setProcessingFollow(prev => ({ ...prev, [user.fid]: false }));

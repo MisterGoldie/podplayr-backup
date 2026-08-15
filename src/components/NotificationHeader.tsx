@@ -60,14 +60,6 @@ function DefaultIcon({ type }: { type: NotificationType }) {
     );
   }
 
-  if (type === 'info') {
-    return (
-      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-purple-600" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-        <path fillRule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clipRule="evenodd" />
-      </svg>
-    );
-  }
-
   return (
     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-blue-600" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
       <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2h-1V9a1 1 0 00-1-1z" clipRule="evenodd" />
@@ -88,7 +80,7 @@ const NotificationHeader: React.FC<NotificationHeaderProps> = memo(({
   onLogoClick,
 }) => {
   const [isBackgroundVisible, setIsBackgroundVisible] = useState(show);
-  const [isContentVisible, setIsContentVisible] = useState(show);
+  const [isContentVisible, setIsContentVisible] = useState(false);
 
   useEffect(() => {
     if (show) {
@@ -98,7 +90,7 @@ const NotificationHeader: React.FC<NotificationHeaderProps> = memo(({
     }
 
     setIsContentVisible(false);
-    const timer = setTimeout(() => setIsBackgroundVisible(false), 200);
+    const timer = setTimeout(() => setIsBackgroundVisible(false), 500);
     return () => clearTimeout(timer);
   }, [show]);
 
@@ -122,7 +114,7 @@ const NotificationHeader: React.FC<NotificationHeaderProps> = memo(({
           onClick={onLogoClick || onReset}
           aria-label="Go to home"
           className={`absolute inset-0 flex items-center justify-center touch-manipulation transition-opacity duration-300 ${
-            show ? 'opacity-0 invisible pointer-events-none' : 'opacity-100 visible'
+            isBackgroundVisible ? 'opacity-0 invisible pointer-events-none' : 'opacity-100 visible'
           }`}
         >
           <Image
@@ -135,7 +127,7 @@ const NotificationHeader: React.FC<NotificationHeaderProps> = memo(({
           />
         </button>
 
-        {show && (
+        {isBackgroundVisible && (
           <div
             className={`absolute inset-0 flex items-center justify-center transition-all duration-500 ease-out ${
               isContentVisible

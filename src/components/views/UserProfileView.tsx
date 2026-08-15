@@ -4,7 +4,6 @@ import React, { useEffect, useState, useRef, useMemo } from 'react';
 import Image from 'next/image';
 import type { NFT, FarcasterUser } from '../../types/user';
 import { getFollowersCount, getFollowingCount, isUserFollowed, toggleFollowUser, getUserTotalPlays, getUserLikedNFTsCount } from '../../lib/firebase';
-import NotificationHeader from '../NotificationHeader';
 import FollowsModal from '../FollowsModal';
 import FollowNotification from '../FollowNotification';
 import { useFollowNotification } from '../../hooks/useFollowNotification';
@@ -26,7 +25,6 @@ interface UserProfileViewProps {
   isPlaying: boolean;
   currentlyPlaying: string | null;
   handlePlayPause: () => void;
-  onReset: () => void;
   onUserProfileClick?: (user: FarcasterUser) => void;
   onBack: () => void;
   currentUserFid: number;
@@ -64,7 +62,6 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
   isPlaying,
   currentlyPlaying,
   handlePlayPause,
-  onReset,
   onUserProfileClick,
   onBack,
   currentUserFid,
@@ -295,7 +292,7 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
       }
     } catch (error) {
       console.error('Error toggling follow:', error);
-      showNotification('Failed to update follow status', 'info');
+      showNotification('Failed to update follow status', 'error');
     } finally {
       setIsFollowingLoading(false);
     }
@@ -316,13 +313,6 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
 
   return (
     <>
-      <NotificationHeader 
-        show={false}
-        message=""
-        onReset={onReset}
-        onLogoClick={onReset}
-      />
-      
       {/* Follows Modal */}
       {user?.fid && showFollowsModal && (
         <FollowsModal
