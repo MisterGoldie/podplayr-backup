@@ -91,6 +91,11 @@ const PLAYBACK_OVERRIDES: Record<string, { mobile: string; desktop?: string }> =
     mobile: muxHls('TGr1d27X01mvnVSH7R4101cIC7Q4wyMazgBdpxW6ZaK34'),
     desktop: muxHls('TGr1d27X01mvnVSH7R4101cIC7Q4wyMazgBdpxW6ZaK34'),
   },
+  // NEYBORS Music Video - Heno. featuring Elujay & J.Robb
+  bafybeieaq7nqlv5j2wndfkxwlodqddelahlmuwczbrzei7py5enzftuska: {
+    mobile: muxHls('V01CIYB6vZHqf01eHIGDt102f2XHE02xIUrvFp4neqi42ag'),
+    desktop: muxHls('V01CIYB6vZHqf01eHIGDt102f2XHE02xIUrvFp4neqi42ag'),
+  },
 };
 
 /** Alchemy NFT CDN media filename, e.g. 7d1b91517fd57375c124c9f8b6a66a2c_animation */

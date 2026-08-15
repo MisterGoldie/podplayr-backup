@@ -7,6 +7,22 @@ import type { NFT } from '~/types/nft';
  */
 export const SUGGESTED_MUSIC_VIDEOS: NFT[] = [
   {
+    name: 'NEYBORS',
+    image: 'https://nft-cdn.alchemy.com/eth-mainnet/007c07129e123ec97c70f3b6a58c57b0',
+    contract: '0x250fd27b0b6f2438414a98fc9bfa5641b3717f03',
+    tokenId: '137',
+    network: 'ethereum',
+    audio: 'https://gateway.pinata.cloud/ipfs/bafybeieaq7nqlv5j2wndfkxwlodqddelahlmuwczbrzei7py5enzftuska',
+    isVideo: true,
+    playbackMode: 'video-with-audio',
+    collection: { name: 'Heno.' },
+    metadata: {
+      animation_url: 'https://gateway.pinata.cloud/ipfs/bafybeieaq7nqlv5j2wndfkxwlodqddelahlmuwczbrzei7py5enzftuska',
+      mimeType: 'video/mp4',
+      description: 'NEYBORS Music Video - Heno. featuring Elujay & J.Robb',
+    },
+  },
+  {
     name: 'LATASHÁ - A Ten',
     image: 'https://nft-cdn.alchemy.com/base-mainnet/7d1b91517fd57375c124c9f8b6a66a2c',
     contract: '0x0646874f1676b37ec100f66df685308f9c2e5d8a',
