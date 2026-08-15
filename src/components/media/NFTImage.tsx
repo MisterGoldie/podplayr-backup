@@ -275,6 +275,13 @@ export const NFTImage: React.FC<NFTImageProps> = ({
   const nftMetadataImage = nft?.metadata?.image;
   const useCardThumb = width < 400 && height < 400;
 
+  // Reset enrich state only when the token identity changes (not on cover re-resolve).
+  useEffect(() => {
+    alchemyEnrichAttemptedRef.current = false;
+    alchemyEnrichInFlightRef.current = false;
+    pendingEnrichResumeRef.current = false;
+  }, [nftContract, nftTokenId]);
+
   const toDisplaySrc = (url: string) => {
     originalUrlRef.current = url;
     if (!url || url === fallbackSrc || url.startsWith('/') || url.startsWith('data:')) {
@@ -386,8 +393,8 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       httpCdnFallbackIndex.current = 0;
       attemptedFallbacks.current = {};
       loadedOkSrcRef.current = null;
-      alchemyEnrichAttemptedRef.current = false;
-      alchemyEnrichInFlightRef.current = false;
+      // Keep alchemyEnrichAttemptedRef across cover re-resolves — enrich mutates
+      // nft.image and would otherwise re-fire forever (Neybors thumb thrash).
       alchemyAsVideoTriedRef.current = false;
       pendingEnrichResumeRef.current = false;
     }
@@ -620,6 +627,61 @@ export const NFTImage: React.FC<NFTImageProps> = ({
             if (videoCover) next = videoCover;
           }
 
+          const isAlchemyUrl = (u?: string | null) =>
+            !!u &&
+            /nft2?-cdn\.alchemy\.com|res\.cloudinary\.com\/alchemyapi/i.test(u);
+
+          // Don't yank a working / in-flight Alchemy card thumb for another
+          // Alchemy peer (thumbnailv2 ↔ video/fetch thrash on Neybors).
+          // Still allow upgrades from IPFS/empty → Alchemy, or SeaDN video → Alchemy.
+          const keepCurrentThumb =
+            Boolean(next) &&
+            !isFragileCover(current) &&
+            ((useCardThumb && isAlchemyUrl(current) && isAlchemyUrl(next)) ||
+              Boolean(loadedOkSrcRef.current));
+
+          if (!next) {
+            // Collection merge only — no better cover.
+            Object.assign(nft, {
+              collection: {
+                ...nft.collection,
+                ...enriched.collection,
+                image: enriched.collection?.image || nft.collection?.image,
+              },
+            });
+            nftImgLog('resolve:proactive-alchemy-no-cover', nft, {
+              enrichedImage: shortUrl(enriched.image),
+              collection: shortUrl(enriched.collection?.image),
+            });
+            return false;
+          }
+
+          if (keepCurrentThumb || (next === current && !isFragileCover(current))) {
+            Object.assign(nft, {
+              collection: {
+                ...nft.collection,
+                ...enriched.collection,
+                image: enriched.collection?.image || nft.collection?.image,
+              },
+            });
+            if (keepCurrentThumb && next !== current) {
+              nftImgLog(
+                loadedOkSrcRef.current
+                  ? 'resolve:proactive-alchemy-keep-loaded'
+                  : 'resolve:proactive-alchemy-keep-thumb',
+                nft,
+                {
+                  current: shortUrl(current),
+                  skipped: shortUrl(next),
+                  loadedOk: shortUrl(loadedOkSrcRef.current),
+                }
+              );
+            }
+            // false when a thumb already failed and is waiting — resume can hop
+            // to video/fetch instead of treating "kept" as a successful apply.
+            return Boolean(loadedOkSrcRef.current);
+          }
+
           // COVER ONLY — never replace metadata.animation_url / audio (breaks play).
           Object.assign(nft, {
             image: next || enriched.image || nft.image,
@@ -637,16 +699,6 @@ export const NFTImage: React.FC<NFTImageProps> = ({
           imageCandidates.current = pickImageCandidates(nft);
           imageCandidateIndex.current = 0;
 
-          if (!next) {
-            nftImgLog('resolve:proactive-alchemy-no-cover', nft, {
-              enrichedImage: shortUrl(enriched.image),
-              collection: shortUrl(enriched.collection?.image),
-            });
-            return false;
-          }
-          if (next === current && !isFragileCover(current)) {
-            return Boolean(loadedOkSrcRef.current);
-          }
           if (attemptedFallbacks.current[`${next}-alchemy`] && !isFragileCover(current)) {
             return Boolean(loadedOkSrcRef.current);
           }
@@ -668,6 +720,41 @@ export const NFTImage: React.FC<NFTImageProps> = ({
           pendingEnrichResumeRef.current = false;
           // Enrich applied a new URL — let onLoad/onError drive the rest.
           if (applied || loadedOkSrcRef.current) return;
+
+          // Kept Alchemy cover but thumb already 400'd — try video/fetch still.
+          if (useCardThumb && originalUrlRef.current) {
+            const size = Math.max(width * 2, 360);
+            const orig = originalUrlRef.current;
+            const alchemyCdnPeer = [
+              nft.audio,
+              nft.metadata?.animation_url,
+              nft.animationUrl,
+              nft.videoUrl,
+              nft.image,
+              nft.metadata?.image,
+            ].find((u) => !!u && /nft2?-cdn\.alchemy\.com/i.test(u)) as string | undefined;
+            const nextAlt = getCardThumbAlternates(orig, size, {
+              includeVideoStill: /nft2?-cdn\.alchemy\.com/i.test(orig),
+              alchemyCdnPeer,
+            }).find(
+              (u) =>
+                u !== imgSrc &&
+                !attemptedFallbacks.current[`${u}-card`] &&
+                !attemptedFallbacks.current[`${u}-hang`]
+            );
+            if (nextAlt) {
+              attemptedFallbacks.current[`${nextAlt}-card`] = true;
+              nftImgLog('retry:card-thumb-alt-after-enrich', nft, {
+                next: shortUrl(nextAlt),
+              });
+              setImgSrc(nextAlt);
+              setImgLoading(true);
+              setError(false);
+              setIsLoadingFallback(false);
+              return;
+            }
+          }
+
           const coll = nft.collection?.image;
           if (
             coll &&
@@ -952,10 +1039,20 @@ export const NFTImage: React.FC<NFTImageProps> = ({
 
     // Pause gateway thrash while Alchemy enrich may still return a real cover
     // (audio NFTs often have dead IPFS in image + usable thumbnail/collection).
+    // Exception: Alchemy sized thumbs (thumbnailv2 / video/fetch) that 400 —
+    // enrich won't replace an existing Alchemy cover; hop to video/fetch now
+    // (Neybors / Squig / SCAN ME).
     if (alchemyEnrichInFlightRef.current) {
-      pendingEnrichResumeRef.current = true;
-      nftImgLog('retry:wait-alchemy-enrich', nft, { failed: shortUrl(failedSrc) });
-      return;
+      const alchemySizedThumbFail =
+        useCardThumb &&
+        /res\.cloudinary\.com\/alchemyapi\/(?:image\/upload|video\/fetch)/i.test(
+          failedSrc
+        );
+      if (!alchemySizedThumbFail) {
+        pendingEnrichResumeRef.current = true;
+        nftImgLog('retry:wait-alchemy-enrich', nft, { failed: shortUrl(failedSrc) });
+        return;
+      }
     }
     
     // Mark this fallback as attempted
@@ -1327,9 +1424,17 @@ export const NFTImage: React.FC<NFTImageProps> = ({
     }
 
     // Still waiting on proactive Alchemy enrich — don't mark dead yet.
+    // Same exception as above: Alchemy sized-thumb 400s need video/fetch now.
     if (alchemyEnrichInFlightRef.current) {
-      nftImgLog('retry:wait-alchemy-enrich', nft, { failed: shortUrl(failedSrc) });
-      return;
+      const alchemySizedThumbFail =
+        useCardThumb &&
+        /res\.cloudinary\.com\/alchemyapi\/(?:image\/upload|video\/fetch)/i.test(
+          failedSrc
+        );
+      if (!alchemySizedThumbFail) {
+        nftImgLog('retry:wait-alchemy-enrich', nft, { failed: shortUrl(failedSrc) });
+        return;
+      }
     }
 
     // Enrich already ran but collection/OpenSea cover may not have been tried yet

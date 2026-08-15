@@ -555,7 +555,15 @@ export const enrichNftMediaFromChain = async (nft: NFT): Promise<NFT> => {
     if (currentIsTokenVideo) {
       // Keep Nifty / token video covers — don't replace with Alchemy still.
       resolvedImage = nft.image as string;
-    } else if (alchemyStill && (currentFragile || /nft2?-cdn\.alchemy\.com/i.test(nft.image || ''))) {
+    } else if (
+      alchemyStill &&
+      /nft2?-cdn\.alchemy\.com|res\.cloudinary\.com\/alchemyapi/i.test(nft.image || '')
+    ) {
+      // Already on Alchemy — keep the in-memory cover. Swapping to a different
+      // CDN hash (image vs animation) yanks working thumbnailv2 → video/fetch
+      // thrash on cards (Neybors).
+      resolvedImage = nft.image as string;
+    } else if (alchemyStill && currentFragile) {
       resolvedImage = alchemyStill;
     } else if (currentFragile && (tokenVideoCover || seadnTokenVideo)) {
       resolvedImage = tokenVideoCover || seadnTokenVideo || resolvedImage;
