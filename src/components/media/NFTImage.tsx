@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { processMediaUrl, IPFS_GATEWAYS, isAudioUrlUsedAsImage, getCleanIPFSUrl, processArweaveUrl, getMediaKey, buildArweaveImageFallbackUrls, buildIpfsFallbackUrls, buildHttpCdnImageFallbackUrls, extractIPFSPath, getNftMediaUrl, toIpfsGatewayUrl, clearNftMediaUrlCache, pickImageCandidates, shouldProbeIpfsDirectory } from '../../utils/media';
-import { getResizedImageUrl, shouldPreserveAnimation, isBrowserFriendlyCdnUrl, isArweaveMediaUrl, isIpfsMediaUrl, isVideoMediaUrl } from '../../utils/imageOptimizer';
+import { getCardThumbUrl, shouldPreserveAnimation, isBrowserFriendlyCdnUrl, isArweaveMediaUrl, isIpfsMediaUrl, isVideoMediaUrl } from '../../utils/imageOptimizer';
 import Image from 'next/image';
 import type { SyntheticEvent } from 'react';
 import type { NFT } from '../../types/user';
@@ -292,13 +292,23 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       nftImgLog('display:preserve-animation', nft, { url: shortUrl(url) });
       return url;
     }
-    if (isBrowserFriendlyCdnUrl(url)) {
-      nftImgLog('display:direct-cdn', nft, { url: shortUrl(url) });
-      return url;
-    }
     // MP4/WebM "covers" (Nifty Island, etc.) — never send through wsrv/Next Image.
     if (isVideoMediaUrl(url)) {
       nftImgLog('display:direct-video-cover', nft, { url: shortUrl(url) });
+      return url;
+    }
+    // Profile/grid cards must not decode full-res Alchemy stills (8k–14k OOMs ~90 NFT profiles).
+    if (useCardThumb) {
+      const proxied = getCardThumbUrl(url, Math.max(width * 2, 360));
+      nftImgLog('display:card-thumb', nft, {
+        original: shortUrl(url),
+        display: shortUrl(proxied),
+        proxied: proxied !== url,
+      });
+      return proxied;
+    }
+    if (isBrowserFriendlyCdnUrl(url)) {
+      nftImgLog('display:direct-cdn', nft, { url: shortUrl(url) });
       return url;
     }
     if (isArweaveMediaUrl(url)) {
@@ -308,15 +318,6 @@ export const NFTImage: React.FC<NFTImageProps> = ({
     if (isIpfsMediaUrl(url)) {
       nftImgLog('display:direct-ipfs', nft, { url: shortUrl(url) });
       return url;
-    }
-    if (useCardThumb) {
-      const proxied = getResizedImageUrl(url, Math.max(width * 2, 360));
-      nftImgLog('display:card-thumb', nft, {
-        original: shortUrl(url),
-        display: shortUrl(proxied),
-        proxied: proxied !== url,
-      });
-      return proxied;
     }
     nftImgLog('display:full-size', nft, { url: shortUrl(url) });
     return url;
@@ -839,8 +840,7 @@ export const NFTImage: React.FC<NFTImageProps> = ({
         next: shortUrl(next),
         fresh: shortUrl(fresh),
       });
-      originalUrlRef.current = next;
-      setImgSrc(next);
+      setImgSrc(toDisplaySrc(next));
       setError(false);
       setIsLoadingFallback(false);
       setImgLoading(true);
@@ -891,8 +891,31 @@ export const NFTImage: React.FC<NFTImageProps> = ({
     const isThumbProxy =
       failedSrc.includes('wsrv.nl') ||
       failedSrc.includes('images.weserv.nl') ||
-      failedSrc.includes('img-width=');
+      failedSrc.includes('img-width=') ||
+      /res\.cloudinary\.com\/alchemyapi\/image\/fetch/i.test(failedSrc);
     if (isThumbProxy && originalUrlRef.current && originalUrlRef.current !== failedSrc) {
+      // Cards must never decode full-res Alchemy/CDN stills (14k images OOM the tab).
+      if (useCardThumb) {
+        const sized = getCardThumbUrl(originalUrlRef.current, Math.max(width * 2, 360));
+        if (sized && sized !== failedSrc && !attemptedFallbacks.current[`${sized}-card`]) {
+          attemptedFallbacks.current[`${sized}-card`] = true;
+          nftImgLog('retry:card-thumb-alt', nft, {
+            failed: shortUrl(failedSrc),
+            next: shortUrl(sized),
+          });
+          setImgSrc(sized);
+          setError(false);
+          setIsLoadingFallback(false);
+          return;
+        }
+        nftImgLog('retry:card-thumb-fail → placeholder', nft, {
+          failed: shortUrl(failedSrc),
+        });
+        setImgSrc(fallbackSrc);
+        setError(false);
+        setIsLoadingFallback(false);
+        return;
+      }
       nftImgLog('retry:proxy-fail → original', nft, {
         next: shortUrl(originalUrlRef.current),
       });
@@ -935,7 +958,7 @@ export const NFTImage: React.FC<NFTImageProps> = ({
           index: arweaveFallbackIndex.current,
           next: shortUrl(nextUrl),
         });
-        setImgSrc(nextUrl);
+        setImgSrc(toDisplaySrc(nextUrl));
         setRetryCount(retryCount + 1);
         setError(false);
         setIsLoadingFallback(false);
@@ -969,7 +992,7 @@ export const NFTImage: React.FC<NFTImageProps> = ({
           index: ipfsFallbackIndex.current,
           next: shortUrl(nextUrl),
         });
-        setImgSrc(nextUrl);
+        setImgSrc(toDisplaySrc(nextUrl));
         setRetryCount(retryCount + 1);
         setError(false);
         setIsLoadingFallback(false);
@@ -1011,7 +1034,8 @@ export const NFTImage: React.FC<NFTImageProps> = ({
           next: shortUrl(nextUrl),
         });
         originalUrlRef.current = nextUrl;
-        setImgSrc(nextUrl);
+        // Keep card thumbs sized — never set raw Alchemy CDN on grid cards.
+        setImgSrc(toDisplaySrc(nextUrl));
         setRetryCount(retryCount + 1);
         setError(false);
         setIsLoadingFallback(false);

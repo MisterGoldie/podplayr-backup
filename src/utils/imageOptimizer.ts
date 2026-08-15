@@ -270,6 +270,64 @@ export function isVideoMediaUrl(url: string): boolean {
   }
 }
 
+/**
+ * Card-grid thumbs: always cap decode size.
+ * Alchemy Cloudinary `image/fetch` wrappers 401 for unsigned clients — use wsrv instead.
+ * Never return raw nft-cdn / SeaDN / Arweave originals for small cards (8k–14k OOMs).
+ */
+export function getCardThumbUrl(url: string, size = 360): string {
+  if (
+    !url ||
+    isLocalOrDataUrl(url) ||
+    isAlreadyResized(url) ||
+    /\.svg(\?|$)/i.test(url) ||
+    shouldPreserveAnimation(url) ||
+    isVideoMediaUrl(url)
+  ) {
+    return url;
+  }
+
+  let resolved = url;
+
+  // Unwrap failed Alchemy Cloudinary image/fetch wrappers → underlying asset
+  const fetchWrapped = url.match(
+    /res\.cloudinary\.com\/alchemyapi\/image\/fetch\/[^?]+\/(https?:\/\/\S+)/i
+  );
+  if (fetchWrapped?.[1]) {
+    resolved = fetchWrapped[1];
+  }
+
+  // video/fetch stills: prefer underlying nft-cdn URL for wsrv, else inject size
+  if (/res\.cloudinary\.com\/alchemyapi\/video\/fetch/i.test(resolved)) {
+    const underlying = resolved.match(/https?:\/\/nft2?-cdn\.alchemy\.com\/[^\s"'?]+/i);
+    if (underlying?.[0]) {
+      resolved = underlying[0];
+    } else if (!/\/w_\d+/.test(resolved)) {
+      return resolved.replace(
+        /(\/video\/fetch\/)/i,
+        `$1w_${size},h_${size},c_fill,q_70,`
+      );
+    } else {
+      return resolved;
+    }
+  }
+
+  if (resolved.startsWith('ipfs://') || resolved.includes('/ipfs/') || resolved.startsWith('ar://')) {
+    resolved = getOptimizedImageUrl(resolved);
+  }
+
+  const params = new URLSearchParams({
+    url: resolved,
+    w: String(size),
+    h: String(size),
+    fit: 'cover',
+    q: '65',
+    output: 'webp',
+    n: '-1',
+  });
+  return `${THUMB_PROXY}${params.toString()}`;
+}
+
 /** Display-sized card thumbnail so grids don't download full Arweave/IPFS originals. */
 export function getResizedImageUrl(url: string, size = 360): string {
   if (

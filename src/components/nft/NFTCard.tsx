@@ -115,7 +115,10 @@ const NFTCardInner: React.FC<NFTCardProps> = ({
       }}
       style={hasEntered ? undefined : enterStyleRef.current}
     >
-        <div className="aspect-square rounded-lg overflow-hidden bg-gray-800/20 shadow-lg relative">
+        <div
+          className="aspect-square rounded-lg overflow-hidden bg-gray-800/20 shadow-lg relative"
+          style={{ contentVisibility: 'auto', containIntrinsicSize: '180px 180px' }}
+        >
           {shouldPreserveAnimation(rawImageUrl) ? (
             <NFTGifImage
               nft={nft}
