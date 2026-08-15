@@ -229,8 +229,15 @@ export const pickImageCandidates = (nft: UserNFT | null | undefined): string[] =
       }
     }
   }
-  // Alchemy CDN survives unreplicated IPFS — prefer it over gateway URLs.
-  out.sort((a, b) => Number(isAlchemyCdnMediaUrl(b)) - Number(isAlchemyCdnMediaUrl(a)));
+  // Prefer durable CDNs over unreplicated public IPFS gateways.
+  const coverScore = (url: string): number => {
+    if (isAlchemyCdnMediaUrl(url)) return 4;
+    if (/seadn\.io|openseauserdata\.com|i2c\.seadn|res\.cloudinary\.com/i.test(url)) return 3;
+    if (IMAGE_FILE_EXT_RE.test(url) && !/\/ipfs\//i.test(url) && !url.startsWith('ipfs://')) return 2;
+    if (/\/ipfs\//i.test(url) || url.startsWith('ipfs://') || /\.ipfs\./i.test(url)) return 0;
+    return 1;
+  };
+  out.sort((a, b) => coverScore(b) - coverScore(a));
   return out;
 };
 

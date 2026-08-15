@@ -15,7 +15,6 @@ import {
   getLikedNFTs,
   searchUsers,
   toggleLikeNFT,
-  fetchUserNFTs,
   subscribeToRecentSearches
 } from '../lib/firebase';
 import type { NFT, FarcasterUser, SearchedUser } from '../types/user';
@@ -23,7 +22,7 @@ import { usePlayer } from '../contexts/PlayerContext';
 import { useTopPlayedNFTs } from '../hooks/useTopPlayedNFTs';
 import { UserDataLoader } from './data/UserDataLoader';
 import { logger } from '../utils/logger';
-import { subscribeToDeadNftUpdates } from '../utils/deadNftRegistry';
+import { isNftMediaDead, subscribeToDeadNftUpdates } from '../utils/deadNftRegistry';
 import { applyConfirmedPlayback, isPlayableMediaNFT } from '../utils/isMediaNFT';
 import { UserImageProvider } from '../contexts/UserImageContext';
 import { BaseAppSignIn } from './auth/BaseAppSignIn';
@@ -168,8 +167,15 @@ const DemoBase: React.FC = () => {
   }, [fid, isFidReady]);
 
   useEffect(() => {
+    // Only prune when playable audio/video is dead — a broken thumbnail alone
+    // must not shrink the collection count (placeholder still shows the card).
     return subscribeToDeadNftUpdates((deadMediaKey) => {
-      setUserNFTs((prev) => prev.filter((nft) => getMediaKey(nft) !== deadMediaKey));
+      setUserNFTs((prev) =>
+        prev.filter((nft) => {
+          if (getMediaKey(nft) !== deadMediaKey) return true;
+          return !isNftMediaDead(nft);
+        })
+      );
     });
   }, []);
 
@@ -363,17 +369,7 @@ const DemoBase: React.FC = () => {
           demoLogger.error('Error tracking user search:', trackError);
         }
       }
-
-      fetchUserNFTs(user.fid).then((nfts) => {
-        const deduplicatedNFTs = deduplicateNFTsByMediaKey(nfts);
-        setUserNFTs(deduplicatedNFTs);
-        if (deduplicatedNFTs.length > 0) {
-          setUserNftsLoading(false);
-        }
-      }).catch((fetchError) => {
-        demoLogger.error('Error loading NFTs for user:', fetchError);
-        setUserNftsLoading(false);
-      });
+      // Owned NFTs load once via UserDataLoader → handleNFTsLoaded
     } catch (selectError) {
       demoLogger.error('Error selecting user:', selectError);
     }
@@ -428,14 +424,7 @@ const DemoBase: React.FC = () => {
       }
 
       openUserProfile(user, { fromExplore: false, fromProfile: false }, updateUrl);
-
-      fetchUserNFTs(user.fid).then((nfts) => {
-        setUserNFTs(deduplicateNFTsByMediaKey(nfts));
-        setUserNftsLoading(false);
-      }).catch((fetchError) => {
-        demoLogger.error('Error loading NFTs for shared profile:', fetchError);
-        setUserNftsLoading(false);
-      });
+      // Owned NFTs load once via UserDataLoader → handleNFTsLoaded
     } catch (error) {
       demoLogger.error('Error loading profile from URL:', error);
     }
@@ -543,13 +532,7 @@ const DemoBase: React.FC = () => {
             onUserProfileClick={(user) => {
               demoLogger.info('Navigating to user profile from ProfileView modal:', user.username);
               openUserProfile(user, { fromExplore: false, fromProfile: true });
-              fetchUserNFTs(user.fid).then((nfts) => {
-                setUserNFTs(deduplicateNFTsByMediaKey(nfts));
-                setUserNftsLoading(false);
-              }).catch((fetchError) => {
-                demoLogger.error('Error loading NFTs for user:', fetchError);
-                setUserNftsLoading(false);
-              });
+              // Owned NFTs load once via UserDataLoader → handleNFTsLoaded
             }}
           />
         </UserImageProvider>

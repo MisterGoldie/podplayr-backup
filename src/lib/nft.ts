@@ -39,6 +39,174 @@ function ownedNftMediaKey(contract: string, tokenId: string): string {
     .substring(0, 32);
 }
 
+const AUDIO_OR_VIDEO_EXT_RE = /\.(mp3|wav|m4a|aac|ogg|flac|mp4|webm|mov|m4v)(?:\?|#|$)/i;
+const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|svg|avif)(?:\?|#|$)/i;
+
+type AlchemyImageFields = {
+  cachedUrl?: string;
+  originalUrl?: string;
+  thumbnailUrl?: string;
+  pngUrl?: string;
+  contentType?: string;
+};
+
+/** True when a URL is usable as a still/animated cover (not audio/video bytes). */
+function looksLikeVisualCoverUrl(url?: string | null, contentType?: string | null): boolean {
+  if (!url || typeof url !== 'string') return false;
+  const type = (contentType || '').toLowerCase();
+  if (type.startsWith('audio/') || type.startsWith('video/')) return false;
+  if (AUDIO_OR_VIDEO_EXT_RE.test(url)) return false;
+  if (type.startsWith('image/') || type.includes('svg')) return true;
+  if (IMAGE_EXT_RE.test(url)) return true;
+  // Alchemy CDN hashes often omit extensions — and for audio NFTs the same
+  // host serves the MP3. Only trust it when contentType confirms image/*.
+  if (/nft2?-cdn\.alchemy\.com/i.test(url)) {
+    return type.startsWith('image/') || type.includes('svg');
+  }
+  // OpenSea / Cloudinary covers often omit extensions but are real stills/videos.
+  if (/seadn\.io|openseauserdata\.com|i2c\.seadn|cloudinary\.com/i.test(url)) {
+    return !type || type.startsWith('image/') || !type.includes('audio');
+  }
+  // Bare IPFS CIDs may be audio directories — only accept when typed as image.
+  if (/\/ipfs\//i.test(url) || url.startsWith('ipfs://')) {
+    return type.startsWith('image/') || IMAGE_EXT_RE.test(url);
+  }
+  return Boolean(type.startsWith('image/') || !type);
+}
+
+function pickDurableVideoCover(
+  videoFallbacks?: Array<string | null | undefined> | null,
+  skipUrl?: string
+): string {
+  for (const raw of videoFallbacks || []) {
+    if (!raw || typeof raw !== 'string' || raw === skipUrl) continue;
+    const isVideoExt = AUDIO_OR_VIDEO_EXT_RE.test(raw) && !/\.(mp3|wav|m4a|aac|ogg|flac)(?:\?|#|$)/i.test(raw);
+    const isKnownVideoHost = /seadn\.io|i2c\.seadn|niftyisland\.com|openseauserdata\.com/i.test(raw);
+    if (!isVideoExt && !isKnownVideoHost) continue;
+    if (/\/ipfs\//i.test(raw) || raw.startsWith('ipfs://') || /\.ipfs\./i.test(raw)) continue;
+    return raw;
+  }
+  return '';
+}
+
+/**
+ * Pick a visual cover from Alchemy image fields. Food / audio NFTs often put the
+ * MP3 on image.cachedUrl — prefer thumbnailUrl/pngUrl/collection art instead.
+ * Never prefer unreplicated IPFS over OpenSea/Alchemy/collection CDNs.
+ */
+function pickAlchemyVisualCover(opts: {
+  image?: AlchemyImageFields | null;
+  media?: Array<{ gateway?: string; raw?: string; format?: string }> | null;
+  metaImage?: string | null;
+  metaImageUrl?: string | null;
+  files?: Array<{ uri?: string; url?: string; type?: string; mimeType?: string }> | null;
+  collectionImage?: string | null;
+  /** Last-resort card cover when the token is video-only (Nifty Island, Food videos). */
+  videoFallbacks?: Array<string | null | undefined> | null;
+}): { cover: string; audioFromImage: string } {
+  const img = opts.image;
+  const type = (img?.contentType || '').toLowerCase();
+  const audioFromImage =
+    type.startsWith('audio/') || type.startsWith('video/') ? img?.cachedUrl || '' : '';
+
+  // Confirmed stills first (thumbnail/png are real images). cachedUrl/originalUrl
+  // often hold the MP3 for audio NFTs on Alchemy CDN with no extension.
+  // Do NOT force image/* on Alchemy thumbnailUrl — same hash is often the audio.
+  const thumbType = img?.thumbnailUrl && /nft2?-cdn\.alchemy\.com/i.test(img.thumbnailUrl)
+    ? img?.contentType && img.contentType.toLowerCase().startsWith('image/')
+      ? img.contentType
+      : ''
+    : 'image/jpeg';
+  const confirmed: Array<{ url?: string; contentType?: string }> = [
+    { url: img?.thumbnailUrl, contentType: thumbType },
+    { url: img?.pngUrl, contentType: 'image/png' },
+  ];
+  const unverifiedAlchemy: Array<{ url?: string; contentType?: string }> = [
+    { url: img?.cachedUrl, contentType: img?.contentType },
+    { url: img?.originalUrl, contentType: img?.contentType },
+  ];
+
+  for (const m of opts.media || []) {
+    const format = (m.format || '').toLowerCase();
+    if (format.includes('audio') || format.includes('mp3')) {
+      continue;
+    }
+    // Skip video media for still selection — handled as videoCover below.
+    if (format.includes('video') || format.includes('mp4') || format.includes('webm')) {
+      continue;
+    }
+    confirmed.push({
+      url: m.gateway || m.raw,
+      contentType: format.includes('image') || format ? `image/${format}` : undefined,
+    });
+  }
+
+  confirmed.push({ url: opts.metaImageUrl || undefined });
+  confirmed.push({ url: opts.metaImage || undefined });
+
+  for (const f of opts.files || []) {
+    const u = f?.uri || f?.url;
+    const t = (f?.type || f?.mimeType || '').toLowerCase();
+    if (!u) continue;
+    if (t.startsWith('image/') || IMAGE_EXT_RE.test(u)) {
+      confirmed.push({ url: u, contentType: t || 'image/*' });
+    }
+  }
+
+  confirmed.push({ url: opts.collectionImage || undefined, contentType: 'image/*' });
+
+  const durableConfirmed: string[] = [];
+  const ipfsStills: string[] = [];
+  for (const c of confirmed) {
+    if (!looksLikeVisualCoverUrl(c.url, c.contentType)) continue;
+    const url = c.url as string;
+    if (/\/ipfs\//i.test(url) || url.startsWith('ipfs://') || /\.ipfs\./i.test(url)) {
+      ipfsStills.push(url);
+    } else {
+      durableConfirmed.push(url);
+    }
+  }
+
+  const videoCover = pickDurableVideoCover(
+    opts.videoFallbacks,
+    type.startsWith('audio/') ? img?.cachedUrl : undefined
+  );
+
+  // Prefer real stills, but never prefer Alchemy CDN "thumbnail" that is the
+  // same hash as audio cachedUrl when a SeaDN/Nifty video cover exists.
+  if (durableConfirmed.length > 0) {
+    const first = durableConfirmed[0];
+    const firstIsAlchemy = /nft2?-cdn\.alchemy\.com/i.test(first);
+    const sameAsAudio =
+      !!img?.cachedUrl &&
+      (type.startsWith('audio/') || type.startsWith('video/')) &&
+      first.replace(/https?:\/\/nft2?-cdn\.alchemy\.com/i, '') ===
+        img.cachedUrl.replace(/https?:\/\/nft2?-cdn\.alchemy\.com/i, '');
+    if (videoCover && firstIsAlchemy && (sameAsAudio || !IMAGE_EXT_RE.test(first))) {
+      return { cover: videoCover, audioFromImage };
+    }
+    return { cover: first, audioFromImage };
+  }
+
+  // Video file as card cover (NFTImage renders <video>) before unverified Alchemy.
+  if (videoCover) {
+    return { cover: videoCover, audioFromImage };
+  }
+
+  for (const c of unverifiedAlchemy) {
+    if (!looksLikeVisualCoverUrl(c.url, c.contentType)) continue;
+    const url = c.url as string;
+    if (/\/ipfs\//i.test(url) || url.startsWith('ipfs://')) continue;
+    return { cover: url, audioFromImage };
+  }
+
+  if (ipfsStills.length > 0) {
+    return { cover: ipfsStills[0], audioFromImage };
+  }
+
+  return { cover: '', audioFromImage };
+}
+
 // Initialize Alchemy clients for both networks
 const ethAlchemy = new Alchemy({
   apiKey: process.env.NEXT_PUBLIC_ALCHEMY_API_KEY,
@@ -100,22 +268,47 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
 
     const rawMeta = metadata.raw.metadata || {};
     const alchemyImage = metadata as {
-      image?: { cachedUrl?: string; originalUrl?: string; contentType?: string };
-      animation?: { cachedUrl?: string; originalUrl?: string; contentType?: string };
+      image?: AlchemyImageFields;
+      animation?: AlchemyImageFields;
     };
-    // Alchemy CDN survives when public IPFS gateways 404/hang (Immutable Spirit).
-    const alchemyImageCached = alchemyImage.image?.cachedUrl || '';
+    const collectionOpenSeaImage =
+      metadata.contract?.openSeaMetadata?.imageUrl || '';
+    const { cover: alchemyVisualCover, audioFromImage: alchemyImageAsAudio } =
+      pickAlchemyVisualCover({
+        image: alchemyImage.image,
+        metaImage: rawMeta.image,
+        metaImageUrl: rawMeta.image_url,
+        files: rawMeta.properties?.files,
+        collectionImage: collectionOpenSeaImage,
+        videoFallbacks: [
+          alchemyImage.animation?.cachedUrl,
+          alchemyImage.animation?.originalUrl,
+          rawMeta.animation_url,
+          rawMeta.image,
+          alchemyImage.image?.cachedUrl,
+        ],
+      });
+    const alchemyImageCached = alchemyVisualCover;
     const alchemyAnimCached = alchemyImage.animation?.cachedUrl || '';
     const alchemyAnimOriginal = alchemyImage.animation?.originalUrl || '';
     const alchemyAnimType = (alchemyImage.animation?.contentType || '').toLowerCase();
 
-    const alchemyAnimation = alchemyAnimCached || alchemyAnimOriginal || '';
+    const alchemyAnimation = alchemyAnimCached || alchemyAnimOriginal || alchemyImageAsAudio || '';
     const mergedMeta = {
       ...rawMeta,
       // Prefer Alchemy CDN for playback; keep original IPFS as secondary via image fields.
-      animation_url: alchemyAnimCached || rawMeta.animation_url || alchemyAnimOriginal || '',
-      image: alchemyImageCached || rawMeta.image || '',
-      image_url: rawMeta.image_url || alchemyImageCached || '',
+      animation_url:
+        alchemyAnimCached ||
+        rawMeta.animation_url ||
+        alchemyAnimOriginal ||
+        alchemyImageAsAudio ||
+        '',
+      // Never stick audio bytes in metadata.image — covers must be visual.
+      image: alchemyImageCached || (looksLikeVisualCoverUrl(rawMeta.image) ? rawMeta.image : '') || '',
+      image_url:
+        (looksLikeVisualCoverUrl(rawMeta.image_url) ? rawMeta.image_url : '') ||
+        alchemyImageCached ||
+        '',
     };
     const plan = getNftPlaybackPlan({
       metadata: mergedMeta,
@@ -139,19 +332,21 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
       (f: { uri?: string; url?: string; type?: string; mimeType?: string }) => {
         const u = (f?.uri || f?.url || '').toLowerCase();
         const t = (f?.type || f?.mimeType || '').toLowerCase();
-        return t.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|avif)(?:\?|#|$)/i.test(u);
+        return t.startsWith('image/') || IMAGE_EXT_RE.test(u);
       }
     );
     const imageUrl = processMediaUrlServer(
       rewriteLegacyOpenSeaMediaUrl(
         alchemyImageCached ||
-          rawMeta.image ||
-          rawMeta.image_url ||
+          collectionOpenSeaImage ||
+          (looksLikeVisualCoverUrl(rawMeta.image) ? rawMeta.image : '') ||
+          (looksLikeVisualCoverUrl(rawMeta.image_url) ? rawMeta.image_url : '') ||
           rawMeta.properties?.image ||
           rawMeta.properties?.visual?.url ||
           imageFromFiles?.uri ||
           imageFromFiles?.url ||
-          metadata.contract?.openSeaMetadata?.imageUrl ||
+          alchemyAnimCached ||
+          rawMeta.animation_url ||
           '',
         contract,
         network
@@ -192,8 +387,9 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
         ...mergedMeta,
         // Prefer Alchemy CDN first so pickImageCandidates / playback recover
         // when public IPFS CIDs are unreplicated.
-        image: alchemyImageCached || rawMeta.image || imageUrl || '',
-        image_url: alchemyImageCached || rawMeta.image_url || '',
+        // Prefer durable cover; don't re-inject unreplicated IPFS over OpenSea/collection.
+        image: alchemyImageCached || imageUrl || '',
+        image_url: alchemyImageCached || imageUrl || '',
         animation_url: mergedMeta.animation_url || resolvedVideo || plan.videoUrl || '',
         audio: mergedMeta.audio || (plan.mode === 'video-plus-audio' ? plan.audioUrl : mergedMeta.audio) || undefined,
         mimeType: alchemyAnimType || mergedMeta.mimeType,
@@ -215,17 +411,35 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
 const isAlchemyCdnUrl = (url?: string | null): boolean =>
   !!url && /nft-cdn\.alchemy\.com|nft2-cdn\.alchemy\.com|res\.cloudinary\.com\/alchemyapi/i.test(url);
 
-/** True when cover/playback still depend on fragile public IPFS gateways. */
+/** True when cover/playback still depend on fragile public IPFS gateways
+ *  or video-as-image URLs that need Alchemy's static thumbnail cache. */
 export const nftNeedsChainMediaEnrich = (nft: NFT | null | undefined): boolean => {
   if (!nft?.contract || !nft?.tokenId) return false;
+
+  // Solid visual cover already — nothing to enrich for the card thumb.
+  // Exception: Alchemy CDN alone is not enough when we also have a SeaDN /
+  // Nifty Island animation — those CDN hashes are often the audio file.
+  const cover = nft.image || '';
+  const anim =
+    nft.metadata?.animation_url || nft.animationUrl || nft.videoUrl || '';
+  const hasTokenVideoCover =
+    !!anim &&
+    (AUDIO_OR_VIDEO_EXT_RE.test(anim) ||
+      /seadn\.io|i2c\.seadn|niftyisland\.com/i.test(anim)) &&
+    !/\.(mp3|wav|m4a|aac|ogg|flac)(?:\?|#|$)/i.test(anim);
+
   if (
-    isAlchemyCdnUrl(nft.image) ||
-    isAlchemyCdnUrl(nft.audio) ||
-    isAlchemyCdnUrl(nft.videoUrl) ||
-    isAlchemyCdnUrl(nft.metadata?.animation_url)
+    cover &&
+    !AUDIO_OR_VIDEO_EXT_RE.test(cover) &&
+    (isAlchemyCdnUrl(cover) ||
+      /seadn\.io|openseauserdata\.com|i2c\.seadn|res\.cloudinary\.com/i.test(cover))
   ) {
-    return false;
+    // Alchemy CDN "cover" + real token video → still enrich / prefer video.
+    if (!(isAlchemyCdnUrl(cover) && hasTokenVideoCover)) {
+      return false;
+    }
   }
+
   const candidates = [
     nft.image,
     nft.audio,
@@ -233,11 +447,24 @@ export const nftNeedsChainMediaEnrich = (nft: NFT | null | undefined): boolean =
     nft.metadata?.image,
     nft.metadata?.animation_url,
   ].filter(Boolean) as string[];
+
+  // Need enrich when cover is missing/fragile, even if playback already uses Alchemy CDN.
+  const coverFragile =
+    !cover ||
+    cover.startsWith('ipfs://') ||
+    /\/ipfs\//i.test(cover) ||
+    /\.ipfs\./i.test(cover) ||
+    AUDIO_OR_VIDEO_EXT_RE.test(cover);
+
+  if (coverFragile) return true;
+
   return candidates.some(
     (u) =>
       u.startsWith('ipfs://') ||
       /\/ipfs\//i.test(u) ||
-      /\.ipfs\./i.test(u)
+      /\.ipfs\./i.test(u) ||
+      /\.(mp4|webm|mov|m4v)(?:\?|#|$)/i.test(u) ||
+      /seadn\.io|openseauserdata\.com/i.test(u)
   );
 };
 
@@ -246,7 +473,9 @@ export const nftNeedsChainMediaEnrich = (nft: NFT | null | undefined): boolean =
  * fall back to Alchemy's cached CDN (image + animation). Safe in mini-apps.
  */
 export const enrichNftMediaFromChain = async (nft: NFT): Promise<NFT> => {
-  if (!nftNeedsChainMediaEnrich(nft)) return nft;
+  // Callers decide when enrich is needed (nftNeedsChainMediaEnrich / load failure).
+  // Do not re-gate here — Alchemy CDN "covers" often need a second pass for SeaDN video.
+  if (!nft?.contract || !nft?.tokenId) return nft;
   try {
     const network = nft.network === 'base' ? 'base' : 'ethereum';
     const res = await fetch(
@@ -261,10 +490,29 @@ export const enrichNftMediaFromChain = async (nft: NFT): Promise<NFT> => {
     const nextImage = data.image || nft.image;
     const nextAudio = data.audio || nft.audio;
     const nextVideo = data.videoUrl || nft.videoUrl;
+    // Prefer durable token video over Alchemy CDN image hashes (often audio).
+    const preferVideo =
+      (nextVideo &&
+        (/seadn\.io|i2c\.seadn|niftyisland\.com/i.test(nextVideo) ||
+          /\.(mp4|webm|mov|m4v)(?:\?|#|$)/i.test(nextVideo))) ||
+      (data.metadata?.animation_url &&
+        (/seadn\.io|i2c\.seadn|niftyisland\.com/i.test(data.metadata.animation_url) ||
+          /\.(mp4|webm|mov|m4v)(?:\?|#|$)/i.test(data.metadata.animation_url)));
+    const videoCover =
+      (preferVideo &&
+        (nextVideo || data.metadata?.animation_url || '')) ||
+      '';
+    const alchemyImage = nextImage && /nft2?-cdn\.alchemy\.com/i.test(nextImage);
+    const resolvedImage =
+      (videoCover && alchemyImage ? videoCover : '') ||
+      nextImage ||
+      videoCover ||
+      nft.image;
+
     return {
       ...nft,
       name: data.name || nft.name,
-      image: nextImage,
+      image: resolvedImage,
       audio: nextAudio,
       videoUrl: nextVideo,
       playbackMode: data.playbackMode || nft.playbackMode,
@@ -278,7 +526,7 @@ export const enrichNftMediaFromChain = async (nft: NFT): Promise<NFT> => {
       metadata: {
         ...nft.metadata,
         ...data.metadata,
-        image: data.metadata?.image || data.image || nft.metadata?.image,
+        image: resolvedImage || data.metadata?.image || data.image || nft.metadata?.image,
         image_url: data.metadata?.image_url || data.image || nft.metadata?.image_url,
         animation_url:
           data.metadata?.animation_url ||
@@ -387,6 +635,12 @@ export const fetchOwnedNftsFromAlchemy = async (address: string): Promise<NFT[]>
           imageUrl?: string;
         };
       };
+      contractMetadata?: {
+        name?: string;
+        openSea?: {
+          imageUrl?: string;
+        };
+      };
       id?: {
         tokenId: string;
       };
@@ -394,7 +648,8 @@ export const fetchOwnedNftsFromAlchemy = async (address: string): Promise<NFT[]>
       title?: string;
       description?: string;
       media?: Array<{ gateway?: string; raw?: string; format?: string }>;
-      animation?: { cachedUrl?: string; originalUrl?: string };
+      image?: AlchemyImageFields;
+      animation?: { cachedUrl?: string; originalUrl?: string; contentType?: string };
       metadata?: {
         name?: string;
         description?: string;
@@ -429,61 +684,75 @@ export const fetchOwnedNftsFromAlchemy = async (address: string): Promise<NFT[]>
           const format = (m.format || '').toLowerCase();
           return format.includes('mp4') || format.includes('webm') || format.includes('video');
         });
+        // Any non-IPFS media gateway (OpenSea often puts token video/still here).
+        const durableMedia = (nft.media || [])
+          .map((m) => m.gateway || m.raw || '')
+          .find(
+            (u) =>
+              u &&
+              !/\/ipfs\//i.test(u) &&
+              !u.startsWith('ipfs://') &&
+              /seadn\.io|openseauserdata|i2c\.seadn|niftyisland|nft2?-cdn\.alchemy|cloudinary/i.test(u)
+          );
         const animationFromAlchemy =
           nft.animation?.cachedUrl ||
           meta.animation_url ||
           nft.animation?.originalUrl ||
-          fromMedia?.raw ||
           fromMedia?.gateway ||
+          fromMedia?.raw ||
           '';
+        const collectionImage =
+          nft.contract.openSea?.imageUrl ||
+          nft.contractMetadata?.openSea?.imageUrl ||
+          '';
+        const { cover: visualCover, audioFromImage } = pickAlchemyVisualCover({
+          image: nft.image,
+          media: nft.media,
+          metaImage: meta.image,
+          metaImageUrl: meta.image_url,
+          files: meta.properties?.files,
+          collectionImage,
+          videoFallbacks: [
+            animationFromAlchemy,
+            durableMedia,
+            meta.animation_url,
+            meta.image,
+            fromMedia?.gateway,
+            fromMedia?.raw,
+            nft.image?.cachedUrl,
+          ],
+        });
         const mergedMeta = {
           ...meta,
-          animation_url: animationFromAlchemy || meta.animation_url || '',
+          animation_url:
+            animationFromAlchemy ||
+            meta.animation_url ||
+            audioFromImage ||
+            '',
+          image: visualCover || '',
         };
         const contractAddress = nft.contract.address.toLowerCase();
         const rewrite = (url: string) =>
           rewriteLegacyOpenSeaMediaUrl(normalizeOwnedNftUrl(url), contractAddress, network);
 
-        const plan = getNftPlaybackPlan({ metadata: mergedMeta });
-        const soundRaw = plan.audioUrl || plan.videoUrl || '';
+        const plan = getNftPlaybackPlan({
+          metadata: mergedMeta,
+          // When Alchemy stuffed audio into image.*, treat it as playback.
+          audio: audioFromImage || undefined,
+        });
+        const soundRaw = plan.audioUrl || plan.videoUrl || audioFromImage || '';
         const audioUrl = rewrite(soundRaw);
         const videoUrl = plan.videoUrl ? rewrite(plan.videoUrl) : '';
 
-        const fromImageMedia = (nft.media || []).find((m) => {
-          const format = (m.format || '').toLowerCase();
-          if (!format) return Boolean(m.gateway || m.raw);
-          return (
-            format.includes('png') ||
-            format.includes('jpeg') ||
-            format.includes('jpg') ||
-            format.includes('gif') ||
-            format.includes('webp') ||
-            format.includes('svg') ||
-            format.includes('image')
-          );
-        });
-        const alchemyCachedImage = fromImageMedia?.gateway || fromImageMedia?.raw || '';
-        const fromImageFiles = (meta.properties?.files || [])
-          .map((f) => {
-            const u = f?.uri || f?.url || '';
-            const t = (f?.type || f?.mimeType || '').toLowerCase();
-            if (!u) return '';
-            if (t.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|avif)(?:\?|#|$)/i.test(u)) {
-              return u;
-            }
-            return '';
-          })
-          .filter(Boolean) as string[];
-
-        // Prefer Alchemy CDN caches — public IPFS often unreplicated (Immutable Spirit).
+        // Prefer Alchemy CDN / OpenSea stills / video covers — never leave image empty
+        // when we have playable media (empty image → default-nft.png flash on refresh).
         const imageUrl = rewrite(
-          alchemyCachedImage ||
-          meta.image ||
-          meta.image_url ||
-          meta.properties?.image ||
-          meta.properties?.visual?.url ||
-          fromImageFiles[0] ||
-          ''
+          visualCover ||
+            durableMedia ||
+            collectionImage ||
+            animationFromAlchemy ||
+            meta.image ||
+            ''
         );
 
         const tokenId = nft.id?.tokenId?.toString()?.replace(/^0x/, '') || nft.tokenId?.toString()?.replace(/^0x/, '');
@@ -516,22 +785,22 @@ export const fetchOwnedNftsFromAlchemy = async (address: string): Promise<NFT[]>
           isAnimation: false,
           network,
           collection: {
-            image: nft.contract.openSea?.imageUrl,
+            image: collectionImage,
             name: nft.contract.name || ''
           },
           metadata: {
             ...mergedMeta,
-            // Keep original image URI when present so pickImageCandidates can
-            // still walk alternates (Alchemy cache, files, collection image).
-            image: rewrite(meta.image || '') || imageUrl || '',
+            // Prefer visual cover; keep original meta image only when it's actually visual.
+            image: rewrite(visualCover || '') || imageUrl || '',
             image_url:
               rewrite(meta.image_url || '') ||
-              rewrite(alchemyCachedImage) ||
+              rewrite(visualCover || '') ||
               '',
             animation_url: rewrite(mergedMeta.animation_url || plan.videoUrl || '') || '',
             audio:
               mergedMeta.audio ||
               mergedMeta.audio_url ||
+              audioFromImage ||
               (plan.mode === 'video-plus-audio' ? plan.audioUrl || undefined : mergedMeta.audio),
           }
         };

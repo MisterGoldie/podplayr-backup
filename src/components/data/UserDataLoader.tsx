@@ -1,9 +1,8 @@
 'use client';
 
 import { useEffect, useCallback, useRef } from 'react';
-import { searchUsers } from '../../lib/firebase';
+import { searchUsers, fetchUserNFTs } from '../../lib/firebase';
 import { getLikedNFTs, subscribeToLikedNFTs } from '../../lib/firebase/likes';
-import { fetchUserNFTsFromAlchemy } from '../../lib/nft';
 import { getMediaKey } from '../../utils/media';
 import { applyConfirmedPlayback, isPlayableMediaNFT } from '../../utils/isMediaNFT';
 import type { NFT, FarcasterUser } from '../../types/user';
@@ -56,11 +55,99 @@ const getCachedNFTs = (userId: number): NFT[] | null => {
   const cached = localStorage.getItem(`${NFT_CACHE_KEY}${userId}`);
   if (cached) {
     const { nfts, timestamp } = JSON.parse(cached);
-    if (Date.now() - timestamp < TWENTY_FOUR_HOURS) {
+    if (Date.now() - timestamp < TWENTY_FOUR_HOURS && Array.isArray(nfts) && nfts.length > 0) {
+      // Reject caches written while cover selection was broken (empty image fields).
+      const missingCover = nfts.filter(
+        (nft: NFT) =>
+          !nft?.image &&
+          !nft?.metadata?.image &&
+          !nft?.collection?.image &&
+          !nft?.metadata?.animation_url &&
+          !nft?.videoUrl
+      ).length;
+      if (missingCover > 0) {
+        console.log(
+          `Discarding NFT cache for FID ${userId}: ${missingCover}/${nfts.length} missing covers`
+        );
+        localStorage.removeItem(`${NFT_CACHE_KEY}${userId}`);
+        return null;
+      }
       return nfts;
     }
   }
   return null;
+};
+
+const withLikeStatus = (nfts: NFT[]): NFT[] => {
+  const cachedLikes = localStorage.getItem('podplayr_liked_media_keys');
+  let mediaKeys: string[] = [];
+  if (cachedLikes) {
+    try {
+      mediaKeys = JSON.parse(cachedLikes) as string[];
+    } catch (error) {
+      console.error('Error parsing cached likes:', error);
+    }
+  }
+
+  return nfts.map((nft) => {
+    const mediaKey = nft.mediaKey || getMediaKey(nft);
+    return {
+      ...nft,
+      mediaKey,
+      isLikedCached: mediaKeys.includes(mediaKey),
+    };
+  });
+};
+
+const cacheOwnedNFTs = (userFid: number, nfts: NFT[]) => {
+  localStorage.setItem(
+    `${NFT_CACHE_KEY}${userFid}`,
+    JSON.stringify({ nfts, timestamp: Date.now() })
+  );
+};
+
+const coverRank = (url?: string | null): number => {
+  if (!url) return 0;
+  if (/seadn\.io|i2c\.seadn|niftyisland\.com/i.test(url)) return 4;
+  if (/\.(mp4|webm|mov|m4v)(?:\?|#|$)/i.test(url)) return 3;
+  if (/nft2?-cdn\.alchemy\.com/i.test(url)) return 1; // often audio rehosted
+  if (/\/ipfs\//i.test(url) || url.startsWith('ipfs://')) return 0;
+  return 2;
+};
+
+/** Keep a better in-memory / cached cover when Alchemy refresh returns a worse one. */
+const mergeOwnedCovers = (fresh: NFT[], previous: NFT[] | null): NFT[] => {
+  if (!previous?.length) return fresh;
+  const prevById = new Map(
+    previous.map((n) => [`${n.contract?.toLowerCase()}-${n.tokenId}`, n])
+  );
+  return fresh.map((nft) => {
+    const prev = prevById.get(`${nft.contract?.toLowerCase()}-${nft.tokenId}`);
+    if (!prev) return nft;
+    const freshCover = nft.image || nft.metadata?.image || '';
+    const prevCover =
+      prev.image ||
+      prev.metadata?.image ||
+      prev.metadata?.animation_url ||
+      prev.animationUrl ||
+      '';
+    if (coverRank(prevCover) <= coverRank(freshCover)) return nft;
+    return {
+      ...nft,
+      image: prevCover,
+      metadata: {
+        ...nft.metadata,
+        image: prevCover,
+        animation_url:
+          nft.metadata?.animation_url ||
+          prev.metadata?.animation_url ||
+          prev.animationUrl ||
+          '',
+      },
+      animationUrl: nft.animationUrl || prev.animationUrl || '',
+      collection: nft.collection || prev.collection,
+    };
+  });
 };
 
 export const UserDataLoader: React.FC<UserDataLoaderProps> = ({
@@ -71,8 +158,8 @@ export const UserDataLoader: React.FC<UserDataLoaderProps> = ({
   onError
 }) => {
   const loadingRef = useRef<number | null>(null);
+  const likesEnabled = Boolean(onLikedNFTsLoaded);
 
-  // Memoize callbacks to prevent unnecessary re-renders
   const handleUserDataLoaded = useCallback((userData: FarcasterUser) => {
     onUserDataLoaded?.(userData);
   }, [onUserDataLoaded]);
@@ -90,44 +177,47 @@ export const UserDataLoader: React.FC<UserDataLoaderProps> = ({
   }, [onError]);
 
   useEffect(() => {
+    if (!userFid) return;
+
     // Prevent multiple simultaneous loads for the same user
     if (loadingRef.current === userFid) {
       console.log('Already loading data for FID:', userFid);
       return;
     }
 
+    let cancelled = false;
+    let unsubscribeLikes: (() => void) | undefined;
+    loadingRef.current = userFid;
+
     const loadUserData = async () => {
-      loadingRef.current = userFid;
-      
       try {
-        // Check session cache first
         const sessionCache = getSessionCache();
         const cached = sessionCache.get(userFid);
         const now = Date.now();
-        
+
         if (cached && (now - cached.timestamp) < SESSION_CACHE_DURATION) {
           console.log('✅ Using cached user data for FID:', userFid);
           handleUserDataLoaded(cached.userData);
           handleNFTsLoaded(cached.nfts);
-          handleLikedNFTsLoaded(cached.likedNFTs);
-          loadingRef.current = null;
-          return;
+          if (likesEnabled) {
+            handleLikedNFTsLoaded(cached.likedNFTs);
+          }
+          // Still refresh owned NFTs in background so custody-only caches don't stick
         }
-        
+
         console.log('Starting user data load for FID:', userFid);
-        
-        // Get Farcaster user data
-        console.log('Fetching Farcaster user data...');
-        const users = await searchUsers(userFid.toString()).catch(error => {
+
+        const users = await searchUsers(userFid.toString()).catch((error) => {
           console.error('Error searching for user:', error);
           handleError(error.message || 'Error searching for user');
           return [];
         });
 
+        if (cancelled) return;
+
         if (!users?.length) {
           console.error('No user found for FID:', userFid);
           handleError('User not found');
-          loadingRef.current = null;
           return;
         }
 
@@ -136,161 +226,105 @@ export const UserDataLoader: React.FC<UserDataLoaderProps> = ({
           fid: userData.fid,
           username: userData.username,
           custody_address: userData.custody_address,
-          verified_addresses: userData.verified_addresses
+          verified_addresses: userData.verified_addresses,
         });
         handleUserDataLoaded(userData);
 
-        // Get addresses
-        console.log('Extracting wallet addresses...');
-        const addresses = [
-          userData.custody_address,
-          ...(userData.verified_addresses?.eth_addresses || [])
-        ].filter(Boolean) as string[];
-
-        console.log('Found wallet addresses:', addresses);
-        if (!addresses.length) {
-          console.error('No wallet addresses found for user:', userData.username);
-          handleError('No wallet addresses found');
-          loadingRef.current = null;
-          return;
-        }
-
-        // Try cached NFTs first
-        console.log('Checking NFT cache...');
+        // Serve local cache immediately (stale-while-revalidate), then always
+        // refresh via fetchUserNFTs so verified wallets aren't missed.
         const cachedNFTs = getCachedNFTs(userFid);
-        let nftsWithLikeStatus: NFT[] = [];
-        
-        if (cachedNFTs) {
-          console.log('Found cached NFTs, validating structure...');
-          const hasValidStructure = cachedNFTs.every(nft => 
-            nft.hasOwnProperty('contract') && 
-            nft.hasOwnProperty('tokenId') && 
-            nft.hasOwnProperty('metadata')
+        if (cachedNFTs?.length) {
+          const hasValidStructure = cachedNFTs.every(
+            (nft) =>
+              Object.prototype.hasOwnProperty.call(nft, 'contract') &&
+              Object.prototype.hasOwnProperty.call(nft, 'tokenId') &&
+              Object.prototype.hasOwnProperty.call(nft, 'metadata')
           );
 
           if (hasValidStructure) {
-            console.log('Using cached NFTs:', cachedNFTs.length);
-            nftsWithLikeStatus = cachedNFTs.map(nft => {
-              const mediaKey = getMediaKey(nft);
-              const cachedLikes = localStorage.getItem('podplayr_liked_media_keys');
-              let isLiked = false;
-              
-              if (cachedLikes) {
-                try {
-                  const mediaKeys = JSON.parse(cachedLikes) as string[];
-                  isLiked = mediaKeys.includes(mediaKey);
-                } catch (error) {
-                  console.error('Error parsing cached likes:', error);
-                }
-              }
-              
-              return { ...nft, mediaKey, isLikedCached: isLiked };
-            });
+            console.log('Using cached NFTs (will refresh):', cachedNFTs.length);
+            handleNFTsLoaded(withLikeStatus(cachedNFTs));
           } else {
             console.log('Invalid cache structure, removing cache');
             localStorage.removeItem(`${NFT_CACHE_KEY}${userFid}`);
           }
         }
-        
-        // If no valid cached NFTs, fetch fresh ones
-        if (nftsWithLikeStatus.length === 0) {
-          console.log('Fetching fresh NFTs from Alchemy...');
-          const nftPromises = addresses.map(address => {
-            console.log('Fetching NFTs for address:', address);
-            return fetchUserNFTsFromAlchemy(address);
-          });
-          const nftResults = await Promise.all(nftPromises);
-          const allNFTs = nftResults.flat();
-          console.log('Total NFTs found:', allNFTs.length);
 
-          // Cache NFTs
-          console.log('Caching NFTs...');
-          localStorage.setItem(`${NFT_CACHE_KEY}${userFid}`, JSON.stringify({
-            nfts: allNFTs,
-            timestamp: Date.now()
-          }));
+        console.log('Refreshing owned NFTs via fetchUserNFTs...');
+        const freshNFTs = await fetchUserNFTs(userFid);
+        if (cancelled) return;
 
-          // After loading NFTs, immediately check their like status
-          nftsWithLikeStatus = allNFTs.map(nft => {
-            const mediaKey = getMediaKey(nft);
-            const cachedLikes = localStorage.getItem('podplayr_liked_media_keys');
-            let isLiked = false;
-            
-            if (cachedLikes) {
-              try {
-                const mediaKeys = JSON.parse(cachedLikes) as string[];
-                isLiked = mediaKeys.includes(mediaKey);
-              } catch (error) {
-                console.error('Error parsing cached likes:', error);
-              }
-            }
-            
-            return { ...nft, mediaKey, isLikedCached: isLiked };
-          });
-        }
-        
+        const mergedFresh = mergeOwnedCovers(freshNFTs, cachedNFTs);
+        const nftsWithLikeStatus = withLikeStatus(mergedFresh);
+        console.log('Owned NFTs refreshed:', nftsWithLikeStatus.length);
+        cacheOwnedNFTs(userFid, nftsWithLikeStatus);
         handleNFTsLoaded(nftsWithLikeStatus);
 
-        // Initial load of liked NFTs (for backward compatibility)
-        console.log('Loading liked NFTs initially...');
-        const likedNFTs = await getLikedNFTs(userFid);
-        console.log('Liked NFTs loaded initially:', likedNFTs.length);
-        handleLikedNFTsLoaded(likedNFTs);
-        applyConfirmedPlayback(likedNFTs, handleLikedNFTsLoaded);
-        
-        // Cache all data in session cache
+        let likedNFTs: NFT[] = cached?.likedNFTs || [];
+        if (likesEnabled) {
+          console.log('Loading liked NFTs initially...');
+          likedNFTs = await getLikedNFTs(userFid);
+          if (cancelled) return;
+          console.log('Liked NFTs loaded initially:', likedNFTs.length);
+          handleLikedNFTsLoaded(likedNFTs);
+          applyConfirmedPlayback(likedNFTs, handleLikedNFTsLoaded);
+
+          console.log('Setting up real-time subscription to liked NFTs...');
+          unsubscribeLikes = subscribeToLikedNFTs(userFid, (updatedLikedNFTs: NFT[]) => {
+            if (cancelled) return;
+            console.log('Liked NFTs update received:', updatedLikedNFTs.length);
+            handleLikedNFTsLoaded(updatedLikedNFTs);
+
+            const currentCache = getSessionCache();
+            const existingCache = currentCache.get(userFid);
+            if (existingCache) {
+              currentCache.set(userFid, {
+                ...existingCache,
+                likedNFTs: updatedLikedNFTs,
+                timestamp: Date.now(),
+              });
+              setSessionCache(currentCache);
+            }
+          });
+        }
+
         const updatedCache = getSessionCache();
         updatedCache.set(userFid, {
           userData,
           nfts: nftsWithLikeStatus,
           likedNFTs,
-          timestamp: now
+          timestamp: Date.now(),
         });
         setSessionCache(updatedCache);
-        
-        // Set up real-time subscription to liked NFTs
-        console.log('Setting up real-time subscription to liked NFTs...');
-        const unsubscribeLikes = subscribeToLikedNFTs(userFid, (updatedLikedNFTs: NFT[]) => {
-          console.log('Liked NFTs update received:', updatedLikedNFTs.length);
-          handleLikedNFTsLoaded(updatedLikedNFTs);
-          
-          // Update session cache
-          const currentCache = getSessionCache();
-          const existingCache = currentCache.get(userFid);
-          if (existingCache) {
-            currentCache.set(userFid, {
-              ...existingCache,
-              likedNFTs: updatedLikedNFTs,
-              timestamp: Date.now()
-            });
-            setSessionCache(currentCache);
-          }
-          
-          // Update localStorage cache for next time
-          const mediaKeys = updatedLikedNFTs.map(nft => nft.mediaKey || getMediaKey(nft)).filter(Boolean);
-          localStorage.setItem('podplayr_liked_media_keys', JSON.stringify(mediaKeys));
-        });
-        
-        loadingRef.current = null;
-        
-        // Return cleanup function
-        return () => {
-          console.log('Cleaning up liked NFTs subscription');
-          unsubscribeLikes();
-        };
-
       } catch (error) {
+        if (cancelled) return;
         console.error('Error loading user data:', error);
         handleError('Failed to load user data');
-        loadingRef.current = null;
+      } finally {
+        if (loadingRef.current === userFid) {
+          loadingRef.current = null;
+        }
       }
     };
 
-    if (userFid) {
-      loadUserData();
-    }
-  }, [userFid, handleUserDataLoaded, handleNFTsLoaded, handleLikedNFTsLoaded, handleError]);
-  
+    void loadUserData();
+
+    return () => {
+      cancelled = true;
+      unsubscribeLikes?.();
+      if (loadingRef.current === userFid) {
+        loadingRef.current = null;
+      }
+    };
+  }, [
+    userFid,
+    likesEnabled,
+    handleUserDataLoaded,
+    handleNFTsLoaded,
+    handleLikedNFTsLoaded,
+    handleError,
+  ]);
+
   return null;
 };
 

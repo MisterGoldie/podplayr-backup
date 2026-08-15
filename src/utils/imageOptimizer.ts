@@ -258,6 +258,18 @@ export function isIpfsMediaUrl(url: string): boolean {
   }
 }
 
+/** True when a "cover" URL is actually a video file (cannot go through image CDNs). */
+export function isVideoMediaUrl(url: string): boolean {
+  if (!url || isLocalOrDataUrl(url)) return false;
+  if (/\.(mp4|webm|mov|m4v)(?:\?|#|$)/i.test(url)) return true;
+  try {
+    const path = new URL(url).pathname.toLowerCase();
+    return /\.(mp4|webm|mov|m4v)$/.test(path);
+  } catch {
+    return false;
+  }
+}
+
 /** Display-sized card thumbnail so grids don't download full Arweave/IPFS originals. */
 export function getResizedImageUrl(url: string, size = 360): string {
   if (
@@ -267,7 +279,9 @@ export function getResizedImageUrl(url: string, size = 360): string {
     shouldPreserveAnimation(url) ||
     isBrowserFriendlyCdnUrl(url) ||
     isArweaveMediaUrl(url) ||
-    isIpfsMediaUrl(url)
+    isIpfsMediaUrl(url) ||
+    // wsrv/_next/image cannot thumbnail MP4 covers (Nifty Island, etc.)
+    isVideoMediaUrl(url)
   ) {
     return url;
   }

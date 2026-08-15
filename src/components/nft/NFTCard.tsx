@@ -57,7 +57,14 @@ const NFTCardInner: React.FC<NFTCardProps> = ({
     }),
   });
 
-  const rawImageUrl = nft.image || nft.metadata?.image || '';
+  const rawImageUrl =
+    nft.image ||
+    nft.metadata?.image ||
+    nft.collection?.image ||
+    nft.metadata?.animation_url ||
+    nft.videoUrl ||
+    nft.audio ||
+    '';
   const [hasEntered, setHasEntered] = useState(false);
   const enterStyleRef = useRef(
     animationDelay ? { animationDelay: `${animationDelay}s` } : undefined
