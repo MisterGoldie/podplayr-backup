@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect, useLayoutEffect, useCallback } from 'react';
+import React, { useRef, useState, useEffect, useLayoutEffect, useCallback, useContext } from 'react';
 import { NFTImage } from '../media/NFTImage';
 import { processMediaUrl, getMediaKey, formatTime, safeProgressPercent, getDisplayTimes, rewriteLegacyOpenSeaMediaUrl, adoptPlaybackVideoElement, parkPlaybackVideo, applyPlaybackVideoPresentation } from '../../utils/media';
 import { applyPlaybackPlanToNft, getNftPlaybackPlan } from '../../utils/isMediaNFT';
@@ -7,6 +7,8 @@ import { logger } from '../../utils/logger';
 import { triggerHaptic } from '../../utils/haptics';
 import { PlaybackButton } from '../buttons/PlaybackButton';
 import InfoPanel from './InfoPanel';
+import { UserFidContext } from '../../app/providers';
+import { isRealFid } from '../../utils/platform';
 
 // Fix the MaximizedPlayerProps interface to include isAnimating
 // export interface MaximizedPlayerProps {
@@ -62,6 +64,8 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
   lastPosition,
   isAnimating
 }) => {
+  const { fid } = useContext(UserFidContext);
+  const canLike = Boolean(onLikeToggle) && isRealFid(fid);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const videoHostRef = useRef<HTMLDivElement | null>(null);
   const [showControls, setShowControls] = useState(true);
@@ -621,7 +625,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
         >
           <div className={`px-4 flex justify-between items-center z-10 transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
             <div className="flex items-center gap-2">
-              {onLikeToggle && (
+              {canLike && (
                 <button
                   type="button"
                   onClick={() => onLikeToggle(nft)}
