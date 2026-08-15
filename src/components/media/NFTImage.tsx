@@ -768,8 +768,8 @@ export const NFTImage: React.FC<NFTImageProps> = ({
     ) {
       return;
     }
-    // Card/proxy: 4s. Arweave: 20s (multi-MB images). Cap arweave hang hops at 3.
-    const waitMs = isArweaveHangCandidate && !isCardHangCandidate ? 20000 : 4000;
+    // Card/proxy: 8s (Alchemy thumbs under burst). Arweave: 20s.
+    const waitMs = isArweaveHangCandidate && !isCardHangCandidate ? 20000 : 8000;
     const timeout = window.setTimeout(() => {
       // Re-resolve often sets imgLoading=true for the same URL; onLoad won't
       // re-fire, so this timer must not thrash a URL that already decoded.
@@ -803,10 +803,15 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       let skipToDisplay = false;
 
       if (useCardThumb && originalUrlRef.current) {
-        // Never re-wrap the same hung URL via toDisplaySrc (was looping wsrv→original→wsrv).
+        // Hang hops skip video/fetch for stills (400 spam). Hard errors try it.
         const size = Math.max(width * 2, 360);
         attemptedFallbacks.current[`${imgSrc}-hang`] = true;
-        const alt = getCardThumbAlternates(originalUrlRef.current, size).find(
+        const hungIsVideo =
+          /video\/fetch/i.test(imgSrc) ||
+          /video\/fetch/i.test(originalUrlRef.current);
+        const alt = getCardThumbAlternates(originalUrlRef.current, size, {
+          includeVideoStill: hungIsVideo,
+        }).find(
           (u) => u !== imgSrc && !attemptedFallbacks.current[`${u}-hang`]
         );
         if (alt) {
@@ -933,7 +938,10 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       if (useCardThumb) {
         const size = Math.max(width * 2, 360);
         attemptedFallbacks.current[`${failedSrc}-card`] = true;
-        const nextAlt = getCardThumbAlternates(originalUrlRef.current, size).find(
+        // Hard fail: try video still (Squig Dao / SCAN ME / Neybors need it).
+        const nextAlt = getCardThumbAlternates(originalUrlRef.current, size, {
+          includeVideoStill: true,
+        }).find(
           (u) => u !== failedSrc && !attemptedFallbacks.current[`${u}-card`]
         );
         if (nextAlt) {

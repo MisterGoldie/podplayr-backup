@@ -201,10 +201,12 @@ export function getAlchemyNativeCardThumb(url: string, size = 360): string | nul
   }
 
   if (/res\.cloudinary\.com\/alchemyapi\/video\/fetch/i.test(u)) {
-    return u.replace(
-      /(\/video\/fetch\/)/i,
-      `$1w_${size},h_${size},c_fill,q_70,f_png,so_0/`
-    );
+    // Enrich often already has f_png,so_0 — don't duplicate those transforms.
+    const hasStill = /(?:^|\/|,)(?:f_png|so_0)(?:,|\/|$)/i.test(u);
+    const inject = hasStill
+      ? `w_${size},h_${size},c_fill,q_70,`
+      : `w_${size},h_${size},c_fill,q_70,f_png,so_0,`;
+    return u.replace(/(\/video\/fetch\/)/i, `$1${inject}`);
   }
 
   const cdn = u.match(/nft2?-cdn\.alchemy\.com\/([^/?#]+)\/([^/?#]+)/i);
@@ -215,8 +217,16 @@ export function getAlchemyNativeCardThumb(url: string, size = 360): string | nul
   return null;
 }
 
-/** Ordered card fallbacks: Alchemy native → video still → wsrv → weserv mirror. */
-export function getCardThumbAlternates(url: string, size = 360): string[] {
+/**
+ * Ordered card fallbacks.
+ * video/fetch is only for known video covers or hard fails — never as a hang
+ * hop for normal stills (Alchemy returns 400 when the CDN hash isn't video).
+ */
+export function getCardThumbAlternates(
+  url: string,
+  size = 360,
+  opts?: { includeVideoStill?: boolean }
+): string[] {
   const alts: string[] = [];
   const seen = new Set<string>();
   const push = (u: string | null | undefined) => {
@@ -224,6 +234,9 @@ export function getCardThumbAlternates(url: string, size = 360): string[] {
     seen.add(u);
     alts.push(u);
   };
+
+  const isVideoFetch = /res\.cloudinary\.com\/alchemyapi\/video\/fetch/i.test(url);
+  const includeVideoStill = opts?.includeVideoStill ?? isVideoFetch;
 
   push(getAlchemyNativeCardThumb(url, size));
 
@@ -238,7 +251,7 @@ export function getCardThumbAlternates(url: string, size = 360): string[] {
   const cdnFull = underlying.match(
     /https?:\/\/nft2?-cdn\.alchemy\.com\/[^/?#]+\/[^/?#]+/i
   )?.[0];
-  if (cdnFull) {
+  if (includeVideoStill && cdnFull) {
     push(
       `https://res.cloudinary.com/alchemyapi/video/fetch/w_${size},h_${size},c_fill,q_70,f_png,so_0/${cdnFull}`
     );
