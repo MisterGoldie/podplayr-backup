@@ -79,7 +79,7 @@ export const SUGGESTED_MUSIC_VIDEOS: NFT[] = [
     audio: 'https://gateway.pinata.cloud/ipfs/bafybeigxtbuhw3zvhjfruzrfzcprmbxyryxqidnja5w4gj2dthhi4tuiyi',
     isVideo: true,
     playbackMode: 'video-with-audio',
-    collection: { name: 'Official Visualizer' },
+    collection: { name: 'GNERIC' },
     metadata: {
       animation_url: 'https://gateway.pinata.cloud/ipfs/bafybeigxtbuhw3zvhjfruzrfzcprmbxyryxqidnja5w4gj2dthhi4tuiyi',
       mimeType: 'video/mp4',
