@@ -37,6 +37,11 @@ const MUSIC_VIDEO_ARTISTS: Record<string, MusicVideoArtist> = {
     fid: 394597,
     name: 'Jamee Cornelia',
   },
+  // Calling — XTincT
+  [artistKey('0x3709586a4f72fc60fbc847b5b6bbd86d06672c52', '1')]: {
+    fid: 541225,
+    name: 'XTincT',
+  },
 };
 
 export function getMusicVideoArtist(

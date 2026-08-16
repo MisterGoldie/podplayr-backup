@@ -101,10 +101,10 @@ const PLAYBACK_OVERRIDES: Record<string, { mobile: string; desktop?: string }> =
     mobile: muxHls('XG00lGsg01DVCnI02bhj4e6ybzknmr6oBuWSE7G5G01vu54'),
     desktop: muxHls('XG00lGsg01DVCnI02bhj4e6ybzknmr6oBuWSE7G5G01vu54'),
   },
-  // Bruises Music Video Game - Opening Cinematic
-  CQkNgwIYcfLj0ipMgbQ_oF4ITLY3ulp_kofmliVpJSw: {
-    mobile: muxHls('GHs4M027urWxSH8HhvxuB02Cwo2OWQfnXlEKevZrNOx9U'),
-    desktop: muxHls('GHs4M027urWxSH8HhvxuB02Cwo2OWQfnXlEKevZrNOx9U'),
+  // CALLING - ai music video (XTincT)
+  bafybeifgapj7vufewz6cynxjcjof36zqrf34274afyp2uwxbac34igcrny: {
+    mobile: muxHls('JPhUp9wGoD4DrWp02DoKfOGx48WZ4f00D7uuS9MkpxU6I'),
+    desktop: muxHls('JPhUp9wGoD4DrWp02DoKfOGx48WZ4f00D7uuS9MkpxU6I'),
   },
   // Energy (OFFICIAL VISUALIZER)
   bafybeigxtbuhw3zvhjfruzrfzcprmbxyryxqidnja5w4gj2dthhi4tuiyi: {
