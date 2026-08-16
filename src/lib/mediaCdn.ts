@@ -126,6 +126,26 @@ const PLAYBACK_OVERRIDES: Record<string, { mobile: string; desktop?: string }> =
     mobile: muxHls('B00glZFc67CoWhE4KHC00cFRKnEt5D7yR2yhl013gvwnT8'),
     desktop: muxHls('B00glZFc67CoWhE4KHC00cFRKnEt5D7yR2yhl013gvwnT8'),
   },
+  // GUD by LOGIK — profile NFT (IPFS CID the player uses)
+  bafybeif3tgmh7gerytonss7234qguvbjgrpz54ydgz753fyxekml52dppe: {
+    mobile: muxHls('XEKtpfguXO0000noJMdbo55uNa7ueFtHMqvSl2oSzVME4'),
+    desktop: muxHls('XEKtpfguXO0000noJMdbo55uNa7ueFtHMqvSl2oSzVME4'),
+  },
+  // GUD by LOGIK — OpenSea raw2.seadn.io filename
+  b5994894da074ccc58e950bba0df0866: {
+    mobile: muxHls('XEKtpfguXO0000noJMdbo55uNa7ueFtHMqvSl2oSzVME4'),
+    desktop: muxHls('XEKtpfguXO0000noJMdbo55uNa7ueFtHMqvSl2oSzVME4'),
+  },
+  // EVOL by LOGIK — profile NFT (IPFS CID the player uses)
+  bafybeicgubczfdpbk5rb4pqxepnwwxgzrac4oe373kgsemoupbqyykq4qu: {
+    mobile: muxHls('1QpmuU7j2bE02s3yk5Sp2XPoxSjuldroY5UshhZ00c8qw'),
+    desktop: muxHls('1QpmuU7j2bE02s3yk5Sp2XPoxSjuldroY5UshhZ00c8qw'),
+  },
+  // EVOL by LOGIK — OpenSea raw2.seadn.io filename
+  '69da006bc1c3fa13216a6d32700fad09': {
+    mobile: muxHls('1QpmuU7j2bE02s3yk5Sp2XPoxSjuldroY5UshhZ00c8qw'),
+    desktop: muxHls('1QpmuU7j2bE02s3yk5Sp2XPoxSjuldroY5UshhZ00c8qw'),
+  },
 };
 
 /** Alchemy NFT CDN media filename, e.g. 7d1b91517fd57375c124c9f8b6a66a2c_animation */
