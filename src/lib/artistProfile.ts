@@ -51,6 +51,49 @@ async function previewFromNeynar(fid: number): Promise<ArtistProfilePreview | nu
   };
 }
 
+export async function getArtistProfilePreviews(
+  fids: number[]
+): Promise<Map<number, ArtistProfilePreview>> {
+  const unique = [...new Set(fids.filter((fid) => Number.isInteger(fid) && fid > 0))];
+  const result = new Map<number, ArtistProfilePreview>();
+  const missing: number[] = [];
+
+  for (const fid of unique) {
+    const cached = previewCache.get(fid);
+    if (cached?.pfpUrl) result.set(fid, cached);
+    else missing.push(fid);
+  }
+
+  const key = process.env.NEXT_PUBLIC_NEYNAR_API_KEY;
+  if (!key || missing.length === 0) return result;
+
+  for (let i = 0; i < missing.length; i += 50) {
+    const batch = missing.slice(i, i + 50);
+    try {
+      const res = await fetch(`https://api.neynar.com/v2/farcaster/user/bulk?fids=${batch.join(',')}`, {
+        headers: { accept: 'application/json', api_key: key },
+      });
+      if (!res.ok) continue;
+      const data = (await res.json()) as {
+        users?: Array<{ fid: number; pfp_url?: string; username?: string; display_name?: string }>;
+      };
+      for (const user of data.users || []) {
+        const preview: ArtistProfilePreview = {
+          pfpUrl: isUsablePfp(user.pfp_url) ? user.pfp_url : undefined,
+          username: user.username,
+          displayName: user.display_name,
+        };
+        previewCache.set(user.fid, preview);
+        result.set(user.fid, preview);
+      }
+    } catch {
+      // Keep whatever we already have for this batch.
+    }
+  }
+
+  return result;
+}
+
 /** Read-only profile bits for the info-panel artist row. Does not record a search. */
 export async function getArtistProfilePreview(fid: number): Promise<ArtistProfilePreview> {
   const cached = previewCache.get(fid);

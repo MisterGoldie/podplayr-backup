@@ -631,6 +631,13 @@ const DemoBase: React.FC = () => {
           currentUserFid={fid || 0}
           onLikeToggle={onLikeToggle}
           isNFTLiked={isNFTLiked}
+          onUserProfileClick={(user) => {
+            demoLogger.info('Navigating to user profile from UserProfileView:', user.username);
+            openUserProfile(user, {
+              fromExplore: navigationSource.fromExplore,
+              fromProfile: navigationSource.fromProfile,
+            });
+          }}
         />
       )}
       <BottomNav

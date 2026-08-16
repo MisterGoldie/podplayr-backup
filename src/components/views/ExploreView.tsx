@@ -21,6 +21,7 @@ import { getBioText } from '../../utils/format';
 import { SUGGESTED_MUSIC_VIDEOS } from '../../data/suggestedMusicVideos';
 import { getMediaKey } from '../../utils/media';
 import type { NFT } from '../../types/nft';
+import ProfileAvatar from '../user/ProfileAvatar';
 
 type ExploreFilter = 'all' | 'farcaster' | 'ens';
 
@@ -72,9 +73,6 @@ function formatCount(value?: number) {
 
 const FEATURED_FIDS = new Set([...POD_MEMBER_FIDS, PODPLAYR_OFFICIAL_FID, ...ACYL_FIDS]);
 
-const ENS_FALLBACK =
-  'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHZpZXdCb3g9IjAgMCA2NCA2NCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPGNpcmNsZSBjeD0iMzIiIGN5PSIzMiIgcj0iMzIiIGZpbGw9IiM3QzNBRUQiLz4KPHRleHQgeD0iMzIiIHk9IjM4IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSJ3aGl0ZSIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNCIgZm9udC13ZWlnaHQ9ImJvbGQiPkVOUzwvdGV4dD4KPC9zdmc+';
-
 const ExploreView: React.FC<ExploreViewProps> = (props) => {
   const { fid: contextFid } = useContext(UserFidContext);
   const effectiveUserFid = props.userFid || contextFid || 0;
@@ -92,7 +90,6 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
 
   const [followedUsers, setFollowedUsers] = useState<Record<number, boolean>>({});
   const [scrollRoot, setScrollRoot] = useState<HTMLDivElement | null>(null);
-  const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState<ExploreFilter>('all');
   const [featuredUsers, setFeaturedUsers] = useState<FarcasterUser[]>([]);
   const [featuredReady, setFeaturedReady] = useState(false);
@@ -174,19 +171,6 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
 
     void checkFollowStatuses();
   }, [effectiveUserFid, searchResults, recentSearches, featuredUsers, popularUsers, following]);
-
-  const getSafeImageUrl = (user: { username?: string; pfp_url?: string; isENS?: boolean }) => {
-    if (user.isENS && !user.pfp_url) return '/defaultens.png';
-    const originalUrl = user.pfp_url || (user.isENS ? '/defaultens.png' : `https://avatar.vercel.sh/${user.username}`);
-    if (failedImages.has(originalUrl)) {
-      return user.isENS ? ENS_FALLBACK : '/default-avatar.png';
-    }
-    return originalUrl;
-  };
-
-  const handleImageError = (imageUrl: string) => {
-    setFailedImages((prev) => new Set([...prev, imageUrl]));
-  };
 
   const handleFollowToggle = async (user: FarcasterUser, event: React.MouseEvent) => {
     event.preventDefault();
@@ -311,23 +295,13 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
   );
 
   const renderAvatar = (user: { fid: number; username?: string; display_name?: string; pfp_url?: string; isENS?: boolean }, size = 56) => (
-    <div
-      className="relative rounded-full overflow-hidden flex-shrink-0 ring-2 ring-purple-400/25 bg-purple-900/30"
-      style={{ width: size, height: size }}
-    >
-      <Image
-        src={getSafeImageUrl(user)}
-        alt={user.display_name || user.username || 'User'}
-        className="object-cover"
-        fill
-        sizes={`${size}px`}
-        unoptimized={Boolean(user.isENS && !user.pfp_url)}
-        onError={(e) => {
-          handleImageError(e.currentTarget.src);
-          e.currentTarget.src = user.isENS ? ENS_FALLBACK : '/default-avatar.png';
-        }}
-      />
-    </div>
+    <ProfileAvatar
+      src={user.pfp_url || (user.isENS ? '/defaultens.png' : undefined)}
+      alt={user.display_name || user.username || 'User'}
+      size={size}
+      className="flex-shrink-0 ring-2 ring-purple-400/25"
+      fallback={user.isENS ? '/defaultens.png' : '/default-avatar.png'}
+    />
   );
 
   const renderFollowButton = (user: FarcasterUser) => {

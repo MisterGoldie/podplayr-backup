@@ -1,12 +1,14 @@
 'use client';
 
 import React, { useEffect, useState, useRef } from 'react';
-import Image from 'next/image';
-import { subscribeToFollowers, subscribeToFollowingUsers, toggleFollowUser, isUserFollowed, getFollowerProfiles } from '../lib/firebase';
+import { subscribeToFollowers, subscribeToFollowingUsers, toggleFollowUser, isUserFollowed } from '../lib/firebase';
 import type { FollowedUser, FarcasterUser } from '../types/user';
 import { AnimatePresence, motion } from 'framer-motion';
 import FollowNotification from './FollowNotification';
 import { useFollowNotification } from '../hooks/useFollowNotification';
+import { getArtistProfilePreviews } from '../lib/artistProfile';
+import ProfileAvatar from './user/ProfileAvatar';
+import { isOfficialAccount } from '../constants/community';
 
 interface FollowsModalProps {
   isOpen: boolean;
@@ -28,6 +30,7 @@ const FollowsModal: React.FC<FollowsModalProps> = ({
   onUserProfileClick
 }) => {
   const [users, setUsers] = useState<FollowedUser[]>([]);
+  const [pfpOverrides, setPfpOverrides] = useState<Record<number, string>>({});
   const [loading, setLoading] = useState(true);
   const [followStatus, setFollowStatus] = useState<Record<number, boolean>>({});
   const [processingFollow, setProcessingFollow] = useState<Record<number, boolean>>({});
@@ -58,6 +61,30 @@ const FollowsModal: React.FC<FollowsModalProps> = ({
       if (unsubscribe) unsubscribe();
     };
   }, [isOpen, userFid, type]);
+
+  useEffect(() => {
+    setPfpOverrides({});
+  }, [isOpen, userFid, type]);
+
+  useEffect(() => {
+    if (!isOpen || users.length === 0) return;
+    let cancelled = false;
+    void getArtistProfilePreviews(users.map((user) => user.fid))
+      .then((previews) => {
+        if (cancelled) return;
+        const next: Record<number, string> = {};
+        previews.forEach((preview, fid) => {
+          if (preview.pfpUrl) next[fid] = preview.pfpUrl;
+        });
+        if (Object.keys(next).length > 0) {
+          setPfpOverrides((prev) => ({ ...prev, ...next }));
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, userFid, type, users]);
   
   // Update follow status for each user when the list changes
   useEffect(() => {
@@ -143,161 +170,155 @@ const FollowsModal: React.FC<FollowsModalProps> = ({
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [isOpen, onClose]);
-  
-  const loadFollowers = async () => {
-    setLoading(true);
-    try {
-      // Use getFollowerProfiles instead of getFollowers
-      const followersList = await getFollowerProfiles(userFid);
-      setUsers(followersList);
-    } catch (error) {
-      console.error('Error loading followers:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-  
+
+  const title = type === 'followers' ? 'Followers' : 'Following';
+
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ paddingBottom: '100px' }}>
-          <motion.div 
+        <div className="fixed inset-0 z-[120] flex items-center justify-center px-4 py-4 pointer-events-none" style={{ paddingBottom: 'max(1rem, calc(6.5rem + env(safe-area-inset-bottom, 0px)))' }}>
+          <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
-            className="fixed inset-0 bg-black/80" 
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm pointer-events-auto"
             onClick={onClose}
           />
-          
-          {/* Modal matching the screenshot exactly */}
-          <motion.div 
+
+          <motion.div
             ref={modalRef}
-            initial={{ opacity: 0, scale: 0.9, y: 20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 10 }}
-            transition={{ 
-              type: "spring",
-              stiffness: 350,
-              damping: 25,
-              duration: 0.3
-            }}
-            className="relative bg-black border border-purple-400/30 rounded-xl max-w-md w-full overflow-hidden shadow-xl flex flex-col mx-4"
+            initial={{ opacity: 0, y: 24 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 16 }}
+            transition={{ duration: 0.25 }}
+            className="relative bg-gray-900/95 backdrop-blur-lg rounded-3xl overflow-hidden shadow-2xl shadow-purple-900/40 border border-purple-400/30 w-full max-w-sm max-h-full flex flex-col pointer-events-auto"
           >
-            {/* Header */}
-            <div className="border-b border-purple-400/20 p-4 flex justify-between items-center bg-black z-10 sticky top-0">
-              <h2 className="text-xl font-semibold text-white capitalize">{type}</h2>
+            <div className="relative flex-shrink-0 px-5 pt-5 pb-3">
               <button
+                type="button"
                 onClick={onClose}
-                className="text-gray-400 hover:text-white transition-colors"
-                aria-label="Close modal"
+                className="absolute top-3 right-3 z-10 text-white/80 hover:text-white active:scale-95 transition-all p-2 touch-manipulation rounded-full bg-black/50 backdrop-blur-sm border border-white/10"
+                aria-label="Close"
               >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+                <svg xmlns="http://www.w3.org/2000/svg" height="20" viewBox="0 -960 960 960" width="20" fill="currentColor">
+                  <path d="M480-424 284-228q-11 11-28 11t-28-11q-11-11-11-28t11-28l196-196-196-196q-11-11-11-28t11-28q11-11 28-11t28 11l196 196 196-196q11 11 28-11t28 11q11 11 11 28t-11 28L536-480l196 196q11 11 11 28t-11 28q-11 11-28 11t-28-11L480-424Z" />
                 </svg>
               </button>
+              <h2 className="text-white text-lg font-semibold leading-snug tracking-tight pr-10">{title}</h2>
+              {!loading && (
+                <p className="mt-1 text-sm text-white/45">
+                  {users.length.toLocaleString()} {users.length === 1 ? (type === 'followers' ? 'follower' : 'account') : type}
+                </p>
+              )}
             </div>
-            
-            {/* Body - Auto height with max-height to handle fewer users */}
-            <div className="overflow-y-auto overscroll-contain -webkit-overflow-scrolling-touch" 
-                 style={{ 
-                   scrollbarWidth: 'thin',
-                   minHeight: '100px',
-                   maxHeight: '375px' // Max height for 5 users, but will shrink if fewer
-                 }}>
+
+            <div
+              className="px-4 pb-4 min-h-0 flex-1 overflow-y-auto overscroll-contain"
+              style={{
+                scrollbarWidth: 'thin',
+                scrollbarColor: 'rgba(168, 85, 247, 0.4) rgba(0, 0, 0, 0.2)',
+                WebkitOverflowScrolling: 'touch',
+                maxHeight: 'min(26rem, 60vh)',
+              }}
+            >
               {loading ? (
-                <div className="flex justify-center items-center p-8">
-                  <div className="w-8 h-8 border-4 border-purple-500/30 border-t-purple-500 rounded-full animate-spin mb-2"></div>
-                  <p className="text-gray-400 text-sm mt-2">Loading...</p>
+                <div className="flex flex-col items-center justify-center py-10">
+                  <div className="w-8 h-8 border-2 border-purple-400/20 border-t-purple-400 rounded-full animate-spin" />
+                  <p className="text-white/40 text-sm mt-3">Loading</p>
                 </div>
               ) : users.length === 0 ? (
-                <div className="text-center py-8 text-gray-400">
-                  No {type} yet
+                <div className="rounded-2xl bg-black/40 border border-purple-400/15 px-4 py-8 text-center">
+                  <p className="text-white/50 text-sm">No {type} yet</p>
                 </div>
               ) : (
-                <ul className="divide-y divide-purple-400/10 pb-2">
-                  {users.map(user => (
-                    <li key={user.fid}>
-                      <div className="flex items-center justify-between px-4 py-3">
-                        <div 
-                          onClick={() => {
-                            // If we have a custom profile handler, use it
-                            if (onUserProfileClick) {
-                              // Close the modal first
-                              onClose();
-                              // Convert FollowedUser to FarcasterUser format for navigation
-                              const farcasterUser: FarcasterUser = {
-                                fid: user.fid,
-                                username: user.username,
-                                display_name: user.display_name,
-                                pfp_url: user.pfp_url,
-                                follower_count: 0,
-                                following_count: 0
-                              };
-                              // Navigate to the user's profile within the app
-                              onUserProfileClick(farcasterUser);
-                            } else {
-                              // Default fallback to external link if no custom handler
-                              window.open(`https://warpcast.com/${user.username}`, '_blank');
-                            }
-                          }}
-                          className="flex items-center cursor-pointer rounded-lg p-2 w-[calc(100%-90px)]" 
-                        >
-                          <div className="h-12 w-12 flex-shrink-0 rounded-full overflow-hidden mr-3 border border-purple-400/20">
-                            <Image
-                              src={user.pfp_url || '/default-avatar.png'}
-                              alt={user.username || 'User profile picture'}
-                              width={48}
-                              height={48}
-                              className="h-full w-full object-cover"
-                            />
-                          </div>
-                          <div className="min-w-0 w-full overflow-hidden">
-                            <p className="font-semibold text-white truncate max-w-full">{user.display_name}</p>
-                            <p className="text-sm text-gray-400 truncate max-w-full">@{user.username}</p>
-                          </div>
-                        </div>
-                        
-                        {currentUserFid !== user.fid && user.fid !== 1014485 && (
+                <ul className="space-y-2">
+                  {users.map((user) => {
+                    const isOfficial = isOfficialAccount(user.fid);
+                    const pfp = pfpOverrides[user.fid] || user.pfp_url;
+                    return (
+                      <li key={user.fid}>
+                        <div className="flex items-center gap-2 rounded-2xl bg-black/40 border border-purple-400/15 px-3 py-2.5">
                           <button
-                            onClick={() => handleToggleFollow(user)}
-                            disabled={processingFollow[user.fid]}
-                            className={`flex items-center justify-center rounded-lg text-sm font-medium transition-colors w-[90px] h-[36px] ${followStatus[user.fid] 
-                              ? 'bg-gray-700 hover:bg-gray-600 text-white' 
-                              : 'bg-purple-600 hover:bg-purple-500 text-white'} ${
-                                processingFollow[user.fid] ? 'opacity-70 cursor-not-allowed' : ''
-                              }`}
+                            type="button"
+                            onClick={() => {
+                              if (onUserProfileClick) {
+                                onClose();
+                                onUserProfileClick({
+                                  fid: user.fid,
+                                  username: user.username,
+                                  display_name: user.display_name,
+                                  pfp_url: pfp,
+                                  follower_count: 0,
+                                  following_count: 0,
+                                });
+                                return;
+                              }
+                              window.open(`https://warpcast.com/${user.username}`, '_blank');
+                            }}
+                            className="flex items-center gap-3 min-w-0 flex-1 text-left active:scale-[0.99] touch-manipulation"
+                            aria-label={`Open ${user.display_name || user.username}`}
                           >
-                            {processingFollow[user.fid] ? (
-                              <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                            ) : followStatus[user.fid] ? (
-                              "Following"
-                            ) : (
-                              "Follow"
-                            )}
+                            <ProfileAvatar
+                              src={pfp}
+                              alt={user.username || 'User profile picture'}
+                              size={44}
+                              className="flex-shrink-0 ring-2 ring-purple-400/25"
+                            />
+                            <div className="min-w-0 flex-1">
+                              <p className="text-white text-sm font-medium truncate">
+                                {user.display_name || user.username}
+                              </p>
+                              {user.username ? (
+                                <p className="text-xs text-white/45 truncate">@{user.username}</p>
+                              ) : null}
+                            </div>
                           </button>
-                        )}
-                        
-                        {/* Special badge for PODPLAYR account */}
-                        {user.fid === 1014485 && (
-                          <div className="px-3 py-1 rounded-lg text-xs font-medium bg-purple-600/20 text-purple-300 border border-purple-500/30">
-                            Official
-                          </div>
-                        )}
-                      </div>
-                    </li>
-                  ))}
+
+                          {currentUserFid !== user.fid && !isOfficial && (
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                void handleToggleFollow(user);
+                              }}
+                              disabled={processingFollow[user.fid]}
+                              className={`flex-shrink-0 inline-flex items-center justify-center min-w-[5.5rem] h-8 px-3 rounded-full text-xs font-medium transition-colors active:scale-95 touch-manipulation ${
+                                followStatus[user.fid]
+                                  ? 'bg-black/50 text-purple-200 border border-purple-400/25'
+                                  : 'bg-purple-600/80 hover:bg-purple-500 text-white border border-purple-400/20'
+                              } ${processingFollow[user.fid] ? 'opacity-70' : ''}`}
+                            >
+                              {processingFollow[user.fid] ? (
+                                <span className="inline-block w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                              ) : followStatus[user.fid] ? (
+                                'Following'
+                              ) : (
+                                'Follow'
+                              )}
+                            </button>
+                          )}
+
+                          {isOfficial && (
+                            <span className="flex-shrink-0 text-[10px] px-2 py-0.5 bg-purple-800/40 text-purple-200 rounded-full">
+                              Official
+                            </span>
+                          )}
+                        </div>
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </div>
           </motion.div>
-          
-          {/* Notification */}
+
           {notification.isVisible && (
-            <FollowNotification 
-              message={notification.message} 
-              type={notification.type} 
-              isVisible={notification.isVisible} 
+            <FollowNotification
+              message={notification.message}
+              type={notification.type}
+              isVisible={notification.isVisible}
             />
           )}
         </div>

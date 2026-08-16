@@ -99,3 +99,39 @@ export const preferBrowserReachableMediaUrl = (url: string): string => {
   if (url.startsWith('/api/media-proxy?') || url.includes('/api/media-proxy?')) return url;
   return toOpenSeaProxyUrl(url);
 };
+
+/** Candidate srcs for Farcaster/NFT profile images that often 500 via /_next/image. */
+export function profileImageSrcChain(url?: string | null): string[] {
+  if (!url || typeof url !== 'string') return ['/default-avatar.png'];
+  if (url.startsWith('/')) return [url];
+
+  const chain: string[] = [];
+  const push = (next: string) => {
+    if (next && !chain.includes(next)) chain.push(next);
+  };
+
+  try {
+    const parsed = new URL(unwrapMediaProxyUrl(url));
+    const host = parsed.hostname.toLowerCase();
+    parsed.search = '';
+    const noQuery = parsed.toString();
+
+    if (host === 'i.seadn.io') {
+      parsed.hostname = 'i2.seadn.io';
+      push(parsed.toString());
+      push(`/api/media-proxy?url=${encodeURIComponent(parsed.toString())}`);
+    } else if (host === 'openseauserdata.com' || host === 'www.openseauserdata.com') {
+      const file = parsed.pathname.match(/\/files\/([a-f0-9]+\.[a-z0-9]+)/i);
+      if (file) push(`https://i2.seadn.io/gcs/files/${file[1]}`);
+      push(toOpenSeaProxyUrl(url));
+    }
+
+    push(noQuery);
+    if (url !== noQuery) push(url);
+  } catch {
+    push(url);
+  }
+
+  push('/default-avatar.png');
+  return chain;
+}
