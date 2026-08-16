@@ -104,9 +104,7 @@ function fillBag() {
 }
 
 export function adPlaybackUrl(ad: AdConfig) {
-  return ad.muxPlaybackId
-    ? `https://stream.mux.com/${ad.muxPlaybackId}.m3u8`
-    : ad.video;
+  return ad.video;
 }
 
 function parkPreloadVideo(video: HTMLVideoElement) {

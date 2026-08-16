@@ -66,7 +66,7 @@ export const AdPlayer: React.FC<AdPlayerProps> = ({ onAdComplete }) => {
     const claimedPreload = Boolean(video);
     console.log('[PLAY-DEBUG] ad start', {
       ad: selectedAd.video,
-      mux: Boolean(selectedAd.muxPlaybackId),
+      mux: /stream\.mux\.com/i.test(adPlaybackUrl(selectedAd)),
       url: adPlaybackUrl(selectedAd),
       claimedPreload,
     });
