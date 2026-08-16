@@ -8,6 +8,7 @@ import { FEATURED_NFTS } from '../sections/FeaturedSection';
 import { triggerHaptic } from '../../utils/haptics';
 import { formatTime, safeProgressPercent, getDisplayTimes } from '../../utils/media';
 import { getResizedImageUrl } from '../../utils/imageOptimizer';
+import { PlayerArrowHint, usePlayerArrowHint } from './PlayerArrowHint';
 
 // Create a dedicated logger for the MinimizedPlayer
 const playerLogger = logger.getModuleLogger('minimizedPlayer');
@@ -72,6 +73,10 @@ export const MinimizedPlayer: React.FC<MinimizedPlayerProps> = ({
   // Keep elapsed/remaining derived from the same floored values so they never drift
   // (floor(progress) + floor(duration - progress) can disagree by 1 second).
   const { elapsed, remaining } = getDisplayTimes(progress, duration);
+  const { visible: showExpandHint, dismiss: dismissExpandHint } = usePlayerArrowHint(
+    'expand',
+    Boolean(isMinimized && !isAnimating && !showInfo)
+  );
 
   // Add effects to find, control, and sync the video element
   useEffect(() => {
@@ -460,6 +465,11 @@ export const MinimizedPlayer: React.FC<MinimizedPlayerProps> = ({
           onOpenArtistProfile={onOpenArtistProfile}
         />
       )}
+      <PlayerArrowHint
+        visible={showExpandHint}
+        text="Expand for video mode"
+        placement="above"
+      />
       <div 
         className="fixed bottom-20 left-0 right-0 bg-black/90 backdrop-blur-lg border-t border-purple-400/20 h-20 z-[100] will-change-transform overflow-hidden"
         style={{
@@ -600,9 +610,12 @@ export const MinimizedPlayer: React.FC<MinimizedPlayerProps> = ({
 
               <button
                 type="button"
-                onClick={onMinimizeToggle}
+                onClick={() => {
+                  dismissExpandHint();
+                  onMinimizeToggle();
+                }}
                 className="p-1.5 rounded-full text-white/80 active:scale-95 touch-manipulation"
-                aria-label="Maximize player"
+                aria-label="Expand for video mode"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" height="22" viewBox="0 -960 960 960" width="22" fill="currentColor">
                   <path d="M480-600 240-360l56 56 184-184 184 184 56-56-240-240Z"/>

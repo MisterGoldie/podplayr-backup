@@ -7,6 +7,7 @@ import { logger } from '../../utils/logger';
 import { triggerHaptic } from '../../utils/haptics';
 import { PlaybackButton } from '../buttons/PlaybackButton';
 import InfoPanel from './InfoPanel';
+import { PlayerArrowHint, usePlayerArrowHint } from './PlayerArrowHint';
 import { UserFidContext } from '../../app/providers';
 import { isRealFid } from '../../utils/platform';
 
@@ -87,6 +88,10 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
   );
   const [videoLayerFailed, setVideoLayerFailed] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
+  const { visible: showMinimizeHint, dismiss: dismissMinimizeHint } = usePlayerArrowHint(
+    'minimize',
+    Boolean(!isMinimized && !isAnimating && !showInfo)
+  );
 
   // Keep elapsed/remaining derived from the same floored values so they never drift
   // while scrubbing or during normal playback.
@@ -142,6 +147,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
         clearTimeout(hideControlsTimer.current);
       }
       hideControlsTimer.current = setTimeout(() => {
+        if (showMinimizeHint) return;
         setShowControls(false);
       }, 3000);
     };
@@ -158,7 +164,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
       document.removeEventListener('mousemove', handleUserActivity);
       document.removeEventListener('touchstart', handleUserActivity);
     };
-  }, [isMinimized]);
+  }, [isMinimized, showMinimizeHint]);
   
   // PiP event handlers that need access to the latest state
   // Define these using useCallback to maintain reference stability
@@ -428,6 +434,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
   }, [rawVideoSrc, nft, playbackPlan, nft.contract, nft.tokenId, nft.network, isMinimized]);
 
   const handleMinimizeToggle = () => {
+    dismissMinimizeHint();
     onMinimizeToggle();
   };
 
@@ -669,16 +676,23 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
                   </svg>
                 </button>
               )}
-              <button
-                type="button"
-                onClick={handleMinimizeToggle}
-                className={iconButtonClass}
-                aria-label="Minimize player"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" height="22" viewBox="0 -960 960 960" width="22" fill="currentColor">
-                  <path d="M480-345 240-585l56-56 184 184 184-184 56 56-240 240Z"/>
-                </svg>
-              </button>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={handleMinimizeToggle}
+                  className={iconButtonClass}
+                  aria-label="Back to mini player"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" height="22" viewBox="0 -960 960 960" width="22" fill="currentColor">
+                    <path d="M480-345 240-585l56-56 184 184 184-184 56 56-240 240Z"/>
+                  </svg>
+                </button>
+                <PlayerArrowHint
+                  visible={showMinimizeHint && showControls}
+                  text="Back to mini player"
+                  placement="below"
+                />
+              </div>
             </div>
           </div>
 
