@@ -30,7 +30,7 @@ interface ProfileViewProps {
     location: FarcasterLocationContext | null;
   };
   nfts: NFT[];
-  handlePlayAudio: (nft: NFT) => Promise<void>;
+  handlePlayAudio: (nft: NFT, context?: { queue?: NFT[]; queueType?: string }) => Promise<void>;
   isPlaying: boolean;
   currentlyPlaying: string | null;
   handlePlayPause: () => void;
@@ -604,7 +604,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({
               isPlaying={isPlaying}
               handlePlayPause={handlePlayPause}
               onPlayNFT={(nft: NFT) => {
-                handlePlayAudio(nft);
+                handlePlayAudio(nft, { queue: filteredNFTs, queueType: 'profile' });
               }}
               onLikeToggle={onLikeToggle}
               isNFTLiked={(nft: NFT) => {
