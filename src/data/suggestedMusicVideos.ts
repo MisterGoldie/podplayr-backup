@@ -128,6 +128,7 @@ export const SUGGESTED_MUSIC_VIDEOS: NFT[] = [
     isVideo: true,
     playbackMode: 'video-with-audio',
     collection: { name: 'Jamee Cornelia' },
+    // Artist FID 394597 is mapped in src/data/musicVideoArtists.ts (info panel).
     metadata: {
       animation_url: 'https://gateway.pinata.cloud/ipfs/bafybeihdev5rpice3ps7sma7dymr5avzkhvaastrsen2bmn2x4quidivfy',
       mimeType: 'video/mp4',

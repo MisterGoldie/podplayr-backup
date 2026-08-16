@@ -30,6 +30,7 @@ interface MinimizedPlayerProps {
   lastPosition?: number;
   isAnimating?: boolean;
   userFid?: number;
+  onOpenArtistProfile?: (fid: number) => void;
 }
 
 export const MinimizedPlayer: React.FC<MinimizedPlayerProps> = ({
@@ -46,6 +47,7 @@ export const MinimizedPlayer: React.FC<MinimizedPlayerProps> = ({
   isAnimating,
   lastPosition,
   isLiked = false,
+  onOpenArtistProfile,
 }) => {
   // State for swipe and info panel
   const [touchStart, setTouchStart] = useState<number | null>(null);
@@ -450,7 +452,14 @@ export const MinimizedPlayer: React.FC<MinimizedPlayerProps> = ({
 
   return (
     <>
-      {showInfo && <InfoPanel nft={nft} onClose={() => setShowInfo(false)} isLiked={isLiked} />}
+      {showInfo && (
+        <InfoPanel
+          nft={nft}
+          onClose={() => setShowInfo(false)}
+          isLiked={isLiked}
+          onOpenArtistProfile={onOpenArtistProfile}
+        />
+      )}
       <div 
         className="fixed bottom-20 left-0 right-0 bg-black/90 backdrop-blur-lg border-t border-purple-400/20 h-20 z-[100] will-change-transform overflow-hidden"
         style={{

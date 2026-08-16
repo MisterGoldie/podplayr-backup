@@ -22,6 +22,7 @@ interface PlayerProps {
   isLiked?: boolean;
   onPictureInPicture?: () => void;
   userFid?: number;
+  onOpenArtistProfile?: (fid: number) => void;
 }
 
 export const Player: React.FC<PlayerProps> = ({
@@ -38,7 +39,8 @@ export const Player: React.FC<PlayerProps> = ({
   onLikeToggle,
   isLiked,
   onPictureInPicture,
-  userFid: propUserFid
+  userFid: propUserFid,
+  onOpenArtistProfile,
 }) => {
   const { fid: contextFid } = useContext(UserFidContext);
   const userFid = propUserFid ?? contextFid ?? 0;
@@ -82,6 +84,7 @@ export const Player: React.FC<PlayerProps> = ({
           isLiked={isLiked}
           onPictureInPicture={onPictureInPicture}
           lastPosition={progress}
+          onOpenArtistProfile={onOpenArtistProfile}
         />
       )}
       {isMinimized && (
@@ -102,6 +105,7 @@ export const Player: React.FC<PlayerProps> = ({
           isMinimized={isMinimized}
           isAnimating={false}
           userFid={typeof userFid === 'number' ? userFid : undefined}
+          onOpenArtistProfile={onOpenArtistProfile}
         />
       )}
     </>

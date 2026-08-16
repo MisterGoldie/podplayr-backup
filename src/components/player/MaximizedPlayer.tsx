@@ -45,6 +45,7 @@ export interface MaximizedPlayerProps {
   onPictureInPicture?: () => void;
   lastPosition?: number;
   isAnimating: boolean; // Add this property
+  onOpenArtistProfile?: (fid: number) => void;
 }
 
 export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
@@ -62,7 +63,8 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
   isLiked,
   onPictureInPicture,
   lastPosition,
-  isAnimating
+  isAnimating,
+  onOpenArtistProfile,
 }) => {
   const { fid } = useContext(UserFidContext);
   const canLike = Boolean(onLikeToggle) && isRealFid(fid);
@@ -816,7 +818,14 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
           </div>
         </div>
       </div>
-      {showInfo && !isMinimized && <InfoPanel nft={nft} onClose={() => setShowInfo(false)} isLiked={Boolean(isLiked)} />}
+      {showInfo && !isMinimized && (
+        <InfoPanel
+          nft={nft}
+          onClose={() => setShowInfo(false)}
+          isLiked={Boolean(isLiked)}
+          onOpenArtistProfile={onOpenArtistProfile}
+        />
+      )}
     </>
   );
 };

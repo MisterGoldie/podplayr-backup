@@ -20,6 +20,7 @@ interface PlayerWithAdsProps {
   isLiked?: boolean;
   onPictureInPicture?: () => void;
   onPlayNFT: (nft: NFT) => Promise<void>;
+  onOpenArtistProfile?: (fid: number) => void;
   onAdStateChange?: (isAdPlaying: boolean) => void;
   showAd?: boolean;
   onAdComplete?: () => void;

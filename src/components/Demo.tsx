@@ -462,6 +462,34 @@ const DemoBase: React.FC = () => {
     }
   }, [currentPage.isUserProfile, openUserProfile, selectedUser?.fid, syncProfileUrl]);
 
+  const handleOpenArtistProfile = useCallback(async (artistFid: number) => {
+    setIsPlayerMinimized(true);
+    try {
+      const users = await searchUsers(String(artistFid));
+      const user = users[0];
+      if (!user) {
+        demoLogger.warn('No user found for artist fid:', artistFid);
+        return;
+      }
+      openUserProfile(
+        user,
+        {
+          fromExplore: currentPage.isExplore || navigationSource.fromExplore,
+          fromProfile: currentPage.isProfile || navigationSource.fromProfile,
+        },
+        true
+      );
+    } catch (error) {
+      demoLogger.error('Error opening artist profile:', error);
+    }
+  }, [
+    currentPage.isExplore,
+    currentPage.isProfile,
+    navigationSource.fromExplore,
+    navigationSource.fromProfile,
+    openUserProfile,
+  ]);
+
   useEffect(() => {
     const profileFid = parseProfileFid(window.location.pathname, window.location.search);
     if (!profileFid) return;
@@ -635,6 +663,7 @@ const DemoBase: React.FC = () => {
           onLikeToggle={handlePlayerLikeToggle}
           isLiked={!!currentPlayingNFT && isNFTLiked(currentPlayingNFT)}
           onPictureInPicture={togglePictureInPicture}
+          onOpenArtistProfile={handleOpenArtistProfile}
           showAd={showAd}
           onAdComplete={onAdComplete}
         />
