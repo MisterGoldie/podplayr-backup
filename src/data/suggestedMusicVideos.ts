@@ -102,4 +102,20 @@ export const SUGGESTED_MUSIC_VIDEOS: NFT[] = [
       description: 'PLATTER (music video) 22/100',
     },
   },
+  {
+    name: 'Shadows of Love',
+    image: 'https://i2c.seadn.io/ethereum/0xb932a70a57673d89f4acffbe830e8ed7f75fb9e0/a56f151e77f74dea8e0a7fd6818b05/3da56f151e77f74dea8e0a7fd6818b05.jpeg',
+    contract: '0xb932a70a57673d89f4acffbe830e8ed7f75fb9e0',
+    tokenId: '14419',
+    network: 'ethereum',
+    audio: 'https://raw2.seadn.io/ethereum/0xb932a70a57673d89f4acffbe830e8ed7f75fb9e0/43b4d201538d858190ff0d83f8bafa/d743b4d201538d858190ff0d83f8bafa.mp4',
+    isVideo: true,
+    playbackMode: 'video-with-audio',
+    collection: { name: 'Jon Blok' },
+    metadata: {
+      animation_url: 'https://raw2.seadn.io/ethereum/0xb932a70a57673d89f4acffbe830e8ed7f75fb9e0/43b4d201538d858190ff0d83f8bafa/d743b4d201538d858190ff0d83f8bafa.mp4',
+      mimeType: 'video/mp4',
+      description: '"Shadows of Love" — Music Video',
+    },
+  },
 ];

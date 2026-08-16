@@ -116,6 +116,11 @@ const PLAYBACK_OVERRIDES: Record<string, { mobile: string; desktop?: string }> =
     mobile: muxHls('49KMUH00qnSlvwdqt00qjik02aFFGI02ott3eZqn00neQJv8'),
     desktop: muxHls('49KMUH00qnSlvwdqt00qjik02aFFGI02ott3eZqn00neQJv8'),
   },
+  // Shadows of Love — Jon Blok
+  d743b4d201538d858190ff0d83f8bafa: {
+    mobile: muxHls('uNsYJbAtLikGjqZYpOFwRojr6Vv917D4O8N6j1gMHsY'),
+    desktop: muxHls('uNsYJbAtLikGjqZYpOFwRojr6Vv917D4O8N6j1gMHsY'),
+  },
 };
 
 /** Alchemy NFT CDN media filename, e.g. 7d1b91517fd57375c124c9f8b6a66a2c_animation */
