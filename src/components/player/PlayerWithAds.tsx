@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Player } from './Player';
 import { AdPlayer } from './AdPlayer';
+import { preloadUpcomingAdWhenIdle } from './adQueue';
 import type { NFT } from '../../types/user';
 
 interface PlayerWithAdsProps {
@@ -43,6 +44,10 @@ export function usePrerollAd() {
   const playsUntilNextAdRef = useRef(randomInt(FIRST_AD_MIN, FIRST_AD_MAX));
   const lastAdAtRef = useRef(0);
   const afterAdRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    preloadUpcomingAdWhenIdle();
+  }, []);
 
   const beforePlay = (run: () => void, pauseCurrent?: () => void) => {
     uniquePlaysRef.current += 1;

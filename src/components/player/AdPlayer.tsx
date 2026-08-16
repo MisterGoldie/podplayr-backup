@@ -1,125 +1,52 @@
 'use client';
 
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useLayoutEffect, useState } from 'react';
+import {
+  adPlaybackUrl,
+  claimPreloadedAdVideo,
+  preloadUpcomingAd,
+  takeNextAd,
+} from './adQueue';
+import {
+  attachAdPlayback,
+  destroyAdPlaybackHls,
+  promoteAdPreloadToPlayback,
+} from './adHls';
 
 interface AdPlayerProps {
   onAdComplete?: () => void;
   key?: string;
 }
 
-interface AdConfig {
-  video: string;
-  url?: string;
-  title?: string;
-  domain?: string;
-  isVertical: boolean;
-}
-
-// Ad configuration with URLs
-const AD_CONFIG: AdConfig[] = [
-  {
-    video: '/ad-video-2.mp4',
-    url: 'https://acyl.world',  
-    title: 'ACYL Radio',
-    domain: 'acyl.world',
-    isVertical: false
-  },
-  {
-    video: '/ad-video-3.mp4',
-    url: 'https://acyl.world/TV',  
-    title: 'Art House',
-    domain: 'acyl.world/TV',
-    isVertical: false
-  },
-  {
-    video: '/ad-video-4.mp4',
-    url: 'https://www.coinbase.com/',
-    title: 'More Bitcoin',
-    domain: 'coinbase.com/learn',
-    isVertical: false
-  },
-  {
-    video: '/ad-video-5.mp4',
-    url: 'https://acyl.world',
-    title: 'ACYL Radio',
-    domain: 'acyl.world',
-    isVertical: true
-  },
-  {
-    video: '/ad-video-6.mp4',
-    url: 'https://acyl.world',
-    title: 'ACYL',
-    domain: 'acyl.world',
-    isVertical: true
-  },
-  {
-    video: '/podplayrad1.mp4',
-    isVertical: false
-  },
-];
-
-let adBag: AdConfig[] = [];
-let lastAdVideo: string | null = null;
-
-function shuffleAds(ads: AdConfig[]): AdConfig[] {
-  const copy = [...ads];
-  for (let i = copy.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [copy[i], copy[j]] = [copy[j], copy[i]];
-  }
-  return copy;
-}
-
-function pickAd(supportedAds: AdConfig[]): AdConfig {
-  if (supportedAds.length === 0) return AD_CONFIG[0];
-
-  if (adBag.length === 0) {
-    adBag = shuffleAds(supportedAds);
-    if (lastAdVideo && adBag.length > 1 && adBag[0].video === lastAdVideo) {
-      const [first, ...rest] = adBag;
-      adBag = [...rest, first];
-    }
-  }
-
-  const ad = adBag.shift() ?? supportedAds[0];
-  lastAdVideo = ad.video;
-  return ad;
+function applyAdVideoPresentation(video: HTMLVideoElement) {
+  video.playsInline = true;
+  video.setAttribute('playsinline', 'true');
+  video.setAttribute('webkit-playsinline', 'true');
+  video.preload = 'auto';
+  video.className = 'w-full h-full object-contain';
+  video.style.cssText = 'width:100%;height:100%;object-fit:contain;opacity:1;';
 }
 
 export const AdPlayer: React.FC<AdPlayerProps> = ({ onAdComplete }) => {
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const hostRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [timeRemaining, setTimeRemaining] = useState<number>(0);
   const [audioDuration, setAudioDuration] = useState<number>(0);
-  const [elapsedTime, setElapsedTime] = useState<number>(0);
   const [canSkip, setCanSkip] = useState<boolean>(false);
   const [videoOrientation, setVideoOrientation] = useState<'landscape' | 'portrait'>('landscape');
-  
-  // Function to check if a video format is supported
-  const isVideoFormatSupported = (videoPath: string) => {
-    const video = document.createElement('video');
-    return video.canPlayType(`video/${videoPath.split('.').pop()}`) !== '';
-  };
+  const [selectedAd] = useState(() => takeNextAd());
+  const onAdCompleteRef = useRef(onAdComplete);
+  onAdCompleteRef.current = onAdComplete;
 
-  const [selectedAd] = useState(() => {
-    const supportedAds = AD_CONFIG.filter(ad => isVideoFormatSupported(ad.video));
-    if (supportedAds.length === 0) {
-      return AD_CONFIG[0];
-    }
-    return pickAd(supportedAds);
-  });
-
-  // Set initial orientation based on selected ad
   useEffect(() => {
     setVideoOrientation(selectedAd.isVertical ? 'portrait' : 'landscape');
   }, [selectedAd]);
 
-  // Track elapsed time and enable skip after 5 seconds
   useEffect(() => {
     const startTime = Date.now();
     const timer = setInterval(() => {
       const elapsed = (Date.now() - startTime) / 1000;
-      setElapsedTime(elapsed);
       if (elapsed >= 5 && !canSkip) {
         setCanSkip(true);
         clearInterval(timer);
@@ -128,84 +55,116 @@ export const AdPlayer: React.FC<AdPlayerProps> = ({ onAdComplete }) => {
     return () => clearInterval(timer);
   }, [canSkip]);
 
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
+  useLayoutEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    let cancelled = false;
+
+    let video = videoRef.current && host.contains(videoRef.current)
+      ? videoRef.current
+      : claimPreloadedAdVideo();
+    const claimedPreload = Boolean(video);
+    console.log('[PLAY-DEBUG] ad start', {
+      ad: selectedAd.video,
+      mux: Boolean(selectedAd.muxPlaybackId),
+      url: adPlaybackUrl(selectedAd),
+      claimedPreload,
+    });
+
+    if (!video) {
+      video = document.createElement('video');
+    }
+
+    applyAdVideoPresentation(video);
+    video.muted = false;
+    if (video.parentElement !== host) {
+      host.replaceChildren(video);
+    }
+    videoRef.current = video;
 
     const handleEnded = () => {
-      onAdComplete?.();
+      onAdCompleteRef.current?.();
     };
-
     const handleTimeUpdate = () => {
-      if (video) {
-        const remaining = Math.max(0, Math.round(video.duration - video.currentTime));
-        setTimeRemaining(remaining);
-      }
+      if (!Number.isFinite(video.duration)) return;
+      setTimeRemaining(Math.max(0, Math.round(video.duration - video.currentTime)));
     };
-
     const handleLoadedMetadata = () => {
-      if (video) {
-        setTimeRemaining(Math.round(video.duration));
-        setAudioDuration(video.duration);
-        
-        // Check video dimensions to confirm orientation
-        if (video.videoWidth < video.videoHeight) {
-          setVideoOrientation('portrait');
-        } else {
-          setVideoOrientation('landscape');
-        }
-        
-        // Log video dimensions for debugging
-        console.log('Video dimensions:', video.videoWidth, 'x', video.videoHeight);
+      setTimeRemaining(Math.round(video.duration));
+      setAudioDuration(video.duration);
+      if (video.videoWidth < video.videoHeight) {
+        setVideoOrientation('portrait');
+      } else {
+        setVideoOrientation('landscape');
       }
     };
 
     video.addEventListener('ended', handleEnded);
     video.addEventListener('timeupdate', handleTimeUpdate);
     video.addEventListener('loadedmetadata', handleLoadedMetadata);
-    video.play().catch(console.error);
+
+    const start = async () => {
+      if (claimedPreload) {
+        promoteAdPreloadToPlayback();
+      } else {
+        try {
+          await attachAdPlayback(video, adPlaybackUrl(selectedAd), () => {
+            video.src = selectedAd.video;
+          });
+        } catch {
+          if (!video.src || video.src.includes('.m3u8')) {
+            video.src = selectedAd.video;
+          }
+        }
+      }
+      if (cancelled) return;
+      if (video.readyState >= 1) handleLoadedMetadata();
+      video.play().catch(console.error);
+      preloadUpcomingAd();
+    };
+
+    void start();
 
     return () => {
+      cancelled = true;
       video.removeEventListener('ended', handleEnded);
       video.removeEventListener('timeupdate', handleTimeUpdate);
       video.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      try {
+        video.pause();
+      } catch {
+        // ignore
+      }
+      destroyAdPlaybackHls();
     };
-  }, [onAdComplete]);
+  }, [selectedAd]);
 
-  // Add this effect to handle headers when vertical ads are playing
   useEffect(() => {
-    // Hide all headers to ensure they don't overlap with vertical ads
     const headers = document.querySelectorAll('header');
-    headers.forEach(header => {
-      header.style.display = 'none';
+    headers.forEach((header) => {
+      (header as HTMLElement).style.display = 'none';
     });
-    
-    // Cleanup function to restore headers if component unmounts unexpectedly
+
     return () => {
-      headers.forEach(header => {
-        header.style.display = 'flex';
+      headers.forEach((header) => {
+        (header as HTMLElement).style.display = 'flex';
       });
     };
   }, []);
 
   return (
     <div ref={containerRef} className="fixed inset-0 bg-black z-[100] flex items-center justify-center overflow-hidden">
-      <div className={videoOrientation === 'portrait' 
-        ? "w-full h-full flex items-center justify-center" 
-        : "w-full h-full"}>
-        <video
-          ref={videoRef}
-          src={selectedAd.video}
-          className={videoOrientation === 'portrait' 
-            ? "w-full h-full object-contain" // Changed to ensure vertical videos display properly
-            : "w-full h-full object-contain"} 
-          playsInline
-        />
-      </div>
+      <div
+        ref={hostRef}
+        className={videoOrientation === 'portrait'
+          ? 'w-full h-full flex items-center justify-center'
+          : 'w-full h-full'}
+      />
       <div className="absolute top-4 right-4 flex flex-col items-end gap-2">
         {canSkip && (
           <button
-            onClick={onAdComplete}
+            type="button"
+            onClick={() => onAdCompleteRef.current?.()}
             className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-1 rounded-full font-medium text-sm transition-colors"
           >
             Skip Ad
@@ -215,11 +174,8 @@ export const AdPlayer: React.FC<AdPlayerProps> = ({ onAdComplete }) => {
           Ad: {timeRemaining}s / {Math.round(audioDuration)}s
         </div>
       </div>
-      {/* Ad link container - only show if the ad has a URL */}
       {selectedAd.url && (
-        <div className={`absolute left-1/2 -translate-x-1/2 bg-purple-900/90 rounded-lg overflow-hidden border border-purple-500/30 ${
-          videoOrientation === 'portrait' ? 'bottom-8' : 'bottom-8'
-        }`}>
+        <div className="absolute left-1/2 -translate-x-1/2 bg-purple-900/90 rounded-lg overflow-hidden border border-purple-500/30 bottom-8">
           <div className="flex items-center space-x-3 p-3">
             <div className="flex-1">
               <p className="text-white text-sm font-medium">{selectedAd.title}</p>
