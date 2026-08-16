@@ -118,4 +118,20 @@ export const SUGGESTED_MUSIC_VIDEOS: NFT[] = [
       description: '"Shadows of Love" — Music Video',
     },
   },
+  {
+    name: 'BETTY!',
+    image: 'https://i2c.seadn.io/base/0xcdb048544942b24461b046cdcc88a4bd7a37d511/34c9a77d2121fd30e88f6f4991146b/7734c9a77d2121fd30e88f6f4991146b.png',
+    contract: '0xcdb048544942b24461b046cdcc88a4bd7a37d511',
+    tokenId: '4',
+    network: 'base',
+    audio: 'https://gateway.pinata.cloud/ipfs/bafybeihdev5rpice3ps7sma7dymr5avzkhvaastrsen2bmn2x4quidivfy',
+    isVideo: true,
+    playbackMode: 'video-with-audio',
+    collection: { name: 'Jamee Cornelia' },
+    metadata: {
+      animation_url: 'https://gateway.pinata.cloud/ipfs/bafybeihdev5rpice3ps7sma7dymr5avzkhvaastrsen2bmn2x4quidivfy',
+      mimeType: 'video/mp4',
+      description: 'BETTY! ft Rob Apollo [Official Music Video]',
+    },
+  },
 ];

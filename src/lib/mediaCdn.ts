@@ -121,6 +121,11 @@ const PLAYBACK_OVERRIDES: Record<string, { mobile: string; desktop?: string }> =
     mobile: muxHls('uNsYJbAtLikGjqZYpOFwRojr6Vv917D4O8N6j1gMHsY'),
     desktop: muxHls('uNsYJbAtLikGjqZYpOFwRojr6Vv917D4O8N6j1gMHsY'),
   },
+  // BETTY! ft Rob Apollo [Official Music Video]
+  bafybeihdev5rpice3ps7sma7dymr5avzkhvaastrsen2bmn2x4quidivfy: {
+    mobile: muxHls('B00glZFc67CoWhE4KHC00cFRKnEt5D7yR2yhl013gvwnT8'),
+    desktop: muxHls('B00glZFc67CoWhE4KHC00cFRKnEt5D7yR2yhl013gvwnT8'),
+  },
 };
 
 /** Alchemy NFT CDN media filename, e.g. 7d1b91517fd57375c124c9f8b6a66a2c_animation */
