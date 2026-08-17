@@ -314,7 +314,18 @@ export const NFTImage: React.FC<NFTImageProps> = ({
     // Card thumbs: never start with raw <video> (iOS blank first frame).
     // Alchemy peer for video NFTs is usually the mp4 hash — use video/fetch still,
     // NOT thumbnailv2 (400 on video hashes, Coinage Subscriber).
-    if (useCardThumb && (isVideoMediaUrl(url) || isLikelyTokenVideoCoverUrl(url))) {
+    const nftIsVideo =
+      !!nft &&
+      (nft.isVideo ||
+        nft.playbackMode === 'video-with-audio' ||
+        nft.playbackMode === 'video-plus-audio' ||
+        (!!nft.videoUrl && !/\.(mp3|wav|m4a|aac|ogg|flac)(?:\?|#|$)/i.test(nft.videoUrl)));
+    if (
+      useCardThumb &&
+      (isVideoMediaUrl(url) ||
+        isLikelyTokenVideoCoverUrl(url) ||
+        (nftIsVideo && /nft2?-cdn\.alchemy\.com/i.test(url)))
+    ) {
       const size = Math.max(width * 2, 360);
       const alchemyPeer = [
         nft?.audio,
@@ -326,7 +337,7 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       ].find((u) => !!u && /nft2?-cdn\.alchemy\.com/i.test(u)) as string | undefined;
       const still =
         getVideoCoverStillUrl(alchemyPeer || '', size, { assumeVideo: true }) ||
-        getVideoCoverStillUrl(url, size) ||
+        getVideoCoverStillUrl(url, size, { assumeVideo: nftIsVideo }) ||
         getCardThumbUrl(url, size);
       nftImgLog('display:card-video-still', nft, {
         original: shortUrl(url),

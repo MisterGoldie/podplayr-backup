@@ -6,8 +6,9 @@ import InfoPanel from './InfoPanel';
 import { logger } from '../../utils/logger';
 import { findFeaturedNft } from '../sections/FeaturedSection';
 import { triggerHaptic } from '../../utils/haptics';
-import { formatTime, safeProgressPercent, getDisplayTimes, getNftMediaUrl, processMediaUrl } from '../../utils/media';
-import { getResizedImageUrl } from '../../utils/imageOptimizer';
+import { formatTime, safeProgressPercent, getDisplayTimes, processMediaUrl } from '../../utils/media';
+import { getResizedImageUrl, getVideoCoverStillUrl } from '../../utils/imageOptimizer';
+import { getNftPlaybackPlan } from '../../utils/isMediaNFT';
 import { PlayerArrowHint, usePlayerArrowHint } from './PlayerArrowHint';
 
 // Create a dedicated logger for the MinimizedPlayer
@@ -60,15 +61,7 @@ export const MinimizedPlayer: React.FC<MinimizedPlayerProps> = ({
 
   // Add this at the top with other state
   const videoRef = useRef<HTMLVideoElement | null>(null);
-
-  // Add a ref to track the PiP video element
   const pipVideoRef = useRef<HTMLVideoElement | null>(null);
-
-  // Add state for tracking thumbnail loading status
-  const [thumbLoaded, setThumbLoaded] = useState(false);
-  
-  // Use a ref to track the image container
-  const imageContainerRef = useRef<HTMLDivElement>(null);
 
   // Keep elapsed/remaining derived from the same floored values so they never drift
   // (floor(progress) + floor(duration - progress) can disagree by 1 second).
@@ -334,83 +327,6 @@ export const MinimizedPlayer: React.FC<MinimizedPlayerProps> = ({
     }
   }, [isPlaying, nft]);
 
-  // Ref to track if we've logged thumbnail preload for the current NFT
-  const hasLoggedThumbnailRef = useRef<string>('');
-
-  // Explicitly preload the thumbnail when component mounts or nft changes
-  useEffect(() => {
-    if (!nft) return;
-    
-    // Reset loading state when NFT changes
-    setThumbLoaded(false);
-    
-    // Create image preloader
-    const img = new Image();
-    
-    // Generate a key for this NFT
-    const nftKey = `${nft.contract}-${nft.tokenId}`;
-    
-    // Handle success
-    img.onload = () => {
-      // Only log if we haven't already logged for this NFT
-      if (hasLoggedThumbnailRef.current !== nftKey) {
-        playerLogger.info('Successfully preloaded thumbnail for minimized player:', {
-          nft: nft.name || 'Unknown NFT',
-          contract: nft.contract,
-          tokenId: nft.tokenId
-        });
-        hasLoggedThumbnailRef.current = nftKey;
-      }
-      setThumbLoaded(true);
-    };
-    
-    // Set source to trigger loading
-    img.src = getNftMediaUrl(nft, 'image');
-    
-    // If already in cache, onload might not fire, so set loaded to true after a short delay
-    const timer = setTimeout(() => {
-      if (img.complete && img.naturalWidth > 0) {
-        setThumbLoaded(true);
-      }
-    }, 100);
-    
-    return () => clearTimeout(timer);
-  }, [nft]);
-
-  // Check image status after rendering
-  useEffect(() => {
-    // Find the actual img element rendered inside our container
-    if (imageContainerRef.current) {
-      const imgElement = imageContainerRef.current.querySelector('img');
-      
-      if (imgElement) {
-        // If image is already loaded and complete
-        if (imgElement.complete && imgElement.naturalWidth > 0) {
-          setThumbLoaded(true);
-        } else {
-          // Otherwise add event listeners
-          const handleLoad = () => setThumbLoaded(true);
-          const handleError = () => {
-            playerLogger.warn('Image failed to load in minimized player', {
-              nft: nft?.name,
-              src: imgElement.src
-            });
-            // We'll still set loaded to remove the placeholder
-            setThumbLoaded(true);
-          };
-          
-          imgElement.addEventListener('load', handleLoad);
-          imgElement.addEventListener('error', handleError);
-          
-          return () => {
-            imgElement.removeEventListener('load', handleLoad);
-            imgElement.removeEventListener('error', handleError);
-          };
-        }
-      }
-    }
-  }, [nft, thumbLoaded]);
-
   // Inside the MinimizedPlayer component
   // Add this debugging useEffect to track the NFT data
   useEffect(() => {
@@ -448,6 +364,28 @@ export const MinimizedPlayer: React.FC<MinimizedPlayerProps> = ({
     const raw = featuredNft?.image || currentNft.image || currentNft.metadata?.image || '';
     return processMediaUrl(raw, '/default-nft.png', 'image');
   }, [featuredNft]);
+
+  const playbackPlan = React.useMemo(() => getNftPlaybackPlan(nft), [nft]);
+  const minimizedThumbSrc = React.useMemo(() => {
+    const cover = nft.image || nft.metadata?.image || playbackPlan.videoUrl || '';
+    const isVideoNft =
+      nft.isVideo ||
+      playbackPlan.mode === 'video-with-audio' ||
+      playbackPlan.mode === 'video-plus-audio' ||
+      Boolean(playbackPlan.videoUrl);
+    if (!isVideoNft) return cover;
+    const alchemyPeer = [
+      nft.audio,
+      nft.metadata?.animation_url,
+      nft.animationUrl,
+      playbackPlan.videoUrl,
+      nft.videoUrl,
+      nft.image,
+      nft.metadata?.image,
+    ].find((u) => !!u && /nft2?-cdn\.alchemy\.com/i.test(String(u)));
+    const peer = alchemyPeer || playbackPlan.videoUrl || cover;
+    return getVideoCoverStillUrl(peer, 360, { assumeVideo: true }) || cover;
+  }, [nft, playbackPlan]);
 
   return (
     <>
@@ -496,14 +434,7 @@ export const MinimizedPlayer: React.FC<MinimizedPlayerProps> = ({
           <div className="flex items-center justify-between h-[calc(100%-8px)] gap-3">
             {/* NFT Image and Info */}
             <div className="flex items-center gap-3 flex-1 min-w-0">
-              <div 
-                ref={imageContainerRef}
-                className="relative w-12 h-12 flex-shrink-0 rounded-xl overflow-hidden bg-purple-900/20 ring-1 ring-white/10"
-              >
-                {!thumbLoaded && (
-                  <div className="absolute inset-0 bg-purple-900/30 animate-pulse z-10"></div>
-                )}
-                
+              <div className="relative w-12 h-12 flex-shrink-0 rounded-xl overflow-hidden bg-purple-900/20 ring-1 ring-white/10">
                 {featuredNft ? (
                   <img
                     src={getResizedImageUrl(getFeaturedNFTImage(nft), 96)}
@@ -512,18 +443,16 @@ export const MinimizedPlayer: React.FC<MinimizedPlayerProps> = ({
                     width={48}
                     height={48}
                     decoding="async"
-                    onLoad={() => setThumbLoaded(true)}
                     onError={(e) => {
                       playerLogger.error('Featured NFT image failed to load:', {
                         nft: nft.name,
                         src: (e.target as HTMLImageElement).src
                       });
-                      setThumbLoaded(true);
                     }}
                   />
                 ) : (
                   <NFTImage
-                    src={nft.image || nft.metadata?.image || ''}
+                    src={minimizedThumbSrc}
                     alt={nft.name}
                     className="w-full h-full object-cover"
                     width={48}
