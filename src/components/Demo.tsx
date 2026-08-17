@@ -299,8 +299,9 @@ const DemoBase: React.FC = () => {
       ? getMediaKey(currentPlayingNFT) === getMediaKey(nft)
       : currentlyPlaying === `${nft.contract}-${nft.tokenId}`;
 
-
-    setIsPlayerMinimized(true);
+    if (!sameTrack) {
+      setIsPlayerMinimized(context?.queueType !== 'suggested-music-videos');
+    }
 
     // Same track from Recently Played / cards: toggle pause, or restart so
     // play-count threshold can fire again after an ended / paused session.
