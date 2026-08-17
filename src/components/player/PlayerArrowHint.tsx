@@ -66,11 +66,7 @@ export function PlayerArrowHint({ visible, text, placement }: PlayerArrowHintPro
 
   if (placement === 'above') {
     return (
-      <div
-        role="status"
-        className="pointer-events-none fixed right-3 z-[105]"
-        style={{ bottom: 'calc(10.35rem + env(safe-area-inset-bottom, 0px))' }}
-      >
+      <div role="status" className="pointer-events-none absolute bottom-full right-0 mb-2 z-[105]">
         <div className="flex flex-col items-end">
           {bubble}
           <div
