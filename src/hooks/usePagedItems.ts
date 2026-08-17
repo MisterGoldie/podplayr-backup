@@ -55,13 +55,18 @@ export function usePagedItems<T>(items: T[], options: UsePagedItemsOptions = {})
   useLayoutEffect(() => {
     if (!hasMore || visibleCount >= maxAutoFill) return;
     const root = resolvedRoot;
-    const needsFill = !root || root.scrollHeight <= root.clientHeight + 8;
+    const horizontal = /0px\s+\d+px/.test(rootMargin);
+    const needsFill =
+      !root ||
+      (horizontal
+        ? root.scrollWidth <= root.clientWidth + 8
+        : root.scrollHeight <= root.clientHeight + 8);
     if (!needsFill) return;
     const id = requestAnimationFrame(() => {
       setVisibleCount((prev) => Math.min(prev + pageSize, items.length, maxAutoFill));
     });
     return () => cancelAnimationFrame(id);
-  }, [hasMore, visibleCount, pageSize, items.length, resolvedRoot, maxAutoFill]);
+  }, [hasMore, visibleCount, pageSize, items.length, resolvedRoot, maxAutoFill, rootMargin]);
 
   // Re-arm only after the sentinel leaves view, so a stuck-on-screen sentinel
   // cannot cascade-load every page.

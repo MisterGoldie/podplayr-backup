@@ -236,7 +236,7 @@ const RecentlyPlayed: React.FC<RecentlyPlayedProps> = ({
     <section className="w-full">
       <div className="container mx-auto px-4">
         <h2 className="text-lg font-semibold text-white/90 mb-3">Recently played</h2>
-        <div className="overflow-x-auto pb-2 hide-scrollbar" ref={setScrollRoot}>
+        <div className="overflow-x-auto overflow-y-hidden pb-2 hide-scrollbar" ref={setScrollRoot}>
           <div className="flex gap-4">
             {visibleItems.map((nft, index) => {
               const mediaKey = nft.mediaKey || getMediaKey(nft);
