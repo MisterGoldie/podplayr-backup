@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { NFT, UserContext } from '../../types/user';
 import { NFTImage } from '../media/NFTImage';
 import { NFTGifImage } from '../media/NFTGifImage';
@@ -9,6 +9,7 @@ import { getMediaKey } from '~/utils/media';
 import { shouldPreserveAnimation } from '../../utils/imageOptimizer';
 import { PAGE_SIZE, usePagedItems } from '../../hooks/usePagedItems';
 import { useNFTLike } from '../../hooks/useNFTLike';
+import { withFeaturedCover } from '~/data/featuredNfts';
 import { isPlayableMediaNFT } from '../../utils/isMediaNFT';
 
 function getNftLikedTime(nft: NFT): number {
@@ -107,6 +108,11 @@ const SimpleNFTCard: React.FC<SimpleNFTCardProps> = ({
     return () => window.clearTimeout(timer);
   }, [animationDelay]);
 
+  const coverNft = withFeaturedCover(nft);
+  const usedFeaturedCover = coverNft.image !== nft.image;
+  const useGif =
+    !usedFeaturedCover && shouldPreserveAnimation(nft.metadata?.image || nft.image || '');
+
   return (
     <div
       className={`rounded-2xl p-3 flex items-center gap-3 border touch-manipulation ${
@@ -125,9 +131,9 @@ const SimpleNFTCard: React.FC<SimpleNFTCardProps> = ({
         className="flex items-center gap-3 min-w-0 flex-1 text-left active:scale-[0.99]"
       >
         <div className="w-12 h-12 rounded-md overflow-hidden flex-shrink-0 bg-purple-900/30">
-          {shouldPreserveAnimation(nft.metadata?.image || nft.image || '') ? (
+          {useGif ? (
             <NFTGifImage
-              nft={nft}
+              nft={coverNft}
               className="w-full h-full object-cover"
               width={48}
               height={48}
@@ -135,7 +141,7 @@ const SimpleNFTCard: React.FC<SimpleNFTCardProps> = ({
             />
           ) : (
             <NFTImage
-              src={nft.metadata?.image || ''}
+              src={coverNft.metadata?.image || coverNft.image || ''}
               alt={nft.name}
               className="w-full h-full object-cover"
               width={48}
@@ -143,7 +149,7 @@ const SimpleNFTCard: React.FC<SimpleNFTCardProps> = ({
               sizes="48px"
               quality={50}
               priority
-              nft={nft}
+              nft={coverNft}
             />
           )}
         </div>
@@ -218,6 +224,12 @@ const LibraryNFTFeed: React.FC<LibraryNFTFeedProps> = ({
     scrollRootRef,
   });
 
+  const playNft = useCallback(
+    (played: NFT) => handlePlayAudio(played, { queue: nfts, queueType: 'library' }),
+    [handlePlayAudio, nfts]
+  );
+  const libraryIsLiked = useCallback(() => true, []);
+
   return (
     <>
       <div
@@ -228,9 +240,6 @@ const LibraryNFTFeed: React.FC<LibraryNFTFeedProps> = ({
             ? `library-${nft.contract}-${nft.tokenId}-${index}`
             : `library-${getMediaKey(nft)}-${index}`;
           const staggerDelay = 0.05 * (index % 8);
-          const playNft = async (played: NFT) => {
-            handlePlayAudio(played, { queue: nfts, queueType: 'library' });
-          };
 
           if (viewMode === 'grid') {
             return (
@@ -242,7 +251,7 @@ const LibraryNFTFeed: React.FC<LibraryNFTFeedProps> = ({
                 currentlyPlaying={currentlyPlaying}
                 handlePlayPause={handlePlayPause}
                 onLikeToggle={onLikeToggle}
-                isNFTLiked={() => true}
+                isNFTLiked={libraryIsLiked}
                 animationDelay={staggerDelay}
               />
             );

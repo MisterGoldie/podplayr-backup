@@ -4,9 +4,9 @@ import { PlaybackButton } from '../buttons/PlaybackButton';
 import type { NFT } from '../../types/user';
 import InfoPanel from './InfoPanel';
 import { logger } from '../../utils/logger';
-import { FEATURED_NFTS } from '../sections/FeaturedSection';
+import { findFeaturedNft } from '../sections/FeaturedSection';
 import { triggerHaptic } from '../../utils/haptics';
-import { formatTime, safeProgressPercent, getDisplayTimes } from '../../utils/media';
+import { formatTime, safeProgressPercent, getDisplayTimes, getNftMediaUrl, processMediaUrl } from '../../utils/media';
 import { getResizedImageUrl } from '../../utils/imageOptimizer';
 import { PlayerArrowHint, usePlayerArrowHint } from './PlayerArrowHint';
 
@@ -365,7 +365,7 @@ export const MinimizedPlayer: React.FC<MinimizedPlayerProps> = ({
     };
     
     // Set source to trigger loading
-    img.src = nft.image || nft.metadata?.image || '';
+    img.src = getNftMediaUrl(nft, 'image');
     
     // If already in cache, onload might not fire, so set loaded to true after a short delay
     const timer = setTimeout(() => {
@@ -421,19 +421,13 @@ export const MinimizedPlayer: React.FC<MinimizedPlayerProps> = ({
         metadataImage: nft.metadata?.image,
         contract: nft.contract,
         tokenId: nft.tokenId,
-        isFeatured: FEATURED_NFTS.some(f => 
-          f.contract === nft.contract && f.tokenId === nft.tokenId
-        )
+        isFeatured: Boolean(findFeaturedNft(nft)),
       });
     }
   }, [nft]);
 
   // Memoize the featured NFT detection to avoid repeated lookups
-  const featuredNft = React.useMemo(() => {
-    return FEATURED_NFTS.find(f => 
-      f.contract === nft.contract && f.tokenId === nft.tokenId
-    );
-  }, [nft.contract, nft.tokenId]);
+  const featuredNft = React.useMemo(() => findFeaturedNft(nft), [nft]);
 
   // Log only once when the featured NFT is found (on nft change)
   useEffect(() => {
@@ -451,8 +445,8 @@ export const MinimizedPlayer: React.FC<MinimizedPlayerProps> = ({
       return featuredNft.image;
     }
     
-    // Fallback to standard image sources
-    return currentNft.image || currentNft.metadata?.image || '';
+    const raw = featuredNft?.image || currentNft.image || currentNft.metadata?.image || '';
+    return processMediaUrl(raw, '/default-nft.png', 'image');
   }, [featuredNft]);
 
   return (

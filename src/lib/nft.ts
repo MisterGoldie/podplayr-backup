@@ -17,6 +17,8 @@ function processMediaUrlServer(
   _mediaType: 'image' | 'audio' | 'metadata' = 'image'
 ): string {
   if (!url || typeof url !== 'string') return '';
+  url = url.replace(/^[\s\x00-\x1f\x7f]+|[\s\x00-\x1f\x7f]+$/g, '');
+  if (!url) return '';
   if (url.startsWith('ipfs://')) {
     return `${PINATA_IPFS}${url.slice(7).replace(/^ipfs\//, '')}`;
   }
@@ -439,7 +441,7 @@ export const nftNeedsChainMediaEnrich = (nft: NFT | null | undefined): boolean =
   // Solid visual cover already — nothing to enrich for the card thumb.
   // Exception: Alchemy CDN alone is not enough when we also have a SeaDN /
   // Nifty Island animation — those CDN hashes are often the audio file.
-  const cover = nft.image || '';
+  const cover = (nft.image || '').replace(/^[\s\x00-\x1f\x7f]+|[\s\x00-\x1f\x7f]+$/g, '');
   const anim =
     nft.metadata?.animation_url || nft.animationUrl || nft.videoUrl || '';
   const hasTokenVideoCover =
@@ -540,10 +542,11 @@ export const enrichNftMediaFromChain = async (nft: NFT): Promise<NFT> => {
         /raw2?\.seadn\.io/i.test(u) &&
         (/\.(mp4|webm|mov|m4v)(?:\?|#|$)/i.test(u) || !/\.(png|jpe?g|gif|webp)(?:\?|#|$)/i.test(u))
     );
+    const image = (nft.image || '').replace(/^[\s\x00-\x1f\x7f]+|[\s\x00-\x1f\x7f]+$/g, '');
     const currentFragile =
-      !nft.image ||
-      /\/ipfs\//i.test(nft.image) ||
-      nft.image.startsWith('ipfs://');
+      !image ||
+      /\/ipfs\//i.test(image) ||
+      image.startsWith('ipfs://');
     const currentIsTokenVideo =
       !!nft.image &&
       (/\.(mp4|webm|mov|m4v)(?:\?|#|$)/i.test(nft.image) ||

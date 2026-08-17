@@ -94,6 +94,24 @@ export const toOpenSeaProxyUrl = (url: string): string => {
   }
 };
 
+/**
+ * Same-origin fetch for any OpenSea CDN still (including live raw2.seadn.io).
+ * Third-party thumb proxies (wsrv) are often blocked; the browser can also
+ * fail hotlink checks. Our media-proxy uses a server User-Agent.
+ */
+export const toOpenSeaCdnProxyUrl = (url: string): string => {
+  if (!url || typeof url !== 'string') return url;
+  if (url.includes('/api/media-proxy?')) return url;
+  try {
+    const source = unwrapMediaProxyUrl(url);
+    const host = new URL(source).hostname.toLowerCase();
+    if (!isOpenSeaCdnHost(host)) return url;
+    return `/api/media-proxy?url=${encodeURIComponent(source)}`;
+  } catch {
+    return url;
+  }
+};
+
 export const preferBrowserReachableMediaUrl = (url: string): string => {
   if (!url) return url;
   if (url.startsWith('/api/media-proxy?') || url.includes('/api/media-proxy?')) return url;

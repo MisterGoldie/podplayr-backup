@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { processMediaUrl, IPFS_GATEWAYS, isAudioUrlUsedAsImage, getCleanIPFSUrl, processArweaveUrl, getMediaKey, buildArweaveImageFallbackUrls, buildIpfsFallbackUrls, buildHttpCdnImageFallbackUrls, extractIPFSPath, getNftMediaUrl, toIpfsGatewayUrl, clearNftMediaUrlCache, pickImageCandidates, shouldProbeIpfsDirectory } from '../../utils/media';
+import { processMediaUrl, IPFS_GATEWAYS, isAudioUrlUsedAsImage, getCleanIPFSUrl, processArweaveUrl, getMediaKey, buildArweaveImageFallbackUrls, buildIpfsFallbackUrls, buildHttpCdnImageFallbackUrls, extractIPFSPath, getNftMediaUrl, toIpfsGatewayUrl, clearNftMediaUrlCache, pickImageCandidates, shouldProbeIpfsDirectory, sanitizeMediaUrl } from '../../utils/media';
 import { getCardThumbUrl, getCardThumbAlternates, shouldPreserveAnimation, isBrowserFriendlyCdnUrl, isArweaveMediaUrl, isIpfsMediaUrl, isVideoMediaUrl, isLikelyTokenVideoCoverUrl, getVideoCoverStillUrl } from '../../utils/imageOptimizer';
 import Image from 'next/image';
 import type { SyntheticEvent } from 'react';
@@ -85,6 +85,7 @@ const isArweaveUrl = (url: string): boolean => {
  */
 const isIpfsUrl = (url: string): boolean => {
   if (!url || typeof url !== 'string') return false;
+  url = sanitizeMediaUrl(url);
   
   // Protocol check is safe - only if it's the exact protocol
   if (url.startsWith('ipfs://')) return true;
@@ -152,6 +153,7 @@ const getNextIPFSUrl = (url: string, currentIndex: number): { url: string; nextI
  */
 const validateUrl = (url: string): boolean => {
   if (!url || typeof url !== 'string') return false;
+  url = sanitizeMediaUrl(url);
   
   // Check for empty or placeholder strings
   if (url === '' || url === 'undefined' || url === 'null') return false;
@@ -240,14 +242,22 @@ export const NFTImage: React.FC<NFTImageProps> = ({
 }) => {
   const fallbackSrc = '/default-nft.png';
   const [isVideo, setIsVideo] = useState(false);
+  const cleanSrc = sanitizeMediaUrl(src);
+  // Don't fetch ipfs:// / ar:// on first paint — resolve picks SeaDN/Alchemy
+  // first. A doomed gateway 404's onError would clobber that still (Recently Played).
+  const protocolSrc = /^(ipfs|ar):\/\//i.test(cleanSrc);
+  const initialProcessed =
+    cleanSrc && !protocolSrc
+      ? processMediaUrl(cleanSrc, fallbackSrc, 'image')
+      : fallbackSrc;
   
   // Check if src is valid using proper URL validation
-  const initialSrc = !validateUrl(src) ? fallbackSrc : src;
+  const initialSrc = !validateUrl(initialProcessed) ? fallbackSrc : initialProcessed;
   const [imgSrc, setImgSrc] = useState<string>(initialSrc);
-  const [error, setError] = useState(!validateUrl(src));
+  const [error, setError] = useState(!validateUrl(initialProcessed));
   const [retryCount, setRetryCount] = useState(0);
   const [currentGatewayIndex, setCurrentGatewayIndex] = useState(0);
-  const [isLoadingFallback, setIsLoadingFallback] = useState(!validateUrl(src));
+  const [isLoadingFallback, setIsLoadingFallback] = useState(!validateUrl(initialProcessed));
   const [imgLoading, setImgLoading] = useState(true);
 
   // Cache for processed image URLs to avoid redundant processing
@@ -263,6 +273,7 @@ export const NFTImage: React.FC<NFTImageProps> = ({
   const imageCandidateIndex = useRef(0);
   /** Last URL that decoded with naturalWidth>0 — avoid hang-timer thrash on re-resolve. */
   const loadedOkSrcRef = useRef<string | null>(null);
+  const imgSrcRef = useRef<string>(initialSrc);
   const attemptedFallbacks = useRef<Record<string, boolean>>({});
   const alchemyEnrichAttemptedRef = useRef(false);
   const alchemyEnrichInFlightRef = useRef(false);
@@ -283,6 +294,7 @@ export const NFTImage: React.FC<NFTImageProps> = ({
   }, [nftContract, nftTokenId]);
 
   const toDisplaySrc = (url: string) => {
+    url = sanitizeMediaUrl(url);
     originalUrlRef.current = url;
     if (!url || url === fallbackSrc || url.startsWith('/') || url.startsWith('data:')) {
       return url;
@@ -358,12 +370,12 @@ export const NFTImage: React.FC<NFTImageProps> = ({
     // Prefer a usable cover from the NFT object when the prop src is empty
     // (stale owned-NFT caches briefly had blank image fields).
     const derivedSrc =
-      (src && src !== '' && src !== 'undefined' && src !== 'null' && src) ||
-      nft?.image ||
-      nft?.metadata?.image ||
-      nft?.collection?.image ||
-      nft?.metadata?.animation_url ||
-      nft?.videoUrl ||
+      sanitizeMediaUrl(src) ||
+      sanitizeMediaUrl(nft?.image) ||
+      sanitizeMediaUrl(nft?.metadata?.image) ||
+      sanitizeMediaUrl(nft?.collection?.image) ||
+      sanitizeMediaUrl(nft?.metadata?.animation_url) ||
+      sanitizeMediaUrl(nft?.videoUrl) ||
       '';
     const isValidSrc = Boolean(derivedSrc);
 
@@ -420,9 +432,10 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       const cacheKey = nft ? `${nft.contract}-${nft.tokenId}` : derivedSrc;
       const cached = processedUrlCache.current[cacheKey];
       const effectiveSrc = derivedSrc;
-      const isFragileUrl = (url?: string | null) =>
-        !!url &&
-        (/\/ipfs\//i.test(url) || url.startsWith('ipfs://') || /\.ipfs\./i.test(url));
+      const isFragileUrl = (url?: string | null) => {
+        const u = sanitizeMediaUrl(url);
+        return !!u && (/\/ipfs\//i.test(u) || u.startsWith('ipfs://') || /\.ipfs\./i.test(u));
+      };
       const isCollectionOpenSea = (url?: string | null) =>
         !!url && /i2c\.seadn\.io/i.test(url);
       const isTokenVideoCover = (url?: string | null) =>
@@ -582,18 +595,23 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       void enrichNftMediaFromChain(nft)
         .then((enriched) => {
           const current = originalUrlRef.current || imgSrc || nft.image || '';
-          const isFragileCover = (url?: string | null) =>
-            !url ||
-            /\/ipfs\//i.test(url) ||
-            url.startsWith('ipfs://') ||
-            /\.ipfs\./i.test(url);
+          const isFragileCover = (url?: string | null) => {
+            const u = sanitizeMediaUrl(url);
+            if (!u) return true;
+            return (
+              /\/ipfs\//i.test(u) ||
+              u.startsWith('ipfs://') ||
+              /\.ipfs\./i.test(u)
+            );
+          };
 
           const pickCover = (url?: string | null): string => {
-            if (!url || typeof url !== 'string') return '';
-            if (url === fallbackSrc) return '';
-            if (isFragileCover(url)) return '';
-            if (/\.(mp3|wav|m4a|aac|ogg|flac)(?:\?|#|$)/i.test(url)) return '';
-            return url;
+            const u = sanitizeMediaUrl(url);
+            if (!u) return '';
+            if (u === fallbackSrc) return '';
+            if (isFragileCover(u)) return '';
+            if (/\.(mp3|wav|m4a|aac|ogg|flac)(?:\?|#|$)/i.test(u)) return '';
+            return u;
           };
 
           const currentIsTokenVideo =
@@ -782,8 +800,9 @@ export const NFTImage: React.FC<NFTImageProps> = ({
         });
     }
 
-    // Always use the NFT's image as thumbnail, regardless of content type
-    if (nft?.metadata?.image || nft?.image) {
+    // Cover already assigned above. A second getNftMediaUrl pass was
+    // overwriting SeaDN/video stills with wsrv-proxied images that 404.
+    if (!isValidSrc && (nft?.metadata?.image || nft?.image)) {
       setIsVideo(false);
       const thumbnailUrl = nft.metadata?.image || nft.image;
       
@@ -1008,9 +1027,35 @@ export const NFTImage: React.FC<NFTImageProps> = ({
     return () => window.clearTimeout(timeout);
   }, [imgSrc, imgLoading, useCardThumb, width, height]);
 
+  imgSrcRef.current = imgSrc;
+
   const handleError = async (error: SyntheticEvent<HTMLVideoElement | HTMLImageElement>) => {
-    // Get the current failing URL
     const failedSrc = error.currentTarget.src || imgSrc;
+    const currentSrc = imgSrcRef.current;
+    const failedNorm = sanitizeMediaUrl(failedSrc);
+    const currentNorm = sanitizeMediaUrl(currentSrc);
+
+    // Stale onError from a previous src (ipfs gateway 404 after SeaDN already loaded).
+    if (
+      loadedOkSrcRef.current &&
+      (loadedOkSrcRef.current === currentNorm ||
+        loadedOkSrcRef.current === currentSrc ||
+        (currentNorm && currentNorm !== fallbackSrc && failedNorm !== currentNorm))
+    ) {
+      nftImgLog('error:stale-ignore', nft, {
+        failed: shortUrl(failedSrc),
+        current: shortUrl(currentSrc),
+        loadedOk: shortUrl(loadedOkSrcRef.current),
+      });
+      return;
+    }
+    if (currentNorm && failedNorm && failedNorm !== currentNorm && currentNorm !== fallbackSrc) {
+      nftImgLog('error:stale-ignore', nft, {
+        failed: shortUrl(failedSrc),
+        current: shortUrl(currentSrc),
+      });
+      return;
+    }
     
     // Skip if we've already tried this fallback strategy
     const fallbackKey = `${failedSrc}-${retryCount}`;
@@ -1019,6 +1064,7 @@ export const NFTImage: React.FC<NFTImageProps> = ({
         failed: shortUrl(failedSrc),
         retryCount,
       });
+      if (loadedOkSrcRef.current) return;
       setImgSrc(fallbackSrc);
       return;
     }
@@ -1062,68 +1108,81 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       failedSrc.includes('wsrv.nl') ||
       failedSrc.includes('images.weserv.nl') ||
       failedSrc.includes('img-width=') ||
+      failedSrc.includes('/api/media-proxy?') ||
       /res\.cloudinary\.com\/alchemyapi\/(?:image\/(?:fetch|upload)|video\/fetch)/i.test(
         failedSrc
       );
-    if (isThumbProxy && originalUrlRef.current && originalUrlRef.current !== failedSrc) {
+    const isCardCdnFail =
+      useCardThumb &&
+      (isThumbProxy ||
+        isBrowserFriendlyCdnUrl(failedSrc) ||
+        isBrowserFriendlyCdnUrl(originalUrlRef.current));
+    if (isCardCdnFail) {
       // Cards must never decode full-res Alchemy/CDN stills (14k images OOM the tab).
-      if (useCardThumb) {
-        const size = Math.max(width * 2, 360);
-        attemptedFallbacks.current[`${failedSrc}-card`] = true;
-        const alchemyCdnPeer = [
-          nft?.audio,
-          nft?.metadata?.animation_url,
-          nft?.animationUrl,
-          nft?.videoUrl,
-          nft?.image,
-          nft?.metadata?.image,
-        ].find((u) => !!u && /nft2?-cdn\.alchemy\.com/i.test(u)) as string | undefined;
-        const orig = originalUrlRef.current;
-        const nextAlt = getCardThumbAlternates(orig, size, {
-          // video/fetch only when origin is a video cover, already on video/fetch,
-          // or Alchemy CDN (thumbnailv2 can 400 on video hashes like Neybors).
-          includeVideoStill:
-            isLikelyTokenVideoCoverUrl(orig) ||
-            isVideoMediaUrl(orig) ||
-            /video\/fetch/i.test(failedSrc) ||
-            /nft2?-cdn\.alchemy\.com/i.test(orig),
-          alchemyCdnPeer,
-        }).find(
-          (u) => u !== failedSrc && !attemptedFallbacks.current[`${u}-card`]
-        );
-        if (nextAlt) {
-          attemptedFallbacks.current[`${nextAlt}-card`] = true;
-          nftImgLog('retry:card-thumb-alt', nft, {
-            failed: shortUrl(failedSrc),
-            next: shortUrl(nextAlt),
-          });
-          setImgSrc(nextAlt);
-          setError(false);
-          setIsLoadingFallback(false);
-          return;
-        }
-        // Stills exhausted — native <video> cover (desktop paints; iOS may still blank).
-        if (
-          orig &&
-          (isLikelyTokenVideoCoverUrl(orig) || isVideoMediaUrl(orig)) &&
-          !attemptedFallbacks.current[`${orig}-native-video`]
-        ) {
-          attemptedFallbacks.current[`${orig}-native-video`] = true;
-          nftImgLog('retry:card-thumb → native-video', nft, { next: shortUrl(orig) });
-          setIsVideo(true);
-          setImgSrc(orig);
-          setError(false);
-          setIsLoadingFallback(false);
-          return;
-        }
-        nftImgLog('retry:card-thumb-fail → placeholder', nft, {
+      const size = Math.max(width * 2, 360);
+      attemptedFallbacks.current[`${failedSrc}-card`] = true;
+      const alchemyCdnPeer = [
+        nft?.audio,
+        nft?.metadata?.animation_url,
+        nft?.animationUrl,
+        nft?.videoUrl,
+        nft?.image,
+        nft?.metadata?.image,
+      ].find((u) => !!u && /nft2?-cdn\.alchemy\.com/i.test(u)) as string | undefined;
+      const videoCoverUrl = [
+        nft?.metadata?.animation_url,
+        nft?.animationUrl,
+        nft?.videoUrl,
+        nft?.audio,
+      ].find(
+        (u) => !!u && (isVideoMediaUrl(u) || isLikelyTokenVideoCoverUrl(u))
+      ) as string | undefined;
+      const orig = originalUrlRef.current || failedSrc;
+      const nextAlt = getCardThumbAlternates(orig, size, {
+        includeVideoStill:
+          isLikelyTokenVideoCoverUrl(orig) ||
+          isVideoMediaUrl(orig) ||
+          Boolean(videoCoverUrl) ||
+          /video\/fetch/i.test(failedSrc) ||
+          /nft2?-cdn\.alchemy\.com/i.test(orig),
+        alchemyCdnPeer,
+        videoCoverUrl,
+      }).find(
+        (u) => u !== failedSrc && !attemptedFallbacks.current[`${u}-card`]
+      );
+      if (nextAlt) {
+        attemptedFallbacks.current[`${nextAlt}-card`] = true;
+        nftImgLog('retry:card-thumb-alt', nft, {
           failed: shortUrl(failedSrc),
+          next: shortUrl(nextAlt),
         });
-        setImgSrc(fallbackSrc);
+        setImgSrc(nextAlt);
         setError(false);
         setIsLoadingFallback(false);
         return;
       }
+      const nativeVideo =
+        (orig && (isLikelyTokenVideoCoverUrl(orig) || isVideoMediaUrl(orig)) && orig) ||
+        videoCoverUrl;
+      if (nativeVideo && !attemptedFallbacks.current[`${nativeVideo}-native-video`]) {
+        attemptedFallbacks.current[`${nativeVideo}-native-video`] = true;
+        nftImgLog('retry:card-thumb → native-video', nft, { next: shortUrl(nativeVideo) });
+        setIsVideo(true);
+        setImgSrc(nativeVideo);
+        setError(false);
+        setIsLoadingFallback(false);
+        return;
+      }
+      nftImgLog('retry:card-thumb-fail → placeholder', nft, {
+        failed: shortUrl(failedSrc),
+      });
+      setImgSrc(fallbackSrc);
+      setError(false);
+      setIsLoadingFallback(false);
+      return;
+    }
+
+    if (isThumbProxy && originalUrlRef.current && originalUrlRef.current !== failedSrc) {
       nftImgLog('retry:proxy-fail → original', nft, {
         next: shortUrl(originalUrlRef.current),
       });
@@ -1325,13 +1384,14 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       void enrichNftMediaFromChain(nft)
         .then((enriched) => {
           const pickCover = (url?: string | null): string => {
-            if (!url || typeof url !== 'string') return '';
-            if (url === failedSrc || url === fallbackSrc) return '';
-            if (/\/ipfs\//i.test(url) || url.startsWith('ipfs://') || /\.ipfs\./i.test(url)) {
+            const u = sanitizeMediaUrl(url);
+            if (!u) return '';
+            if (u === failedSrc || u === fallbackSrc) return '';
+            if (/\/ipfs\//i.test(u) || u.startsWith('ipfs://') || /\.ipfs\./i.test(u)) {
               return '';
             }
-            if (/\.(mp3|wav|m4a|aac|ogg|flac)(?:\?|#|$)/i.test(url)) return '';
-            return url;
+            if (/\.(mp3|wav|m4a|aac|ogg|flac)(?:\?|#|$)/i.test(u)) return '';
+            return u;
           };
           // Prefer SeaDN / Nifty token VIDEO covers over another Alchemy CDN hash.
           // Do NOT treat i2c.seadn collection stills as video.
@@ -1534,6 +1594,12 @@ export const NFTImage: React.FC<NFTImageProps> = ({
 
     // CRITICAL: Immediately switch to fallback image and force re-render
     nftImgLog('give-up → default-nft.png', nft, { failed: shortUrl(failedSrc) });
+    if (loadedOkSrcRef.current) {
+      nftImgLog('give-up:ignored — still has loaded cover', nft, {
+        loadedOk: shortUrl(loadedOkSrcRef.current),
+      });
+      return;
+    }
     setTimeout(() => {
       // Use setTimeout to ensure state updates happen in new event loop
       setError(true);
@@ -1594,6 +1660,7 @@ export const NFTImage: React.FC<NFTImageProps> = ({
   // This ensures we NEVER show a blank card, even for malformed NFT data
   const validateSrc = (source: string): boolean => {
     if (!source || typeof source !== 'string') return false;
+    source = sanitizeMediaUrl(source);
     
     // Basic string validation
     if (source === 'undefined' || 
@@ -1629,7 +1696,15 @@ export const NFTImage: React.FC<NFTImageProps> = ({
   // CRITICAL: Always display fallback image when there's an error or invalid source - NO EXCEPTIONS
   // Double-validate that fallback path is correct and accessible
   const absoluteFallbackSrc = fallbackSrc.startsWith('/') ? fallbackSrc : `/${fallbackSrc}`;
-  const finalSrc = (error || isLoadingFallback || !validateSrc(imgSrc)) ? absoluteFallbackSrc : imgSrc;
+  const resolvedSrc = (error || isLoadingFallback || !validateSrc(imgSrc)) ? absoluteFallbackSrc : imgSrc;
+  const finalSrc = (() => {
+    const cleaned = sanitizeMediaUrl(resolvedSrc) || absoluteFallbackSrc;
+    if (cleaned.startsWith('/') || cleaned.startsWith('data:')) return cleaned;
+    if (/^(ipfs|ar):\/\//i.test(cleaned)) {
+      return processMediaUrl(cleaned, fallbackSrc, 'image');
+    }
+    return cleaned;
+  })();
   
   // Check if this is an Arweave URL using proper validation
   const isArweave = isArweaveUrl(finalSrc);

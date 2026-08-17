@@ -10,6 +10,7 @@ import {
   unwrapMediaProxyUrl,
   isOpenSeaCdnHost,
   toOpenSeaProxyUrl,
+  toOpenSeaCdnProxyUrl,
   preferBrowserReachableMediaUrl,
 } from './openSeaMedia';
 
@@ -18,6 +19,7 @@ export {
   unwrapMediaProxyUrl,
   isOpenSeaCdnHost,
   toOpenSeaProxyUrl,
+  toOpenSeaCdnProxyUrl,
   preferBrowserReachableMediaUrl,
 } from './openSeaMedia';
 
@@ -28,6 +30,12 @@ export const getCleanIPFSUrl = (url: string): string => {
   if (typeof url !== 'string') return '';
   // Remove any duplicate 'ipfs' in the path
   return url.replace(/\/ipfs\/ipfs\//g, '/ipfs/');
+};
+
+/** Metadata often has leading spaces / C0 controls (` ipfs://…`). Next/Image throws on those. */
+export const sanitizeMediaUrl = (url?: string | null): string => {
+  if (!url || typeof url !== 'string') return '';
+  return url.replace(/^[\s\x00-\x1f\x7f]+|[\s\x00-\x1f\x7f]+$/g, '');
 };
 
 // Prefer gateways that currently resolve and serve NFT media reliably.
@@ -187,7 +195,7 @@ export const pickImageCandidates = (nft: UserNFT | null | undefined): string[] =
 
   const push = (url?: string | null, opts?: { allowVideo?: boolean }) => {
     if (!url || typeof url !== 'string') return;
-    const trimmed = url.trim();
+    const trimmed = sanitizeMediaUrl(url);
     if (!trimmed) return;
     // Skip dedicated audio. Allow video covers (Nifty Island / SeaDN mp4).
     if (looksLikeAudioFileUrl(trimmed)) return;
@@ -433,11 +441,13 @@ export const buildHttpCdnImageFallbackUrls = (
       const raw2 = rewriteLegacyOpenSeaMediaUrl(source, opts?.contract, opts?.network);
       if (raw2 && raw2 !== source) push(raw2);
       push(toOpenSeaProxyUrl(source));
+      push(toOpenSeaCdnProxyUrl(source));
       const bare = new URL(source);
       bare.search = '';
       const bareRaw2 = rewriteLegacyOpenSeaMediaUrl(bare.toString(), opts?.contract, opts?.network);
       if (bareRaw2 && bareRaw2 !== bare.toString()) push(bareRaw2);
       push(toOpenSeaProxyUrl(bare.toString()));
+      push(toOpenSeaCdnProxyUrl(bare.toString()));
       push(source);
       return out;
     }
@@ -482,6 +492,8 @@ export const getAlternativeIPFSUrl = (url: string, failedGateways: Set<string> =
  */
 export const extractIPFSPath = (url: string): string | null => {
   if (!url || typeof url !== 'string') return null;
+  url = sanitizeMediaUrl(url);
+  if (!url) return null;
 
   url = url.replace(/\/ipfs\/ipfs\//g, '/ipfs/');
 
@@ -755,8 +767,9 @@ export const buildArweaveImageFallbackUrls = (rawUrl: string): string[] => {
 
 // Function to process media URLs to ensure they're properly formatted
 export const processMediaUrl = (url: string, fallbackUrl: string = '/default-nft.png', mediaType: 'image' | 'audio' | 'metadata' = 'image'): string => {
+  if (!url || typeof url !== 'string') return fallbackUrl;
+  url = sanitizeMediaUrl(url);
   if (!url) return fallbackUrl;
-  if (typeof url !== 'string') return fallbackUrl;
   
   // Rewrite dead IPFS gateway hosts (cloudflare-ipfs.com DNS no longer resolves)
   if ((url.startsWith('http://') || url.startsWith('https://')) && (url.includes('/ipfs/') || /\.ipfs\./i.test(url))) {
@@ -1338,7 +1351,11 @@ export const getNftMediaUrl = (nft: UserNFT, mediaType: 'image' | 'audio'): stri
         nft.metadata?.image ||
         ''
       : alchemyPreferred || nft.audio || nft.metadata?.animation_url || '';
-  const sourceUrl = rewriteLegacyOpenSeaMediaUrl(rawSourceUrl, nft.contract, nft.network);
+  const sourceUrl = rewriteLegacyOpenSeaMediaUrl(
+    sanitizeMediaUrl(rawSourceUrl),
+    nft.contract,
+    nft.network
+  );
 
   const pods = parseArweaveMediaPath(sourceUrl);
   const isPodsStyle = !!(pods.manifestId && pods.filePath);

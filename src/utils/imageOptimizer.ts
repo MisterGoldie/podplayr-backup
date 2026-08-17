@@ -1,3 +1,6 @@
+import { isOpenSeaCdnHost, toOpenSeaCdnProxyUrl } from './openSeaMedia';
+import { sanitizeMediaUrl } from './media';
+
 interface OptimizedImage {
   file: File;
   width: number;
@@ -120,13 +123,13 @@ export function getOptimizedImageUrl(url: string, options: {
   format?: 'webp' | 'jpeg' | 'png' | 'avif';
   isMobile?: boolean;
 } = {}): string {
+  // For IPFS URLs: use a working gateway (cloudflare-ipfs.com DNS is dead)
+  url = sanitizeMediaUrl(url);
   if (!url) return '';
-  
-  // Don't try to optimize data URLs or relative URLs
   if (url.startsWith('data:') || url.startsWith('/')) {
     return url;
   }
-  
+
   const {
     width = options.isMobile ? 400 : 800,
     height = options.isMobile ? 400 : 800,
@@ -135,7 +138,6 @@ export function getOptimizedImageUrl(url: string, options: {
     isMobile = false
   } = options;
 
-  // For IPFS URLs: use a working gateway (cloudflare-ipfs.com DNS is dead)
   if (typeof url === 'string' && (url.startsWith('ipfs://') || url.includes('/ipfs/'))) {
     const path = url.startsWith('ipfs://')
       ? url.replace(/^ipfs:\/\//, '')
@@ -225,8 +227,14 @@ export function getAlchemyNativeCardThumb(url: string, size = 360): string | nul
 export function getCardThumbAlternates(
   url: string,
   size = 360,
-  opts?: { includeVideoStill?: boolean; alchemyCdnPeer?: string | null }
+  opts?: {
+    includeVideoStill?: boolean;
+    alchemyCdnPeer?: string | null;
+    /** Playback mp4 / SeaDN video when the still image is a different URL. */
+    videoCoverUrl?: string | null;
+  }
 ): string[] {
+  url = sanitizeMediaUrl(url);
   const alts: string[] = [];
   const seen = new Set<string>();
   const push = (u: string | null | undefined) => {
@@ -234,6 +242,10 @@ export function getCardThumbAlternates(
     seen.add(u);
     alts.push(u);
   };
+
+  if (isIpfsMediaUrl(url) || url.startsWith('ipfs://') || url.startsWith('ar://')) {
+    push(getOptimizedImageUrl(url));
+  }
 
   const isVideoFetch = /res\.cloudinary\.com\/alchemyapi\/video\/fetch/i.test(url);
   const includeVideoStill = opts?.includeVideoStill ?? isVideoFetch;
@@ -246,6 +258,9 @@ export function getCardThumbAlternates(
   if (knownVideoCover) {
     push(getVideoCoverStillUrl(opts?.alchemyCdnPeer || '', size, { assumeVideo: true }));
     push(getVideoCoverStillUrl(url, size));
+  }
+  if (opts?.videoCoverUrl && opts.videoCoverUrl !== url) {
+    push(getVideoCoverStillUrl(opts.videoCoverUrl, size));
   }
 
   push(getAlchemyNativeCardThumb(url, size));
@@ -276,15 +291,45 @@ export function getCardThumbAlternates(
     push(getVideoCoverStillUrl(url, size));
   }
 
-  // Don't wsrv video bytes / token video covers.
+  const skipWsrv =
+    isBrowserFriendlyCdnUrl(underlying) ||
+    isVideoMediaUrl(underlying) ||
+    isLikelyTokenVideoCoverUrl(underlying) ||
+    knownVideoCover ||
+    /nft2?-cdn\.alchemy\.com/i.test(underlying) ||
+    shouldPreserveAnimation(underlying) ||
+    isIpfsMediaUrl(underlying) ||
+    underlying.startsWith('ipfs://') ||
+    underlying.startsWith('ar://');
+
+  // OpenSea / imgur / similar: wsrv is often blocked. Direct, then our proxy,
+  // then Alchemy fetch — same hops for every NFT on those CDNs.
   if (
     underlying &&
     !isLocalOrDataUrl(underlying) &&
+    isBrowserFriendlyCdnUrl(underlying) &&
     !isVideoMediaUrl(underlying) &&
-    !isLikelyTokenVideoCoverUrl(underlying) &&
-    !knownVideoCover &&
-    !/nft2?-cdn\.alchemy\.com/i.test(underlying) &&
-    !shouldPreserveAnimation(underlying)
+    !isLikelyTokenVideoCoverUrl(underlying)
+  ) {
+    push(underlying);
+    try {
+      const host = new URL(underlying).hostname.toLowerCase();
+      if (isOpenSeaCdnHost(host)) {
+        push(toOpenSeaCdnProxyUrl(underlying));
+        push(
+          `https://res.cloudinary.com/alchemyapi/image/fetch/w_${size},h_${size},c_fill,q_70/${underlying}`
+        );
+      }
+    } catch {
+      // ignore invalid URLs
+    }
+  }
+
+  // Don't wsrv video bytes / token video covers / CDNs that block the proxy.
+  if (
+    underlying &&
+    !isLocalOrDataUrl(underlying) &&
+    !skipWsrv
   ) {
     let forProxy = underlying;
     if (
@@ -377,6 +422,7 @@ export function isArweaveMediaUrl(url: string): boolean {
 
 /** IPFS thumbs also hang behind wsrv — load gateways direct. */
 export function isIpfsMediaUrl(url: string): boolean {
+  url = sanitizeMediaUrl(url);
   if (!url || isLocalOrDataUrl(url)) return false;
   if (url.startsWith('ipfs://')) return true;
   try {
@@ -476,6 +522,7 @@ export function getVideoCoverStillUrl(
  * Other remotes → wsrv. Never return raw 8k–14k CDN originals.
  */
 export function getCardThumbUrl(url: string, size = 360): string {
+  url = sanitizeMediaUrl(url);
   if (
     !url ||
     isLocalOrDataUrl(url) ||
@@ -486,6 +533,12 @@ export function getCardThumbUrl(url: string, size = 360): string {
     return url;
   }
 
+  // wsrv cannot fetch ipfs:// (and a leading space made it `url=+ipfs://…`).
+  // Load a public gateway directly — same as profile cards with SeaDN stills.
+  if (isIpfsMediaUrl(url) || url.startsWith('ipfs://') || url.startsWith('ar://')) {
+    return getOptimizedImageUrl(url);
+  }
+
   // Only force video still for known video covers — not every Alchemy CDN hash.
   if (isLikelyTokenVideoCoverUrl(url) || isVideoMediaUrl(url)) {
     const videoStill = getVideoCoverStillUrl(url, size);
@@ -494,6 +547,16 @@ export function getCardThumbUrl(url: string, size = 360): string {
 
   const alchemy = getAlchemyNativeCardThumb(url, size);
   if (alchemy) return alchemy;
+
+  // OpenSea / imgur / SimpleHash already serve browser-reachable stills.
+  // wsrv.nl is frequently blocked by those CDNs (hotlink / bot checks).
+  if (
+    isBrowserFriendlyCdnUrl(url) &&
+    !isVideoMediaUrl(url) &&
+    !isLikelyTokenVideoCoverUrl(url)
+  ) {
+    return url;
+  }
 
   let resolved = url;
   const fetchWrapped = url.match(

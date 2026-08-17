@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useFarcasterContext } from '~/app/providers';
 import { NFT } from '~/types/nft';
 import { useNFTLikeState } from '~/hooks/useNFTLikeState';
@@ -8,6 +8,8 @@ import { useNFTLike } from '~/hooks/useNFTLike';
 import { NFTImage } from '../media/NFTImage';
 import { NFTGifImage } from '../media/NFTGifImage';
 import { shouldPreserveAnimation } from '../../utils/imageOptimizer';
+import { withFeaturedCover } from '~/data/featuredNfts';
+import { sanitizeMediaUrl } from '~/utils/media';
 
 interface NFTCardProps {
   nft: NFT;
@@ -49,21 +51,37 @@ const NFTCardInner: React.FC<NFTCardProps> = ({
     watchCount: false,
   });
 
-  // Use the NFT like hook
+  const onPlayRef = useRef(onPlay);
+  const onLikeToggleRef = useRef(onLikeToggle);
+  const isNFTLikedRef = useRef(isNFTLiked);
+  onPlayRef.current = onPlay;
+  onLikeToggleRef.current = onLikeToggle;
+  isNFTLikedRef.current = isNFTLiked;
+
+  const dispatchLikeToggle = useCallback(async (toggled: NFT) => {
+    if (onLikeToggleRef.current) {
+      await onLikeToggleRef.current(toggled);
+      return;
+    }
+    if (!fid) return;
+    await toggleLike();
+  }, [fid, toggleLike]);
+
   const { handleLike, handleUnlike } = useNFTLike({
-    onLikeToggle: onLikeToggle || (async () => {
-      if (!fid) return;
-      await toggleLike();
-    }),
+    onLikeToggle: dispatchLikeToggle,
   });
 
+  const coverNft = useMemo(
+    () => withFeaturedCover(nft),
+    [nft, nft.contract, nft.tokenId, nft.image, nft.audio, nft.metadata?.image, nft.metadata?.animation_url]
+  );
   const rawImageUrl =
-    nft.image ||
-    nft.metadata?.image ||
-    nft.collection?.image ||
-    nft.metadata?.animation_url ||
-    nft.videoUrl ||
-    nft.audio ||
+    sanitizeMediaUrl(coverNft.image) ||
+    sanitizeMediaUrl(coverNft.metadata?.image) ||
+    sanitizeMediaUrl(coverNft.collection?.image) ||
+    sanitizeMediaUrl(coverNft.metadata?.animation_url) ||
+    sanitizeMediaUrl(coverNft.videoUrl) ||
+    sanitizeMediaUrl(coverNft.audio) ||
     '';
   const [hasEntered, setHasEntered] = useState(false);
   const enterStyleRef = useRef(
@@ -86,8 +104,8 @@ const NFTCardInner: React.FC<NFTCardProps> = ({
       audio: nft.audio,
       animation: nft.metadata?.animation_url,
     });
-    if (onPlay) {
-      onPlay(nft);
+    if (onPlayRef.current) {
+      onPlayRef.current(nft);
     } else {
       console.log('Playing NFT:', nft.contract + '-' + nft.tokenId);
     }
@@ -96,7 +114,7 @@ const NFTCardInner: React.FC<NFTCardProps> = ({
   const handleLikeClick = (e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent triggering the card click
     // Use the prop function to check current state, fallback to hook state
-    const currentlyLiked = isNFTLiked ? isNFTLiked() : isLiked;
+    const currentlyLiked = isNFTLikedRef.current ? isNFTLikedRef.current() : isLiked;
     if (currentlyLiked) {
       handleUnlike(nft);
     } else {
@@ -121,7 +139,7 @@ const NFTCardInner: React.FC<NFTCardProps> = ({
         >
           {shouldPreserveAnimation(rawImageUrl) ? (
             <NFTGifImage
-              nft={nft}
+              nft={coverNft}
               className="w-full h-full object-cover"
               width={smallCard ? 160 : 180}
               height={smallCard ? 160 : 180}
@@ -129,7 +147,7 @@ const NFTCardInner: React.FC<NFTCardProps> = ({
             />
           ) : (
             <NFTImage
-              nft={nft}
+              nft={coverNft}
               src={rawImageUrl}
               alt={nft.name}
               className="w-full h-full object-cover"
@@ -179,14 +197,16 @@ const NFTCardInner: React.FC<NFTCardProps> = ({
 
 function areNftCardsEqual(prev: NFTCardProps, next: NFTCardProps) {
   return (
-    prev.nft === next.nft &&
+    prev.nft.contract === next.nft.contract &&
+    prev.nft.tokenId === next.nft.tokenId &&
+    prev.nft.image === next.nft.image &&
+    prev.nft.audio === next.nft.audio &&
+    prev.nft.name === next.nft.name &&
     prev.userFid === next.userFid &&
     prev.smallCard === next.smallCard &&
     prev.showLibraryBadge === next.showLibraryBadge &&
     prev.animationDelay === next.animationDelay &&
-    prev.onPlay === next.onPlay &&
-    prev.onLikeToggle === next.onLikeToggle &&
-    prev.isNFTLiked === next.isNFTLiked
+    (prev.isNFTLiked?.() ?? false) === (next.isNFTLiked?.() ?? false)
   );
 }
 
