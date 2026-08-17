@@ -1,10 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
-import { getFirestore, doc, onSnapshot, DocumentSnapshot } from 'firebase/firestore';
+import { getFirestore, doc, getDoc, onSnapshot, DocumentSnapshot } from 'firebase/firestore';
 import type { NFT } from '../types/user';
 import { logger } from '../utils/logger';
 import { getMediaKey } from '../utils/media';
 
-// Create a dedicated logger for this module
 const playCountLogger = logger.getModuleLogger('playCount');
 
 export const useNFTPlayCount = (nft: NFT | null, shouldFetch: boolean = true) => {
@@ -14,91 +13,88 @@ export const useNFTPlayCount = (nft: NFT | null, shouldFetch: boolean = true) =>
   const previousCountRef = useRef<number>(0);
   const isInitialLoadRef = useRef<boolean>(true);
 
-  // Reset the initial load flag when NFT changes
+  const mediaKey =
+    shouldFetch && nft?.contract && nft.tokenId !== undefined && nft.tokenId !== null && String(nft.tokenId) !== ''
+      ? getMediaKey(nft)
+      : '';
+
   useEffect(() => {
-    // We need to reset this for each NFT change to avoid immediate animation
+    if (!shouldFetch || !mediaKey) {
+      setPlayCount(0);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
     isInitialLoadRef.current = true;
-    previousCountRef.current = 0; // Reset this too for clean state
-  }, [nft?.contract, nft?.tokenId]);
-
-  useEffect(() => {
-    // Skip Firebase connection if we shouldn't fetch yet
-    if (!shouldFetch || !nft) {
-      setPlayCount(0);
-      setLoading(false);
-      return;
-    }
-
-    // Generate mediaKey for content-based tracking
-    const mediaKey = getMediaKey(nft);
-    if (!mediaKey) {
-      playCountLogger.error('Could not generate mediaKey for NFT:', nft);
-      setPlayCount(0);
-      setLoading(false);
-      return;
-    }
+    previousCountRef.current = 0;
 
     const db = getFirestore();
     const globalPlayRef = doc(db, 'global_plays', mediaKey);
+    let cancelled = false;
 
-    playCountLogger.debug('Listening for play count with mediaKey:', { mediaKey, nft });
+    const applySnapshot = (snapshot: DocumentSnapshot) => {
+      if (cancelled) return;
+      // An empty cache hit is not "0 plays". Wait for the server (or a cached doc).
+      if (snapshot.metadata.fromCache && !snapshot.exists()) {
+        console.log('[PLAY-DEBUG] play count skip empty cache', { mediaKey });
+        return;
+      }
 
-    // Set up real-time listener for global play count
-    const unsubscribe = onSnapshot(globalPlayRef,
-      (snapshot: DocumentSnapshot) => {
-        if (snapshot.exists()) {
-          const data = snapshot.data();
-          const newCount = data?.playCount || 0;
-          
-          // Check if this is a real count increase from Firebase
-          // This will only happen when the 25% threshold is reached
-          // Don't trigger animation on initial load
-          if (newCount > previousCountRef.current && !isInitialLoadRef.current) {
-            playCountLogger.debug('REAL PLAY COUNT INCREASE:', { 
-              mediaKey, 
-              oldCount: previousCountRef.current, 
-              newCount,
-              isInitialLoad: isInitialLoadRef.current
-            });
-            setRealCountIncrease(true);
-            
-            // Reset the animation flag after a short delay
-            setTimeout(() => {
-              setRealCountIncrease(false);
-            }, 2000); // slightly longer than animation duration
-          }
-          
-          // After first load, set initial load flag to false
-          if (isInitialLoadRef.current) {
-            isInitialLoadRef.current = false;
-          }
-          
-          // Update previous count reference
-          previousCountRef.current = newCount;
-          
-          // Update the state
-          setPlayCount(newCount);
-          playCountLogger.debug('Updated play count:', { mediaKey, count: newCount });
-        } else {
-          setPlayCount(0);
-          previousCountRef.current = 0;
-          playCountLogger.debug('No play count found for:', { mediaKey });
-        }
+      const newCount = snapshot.exists() ? (snapshot.data()?.playCount || 0) : 0;
+      console.log('[PLAY-DEBUG] play count', {
+        mediaKey,
+        count: newCount,
+        fromCache: snapshot.metadata.fromCache,
+        exists: snapshot.exists(),
+      });
+
+      if (newCount > previousCountRef.current && !isInitialLoadRef.current) {
+        playCountLogger.debug('REAL PLAY COUNT INCREASE:', {
+          mediaKey,
+          oldCount: previousCountRef.current,
+          newCount,
+        });
+        setRealCountIncrease(true);
+        setTimeout(() => {
+          setRealCountIncrease(false);
+        }, 2000);
+      }
+
+      isInitialLoadRef.current = false;
+      previousCountRef.current = newCount;
+      setPlayCount(newCount);
+      setLoading(false);
+    };
+
+    playCountLogger.debug('Listening for play count with mediaKey:', { mediaKey });
+
+    getDoc(globalPlayRef)
+      .then(applySnapshot)
+      .catch((error: Error) => {
+        if (cancelled) return;
+        playCountLogger.error('Error fetching play count:', error);
+        setPlayCount(0);
         setLoading(false);
-      },
+      });
+
+    const unsubscribe = onSnapshot(
+      globalPlayRef,
+      applySnapshot,
       (error: Error) => {
+        if (cancelled) return;
         playCountLogger.error('Error listening to play count:', error);
         setPlayCount(0);
         setLoading(false);
       }
     );
 
-    // Cleanup listener when component unmounts or NFT changes
     return () => {
+      cancelled = true;
       playCountLogger.debug('Cleaning up play count listener for:', mediaKey);
       unsubscribe();
     };
-  }, [nft, shouldFetch]);
+  }, [mediaKey, shouldFetch]);
 
   return { playCount, loading, realCountIncrease };
 };

@@ -121,7 +121,7 @@ const InfoPanel: React.FC<InfoPanelProps> = ({ nft, onClose, isLiked = false, on
     setIsClosing(false);
     setDescriptionExpanded(false);
     setCopied(false);
-  }, [nft]);
+  }, [nft.contract, nft.tokenId]);
 
   useEffect(() => {
     setArtistPfpUrl('');
