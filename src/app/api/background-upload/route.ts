@@ -37,7 +37,6 @@ if (!admin.apps.length) {
       }),
       storageBucket: FIREBASE_STORAGE_BUCKET
     });
-    console.log('Firebase Admin initialized successfully');
   } catch (error) {
     console.error('Firebase Admin initialization error:', error);
     throw error;
@@ -60,7 +59,6 @@ export async function POST(request: NextRequest) {
   const headers = { ...corsHeaders, 'Content-Type': 'application/json' };
   
   try {
-    console.log('Processing upload request...');
     const formData = await request.formData();
     const file = formData.get('file');
     const fid = formData.get('fid');
@@ -86,7 +84,6 @@ export async function POST(request: NextRequest) {
     const filename = `backgrounds/${fid}/${Date.now()}_${(file as File).name || 'background'}`;
     const fileRef = bucket.file(filename);
     
-    console.log('Uploading file:', { filename, contentType: file.type });
     const buffer = Buffer.from(await file.arrayBuffer());
     
     await fileRef.save(buffer, {
@@ -95,19 +92,16 @@ export async function POST(request: NextRequest) {
       }
     });
 
-    console.log('File uploaded, generating signed URL...');
     const [url] = await fileRef.getSignedUrl({
       action: 'read',
       expires: '03-01-2500'
     });
 
-    console.log('Updating user document...');
     // Update user doc with new background URL
     await admin.firestore().collection('users').doc(fid.toString()).set({
       backgroundImage: url
     }, { merge: true });
 
-    console.log('Upload completed successfully');
     return NextResponse.json({ url }, { headers });
   } catch (error) {
     console.error('Upload error:', {

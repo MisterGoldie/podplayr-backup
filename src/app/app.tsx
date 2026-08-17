@@ -32,16 +32,12 @@ const App: React.FC = () => {
         // Dynamically import the correct SDK
         const { sdk } = await import('@farcaster/miniapp-sdk');
         
-        console.log('🚀 Initializing Farcaster mini-app SDK...');
         
         // Check if we're in a Farcaster mini-app environment
         const isInMiniApp = await sdk.isInMiniApp();
-        console.log('📱 Is in Farcaster mini-app:', isInMiniApp);
         
         if (isInMiniApp) {
-          // Get the user context
-          const context = await sdk.context;
-          console.log('👤 Farcaster user context:', context);
+          await sdk.context;
           
           // Wait for the app to be fully loaded
           // This ensures all components are mounted and ready
@@ -49,13 +45,10 @@ const App: React.FC = () => {
             try {
               // CRITICAL: Call ready() to hide splash screen and show content
               await sdk.actions.ready();
-              console.log('✅ Farcaster SDK ready() called successfully');
             } catch (readyError) {
               console.error('❌ Error calling sdk.actions.ready():', readyError);
             }
           }, 1000); // Give the app 1 second to fully load
-        } else {
-          console.log('🌐 Not in Farcaster mini-app, running as web app');
         }
       } catch (error) {
         console.error('❌ Error initializing Farcaster SDK:', error);

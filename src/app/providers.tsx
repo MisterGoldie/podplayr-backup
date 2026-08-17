@@ -145,7 +145,6 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
           const hostedByBase = isCoinbaseWalletClientFid(clientFid) || isBaseAppBrowser();
 
           if (hostedByBase) {
-            console.log('🟦 App is RUNNING in Base App (mini-app host + Coinbase client)');
             setIsFarcaster(false);
             setIsMiniKit(true);
             setEnvironment('coinbase');
@@ -156,8 +155,6 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
 
           setIsFarcaster(true);
           setEnvironment('farcaster');
-          console.log('🚨 App is RUNNING in Farcaster mini-app');
-          console.log('🔍 FULL FARCASTER CONTEXT:', context);
 
           const sdkUser = context?.user;
           if (context && sdkUser && isRealFid(sdkUser.fid)) {
@@ -197,7 +194,6 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
         }
 
         if (isBaseAppBrowser()) {
-          console.log('🟦 App is RUNNING in Base App webview');
           setIsMiniKit(true);
           setEnvironment('coinbase');
           applyMiniKitUser();
@@ -205,7 +201,6 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        console.log('🌐 App is running in WEB environment');
         setEnvironment('web');
         setIsFidReady(true);
       } catch (error) {
@@ -232,7 +227,6 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (fid && followedFidRef.current !== fid) {
       followedFidRef.current = fid;
-      console.log(`🔑 User has FID: ${fid} in ${environment} environment`);
       ensurePodplayrFollow(fid).catch(error => {
         console.error('Error ensuring PODPlayr follow:', error);
       });

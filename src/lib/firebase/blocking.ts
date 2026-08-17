@@ -18,7 +18,6 @@ export const blockUserInFirebase = async (fid: number, reason?: string): Promise
       blockedAt: new Date(),
       reason: reason || 'No reason provided'
     });
-    console.log('User blocked:', fid);
   } catch (error) {
     console.error('Error blocking user:', error);
     throw error;
@@ -28,7 +27,6 @@ export const blockUserInFirebase = async (fid: number, reason?: string): Promise
 export const unblockUserInFirebase = async (fid: number): Promise<void> => {
   try {
     await deleteDoc(doc(db, 'blocked_users', fid.toString()));
-    console.log('User unblocked:', fid);
   } catch (error) {
     console.error('Error unblocking user:', error);
     throw error;

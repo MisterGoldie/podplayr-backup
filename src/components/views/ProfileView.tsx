@@ -156,12 +156,6 @@ const ProfileView: React.FC<ProfileViewProps> = ({
     setAppFollowingCount(prev => newStatus ? prev + 1 : Math.max(0, prev - 1));
   };
   
-  // Debug farcasterContext
-  useEffect(() => {
-    // Remove this debug log since it's too noisy
-    // console.log('🔍 FULL USER CONTEXT:', JSON.stringify(farcasterContext, null, 2));
-  }, [farcasterContext]);
-  
   // Helper function to check if user is truly logged in
   // Move the useRef hook to the component body (top level)
   const prevLoggedFid = useRef<number | undefined>(undefined);
@@ -176,7 +170,6 @@ const ProfileView: React.FC<ProfileViewProps> = ({
     // Only log once per user change, not on every call
     // Remove the useRef call from here since it's now at component level
     if (user?.fid !== prevLoggedFid.current) {
-      console.log('🔐 User login status changed:', isLoggedIn);
       prevLoggedFid.current = user?.fid;
     }
     
@@ -216,7 +209,6 @@ const ProfileView: React.FC<ProfileViewProps> = ({
       const now = Date.now();
       
       if (cached && cached.nfts.length > 0 && (now - cached.timestamp) < CACHE_DURATION) {
-        console.log('✅ Using cached profile data for FID:', userFid);
         setAllUserNFTs(cached.nfts);
         setLikedNFTs(cached.likedNFTs.filter(isPlayableMediaNFT));
         setAppFollowerCount(cached.followerCount);
@@ -225,7 +217,6 @@ const ProfileView: React.FC<ProfileViewProps> = ({
         return;
       }
       
-      console.log('🔄 Loading all NFTs directly for FID:', userFid);
       
       try {
         setIsLoading(true);
@@ -240,7 +231,6 @@ const ProfileView: React.FC<ProfileViewProps> = ({
         const uniqueNFTs = await nftsResponse.json();
         const list = Array.isArray(uniqueNFTs) ? uniqueNFTs : [];
 
-        console.log(`✅ Fetched ${list.length} unique media NFTs`);
 
         const nftsWithMediaKey = list.map((nft: NFT) => ({
           ...nft,
@@ -269,7 +259,6 @@ const ProfileView: React.FC<ProfileViewProps> = ({
       }
     };
 
-    console.log('🎯 ProfileView useEffect triggered with FID:', userFid);
     loadNFTs();
   }, [userFid, isFidReady, canLoadCollection]);
 
@@ -283,7 +272,6 @@ const ProfileView: React.FC<ProfileViewProps> = ({
       const now = Date.now();
       
       if (cached && cached.likedNFTs.length > 0 && (now - cached.timestamp) < CACHE_DURATION) {
-        console.log('✅ Using cached liked NFTs for FID:', userFid);
         setLikedNFTs(cached.likedNFTs.filter(isPlayableMediaNFT));
         return;
       }
@@ -291,7 +279,6 @@ const ProfileView: React.FC<ProfileViewProps> = ({
       loadingLikedNFTs.current = true;
       try {
         const liked = await getLikedNFTs(userFid);
-        console.log('Loaded liked NFTs for profile view:', liked.length);
         setLikedNFTs(liked);
         applyConfirmedPlayback(liked, setLikedNFTs);
         
@@ -319,7 +306,6 @@ const ProfileView: React.FC<ProfileViewProps> = ({
       const now = Date.now();
       
       if (cached && cached.followerCount > 0 && (now - cached.timestamp) < CACHE_DURATION) {
-        console.log('✅ Using cached follow counts for FID:', userFid);
         setAppFollowerCount(cached.followerCount);
         setAppFollowingCount(cached.followingCount);
         return;
@@ -645,8 +631,5 @@ const ProfileView: React.FC<ProfileViewProps> = ({
     </>
   );
 };
-
-// Remove everything after line 896 (lines 898-940)
-// The file should end with:
 
 export default ProfileView;

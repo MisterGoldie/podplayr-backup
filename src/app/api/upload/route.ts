@@ -49,11 +49,6 @@ export async function POST(request: NextRequest) {
 
     // Get file details
     const file = fileData as File;
-    console.log('Received file:', {
-      type: file.type,
-      size: file.size,
-      name: file.name
-    });
 
     // Validate file
     if (!file.type.startsWith('image/')) {
@@ -73,16 +68,13 @@ export async function POST(request: NextRequest) {
     // Get file extension and create storage path
     const fileExtension = file.name.split('.').pop() || 'png';
     const storagePath = `profile-backgrounds/${fid}.${fileExtension}`;
-    console.log('Storage path:', storagePath);
 
     // Convert to buffer
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
-    console.log('File converted to buffer, size:', buffer.length);
 
     // Create storage reference and upload
     const storageRef = ref(storage, storagePath);
-    console.log('Starting upload to Firebase Storage...');
 
     const snapshot = await uploadBytes(storageRef, buffer, {
       contentType: file.type,
@@ -91,9 +83,7 @@ export async function POST(request: NextRequest) {
       }
     });
 
-    console.log('Upload complete, getting download URL...');
     const downloadURL = await getDownloadURL(snapshot.ref);
-    console.log('Download URL obtained:', downloadURL);
 
     return NextResponse.json({ url: downloadURL });
   } catch (error) {

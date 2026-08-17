@@ -63,7 +63,6 @@ export const authOptions: AuthOptions = {
 
         // Check if FID is blocked
         if (BLOCKED_FIDS.has(fid)) {
-          console.log(`🚫 Blocked FID ${fid} attempted to sign in`);
           return null; // Deny access
         }
 

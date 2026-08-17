@@ -36,7 +36,6 @@ const FarcasterProvider: React.FC<{children: React.ReactNode}> = ({ children }) 
         
         // Create a component on the fly
         const FarcasterWagmiProvider = ({ children }: {children: React.ReactNode}) => {
-          console.log('⚡ Using Farcaster-specific WagmiProvider');
           return (
             <wagmi.WagmiProvider config={config}>
               {children}
@@ -65,7 +64,6 @@ const Provider = React.memo(function WagmiProviderComponent({ children }: { chil
   React.useEffect(() => {
     detectFarcasterMiniApp().then(isFarcaster => {
       setIsInFarcasterMode(isFarcaster);
-      console.log(`🧩 Using ${isFarcaster ? 'FARCASTER' : 'WEB'} WagmiProvider mode`);
     });
   }, []);
   

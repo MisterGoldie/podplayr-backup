@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { NFTImage } from '../media/NFTImage';
+import { NFTGifImage } from '../media/NFTGifImage';
 import { PlaybackButton } from '../buttons/PlaybackButton';
 import type { NFT } from '../../types/user';
 import InfoPanel from './InfoPanel';
@@ -7,7 +8,7 @@ import { logger } from '../../utils/logger';
 import { findFeaturedNft } from '../sections/FeaturedSection';
 import { triggerHaptic } from '../../utils/haptics';
 import { formatTime, safeProgressPercent, getDisplayTimes, processMediaUrl } from '../../utils/media';
-import { getResizedImageUrl, getVideoCoverStillUrl } from '../../utils/imageOptimizer';
+import { getResizedImageUrl, getVideoCoverStillUrl, nftHasAnimatedCover } from '../../utils/imageOptimizer';
 import { getNftPlaybackPlan } from '../../utils/isMediaNFT';
 import { PlayerArrowHint, usePlayerArrowHint } from './PlayerArrowHint';
 
@@ -327,33 +328,7 @@ export const MinimizedPlayer: React.FC<MinimizedPlayerProps> = ({
     }
   }, [isPlaying, nft]);
 
-  // Inside the MinimizedPlayer component
-  // Add this debugging useEffect to track the NFT data
-  useEffect(() => {
-    if (nft) {
-      playerLogger.info('MinimizedPlayer received NFT:', {
-        name: nft.name,
-        image: nft.image,
-        metadataImage: nft.metadata?.image,
-        contract: nft.contract,
-        tokenId: nft.tokenId,
-        isFeatured: Boolean(findFeaturedNft(nft)),
-      });
-    }
-  }, [nft]);
-
-  // Memoize the featured NFT detection to avoid repeated lookups
   const featuredNft = React.useMemo(() => findFeaturedNft(nft), [nft]);
-
-  // Log only once when the featured NFT is found (on nft change)
-  useEffect(() => {
-    if (featuredNft && featuredNft.image) {
-      playerLogger.info('Found matching featured NFT image:', {
-        name: nft.name,
-        foundImage: featuredNft.image
-      });
-    }
-  }, [featuredNft, nft.name]);
 
   // Memoize the image URL function to prevent unnecessary recalculations
   const getFeaturedNFTImage = useCallback((currentNft: NFT): string => {
@@ -366,8 +341,23 @@ export const MinimizedPlayer: React.FC<MinimizedPlayerProps> = ({
   }, [featuredNft]);
 
   const playbackPlan = React.useMemo(() => getNftPlaybackPlan(nft), [nft]);
+  const isAnimatedCover = React.useMemo(
+    () => nftHasAnimatedCover(nft) || nftHasAnimatedCover(featuredNft),
+    [nft, featuredNft]
+  );
+  const gifCoverNft = React.useMemo(() => {
+    if (!isAnimatedCover) return nft;
+    if (nftHasAnimatedCover(nft)) return nft;
+    if (!featuredNft?.image) return nft;
+    return {
+      ...nft,
+      image: featuredNft.image,
+      metadata: { ...(nft.metadata || {}), image: featuredNft.image },
+    };
+  }, [nft, featuredNft, isAnimatedCover]);
   const minimizedThumbSrc = React.useMemo(() => {
     const cover = nft.image || nft.metadata?.image || playbackPlan.videoUrl || '';
+    if (isAnimatedCover) return cover;
     const isVideoNft =
       nft.isVideo ||
       playbackPlan.mode === 'video-with-audio' ||
@@ -385,7 +375,7 @@ export const MinimizedPlayer: React.FC<MinimizedPlayerProps> = ({
     ].find((u) => !!u && /nft2?-cdn\.alchemy\.com/i.test(String(u)));
     const peer = alchemyPeer || playbackPlan.videoUrl || cover;
     return getVideoCoverStillUrl(peer, 360, { assumeVideo: true }) || cover;
-  }, [nft, playbackPlan]);
+  }, [nft, playbackPlan, isAnimatedCover]);
 
   return (
     <>
@@ -435,7 +425,15 @@ export const MinimizedPlayer: React.FC<MinimizedPlayerProps> = ({
             {/* NFT Image and Info */}
             <div className="flex items-center gap-3 flex-1 min-w-0">
               <div className="relative w-12 h-12 flex-shrink-0 rounded-xl overflow-hidden bg-purple-900/20 ring-1 ring-white/10">
-                {featuredNft ? (
+                {isAnimatedCover ? (
+                  <NFTGifImage
+                    nft={gifCoverNft}
+                    className="w-full h-full object-cover"
+                    width={48}
+                    height={48}
+                    priority
+                  />
+                ) : featuredNft ? (
                   <img
                     src={getResizedImageUrl(getFeaturedNFTImage(nft), 96)}
                     alt={nft.name}

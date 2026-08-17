@@ -64,11 +64,6 @@ const InternalRenderProtection: React.FC<Omit<RenderProtectionProps, 'enabled'>>
       console.error('Breaking the render circuit to prevent infinite loop');
       setCircuitBroken(true);
     }
-    
-    // Log every 10 renders just to monitor
-    if (rendersInWindow % 10 === 0) {
-      console.log(`Current render rate: ${rendersPerSecond.toFixed(1)} renders/second`);
-    }
   }, [maxRendersPerSecond, timeWindowMs, circuitBroken]);
   
   // If circuit broken, show error and stop rendering children

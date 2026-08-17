@@ -42,10 +42,8 @@ export const NFTCard: React.FC<NFTCardProps> = ({
     
     if (nft.isLiked) {
       // TODO: Implement handleUnlike function or import it
-      console.log('Unlike NFT:', nft.id);
     } else {
       // TODO: Implement handleLike function or import it
-      console.log('Like NFT:', nft.id);
     }
   };
 

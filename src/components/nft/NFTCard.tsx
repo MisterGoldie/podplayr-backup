@@ -97,18 +97,7 @@ const NFTCardInner: React.FC<NFTCardProps> = ({
   }, [animationDelay]);
 
   const handlePlay = () => {
-    console.log('[PLAY-DEBUG] card click', {
-      name: nft.name,
-      contract: nft.contract,
-      tokenId: nft.tokenId,
-      audio: nft.audio,
-      animation: nft.metadata?.animation_url,
-    });
-    if (onPlayRef.current) {
-      onPlayRef.current(nft);
-    } else {
-      console.log('Playing NFT:', nft.contract + '-' + nft.tokenId);
-    }
+    onPlayRef.current?.(nft);
   };
 
   const handleLikeClick = (e: React.MouseEvent) => {

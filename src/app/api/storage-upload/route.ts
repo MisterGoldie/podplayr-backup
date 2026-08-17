@@ -33,7 +33,6 @@ export async function OPTIONS(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  console.log('=== Starting upload request processing ===');
   
   try {
     // Verify all required Firebase config
@@ -49,12 +48,7 @@ export async function POST(request: NextRequest) {
       throw new Error(`Missing required Firebase config: ${missingVars.join(', ')}`);
     }
 
-    console.log('Firebase config verified:', {
-      projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-      storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
-    });
 
-    console.log('Parsing form data...');
     const formData = await request.formData().catch(error => {
       console.error('Error parsing form data:', error);
       throw new Error('Failed to parse form data');
@@ -63,12 +57,6 @@ export async function POST(request: NextRequest) {
     const fileData = formData.get('file');
     const fidData = formData.get('fid');
 
-    console.log('Form data received:', {
-      hasFile: !!fileData,
-      hasFid: !!fidData,
-      fileType: fileData instanceof Blob ? fileData.type : typeof fileData,
-      fidType: typeof fidData
-    });
 
     // Validate file
     if (!fileData || !(fileData instanceof Blob)) {
@@ -111,13 +99,6 @@ export async function POST(request: NextRequest) {
     const fileExtension = file.type.split('/')[1] || 'png';
     const storagePath = `profile-backgrounds/${fid}.${fileExtension}`;
 
-    console.log('Upload preparation:', {
-      fileExtension,
-      storagePath,
-      fileSize: file.size,
-      mimeType: file.type,
-      bucket: storage.app.options.storageBucket
-    });
 
     try {
       // Create storage reference with explicit path
@@ -137,18 +118,11 @@ export async function POST(request: NextRequest) {
         }
       };
 
-      console.log('Starting Firebase upload with:', {
-        path: storagePath,
-        size: uint8Array.length,
-        type: file.type
-      });
 
       // Upload to Firebase Storage
       const snapshot = await uploadBytes(storageRef, uint8Array, metadata);
-      console.log('Upload complete:', snapshot.metadata);
       
       const downloadUrl = await getDownloadURL(snapshot.ref);
-      console.log('Got download URL:', downloadUrl);
       
       return NextResponse.json({ 
         url: downloadUrl,

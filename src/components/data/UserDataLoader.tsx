@@ -66,9 +66,6 @@ const getCachedNFTs = (userId: number): NFT[] | null => {
           !nft?.videoUrl
       ).length;
       if (missingCover > 0) {
-        console.log(
-          `Discarding NFT cache for FID ${userId}: ${missingCover}/${nfts.length} missing covers`
-        );
         localStorage.removeItem(`${NFT_CACHE_KEY}${userId}`);
         return null;
       }
@@ -137,7 +134,6 @@ export const UserDataLoader: React.FC<UserDataLoaderProps> = ({
 
     // Prevent multiple simultaneous loads for the same user
     if (loadingRef.current === userFid) {
-      console.log('Already loading data for FID:', userFid);
       return;
     }
 
@@ -152,7 +148,6 @@ export const UserDataLoader: React.FC<UserDataLoaderProps> = ({
         const now = Date.now();
 
         if (cached && (now - cached.timestamp) < SESSION_CACHE_DURATION) {
-          console.log('✅ Using cached user data for FID:', userFid);
           handleUserDataLoaded(cached.userData);
           handleNFTsLoaded(cached.nfts);
           if (likesEnabled) {
@@ -161,7 +156,6 @@ export const UserDataLoader: React.FC<UserDataLoaderProps> = ({
           // Still refresh owned NFTs in background so custody-only caches don't stick
         }
 
-        console.log('Starting user data load for FID:', userFid);
 
         const users = await searchUsers(userFid.toString()).catch((error) => {
           console.error('Error searching for user:', error);
@@ -178,12 +172,6 @@ export const UserDataLoader: React.FC<UserDataLoaderProps> = ({
         }
 
         const userData = users[0];
-        console.log('User data loaded:', {
-          fid: userData.fid,
-          username: userData.username,
-          custody_address: userData.custody_address,
-          verified_addresses: userData.verified_addresses,
-        });
         handleUserDataLoaded(userData);
 
         // Serve local cache immediately (stale-while-revalidate), then always
@@ -198,38 +186,30 @@ export const UserDataLoader: React.FC<UserDataLoaderProps> = ({
           );
 
           if (hasValidStructure) {
-            console.log('Using cached NFTs (will refresh):', cachedNFTs.length);
             handleNFTsLoaded(withLikeStatus(cachedNFTs));
           } else {
-            console.log('Invalid cache structure, removing cache');
             localStorage.removeItem(`${NFT_CACHE_KEY}${userFid}`);
           }
         }
 
-        console.log('Refreshing owned NFTs via fetchUserNFTs...');
         const freshNFTs = await fetchUserNFTs(userFid);
         if (cancelled) return;
 
         // Do not soft-merge covers from cache — that preferred OpenSea collection
         // art over Alchemy token stills and could pollute animation_url.
         const nftsWithLikeStatus = withLikeStatus(freshNFTs);
-        console.log('Owned NFTs refreshed:', nftsWithLikeStatus.length);
         cacheOwnedNFTs(userFid, nftsWithLikeStatus);
         handleNFTsLoaded(nftsWithLikeStatus);
 
         let likedNFTs: NFT[] = cached?.likedNFTs || [];
         if (likesEnabled) {
-          console.log('Loading liked NFTs initially...');
           likedNFTs = await getLikedNFTs(userFid);
           if (cancelled) return;
-          console.log('Liked NFTs loaded initially:', likedNFTs.length);
           handleLikedNFTsLoaded(likedNFTs);
           applyConfirmedPlayback(likedNFTs, handleLikedNFTsLoaded);
 
-          console.log('Setting up real-time subscription to liked NFTs...');
           unsubscribeLikes = subscribeToLikedNFTs(userFid, (updatedLikedNFTs: NFT[]) => {
             if (cancelled) return;
-            console.log('Liked NFTs update received:', updatedLikedNFTs.length);
             handleLikedNFTsLoaded(updatedLikedNFTs);
 
             const currentCache = getSessionCache();

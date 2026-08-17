@@ -632,22 +632,11 @@ export const getRecentSearches = async (fid?: number): Promise<SearchedUser[]> =
     const uniqueSearches = new Map<number, SearchedUser>();
     
     // Process docs in reverse chronological order
-    console.log('=== RECENT SEARCHES DEBUG ===');
-    console.log(`Found ${snapshot.docs.length} search records`);
     
     snapshot.docs.forEach(doc => {
       const data = doc.data();
       const searchedFid = data.searchedFid;
       const timestamp = data.timestamp;
-      const isENS = data.isENS || false;
-      
-      // Log each search record for debugging
-      console.log(`Search record: FID=${searchedFid}, Username=${data.searchedUsername}, isENS=${isENS}`);
-      
-      // Special log for ENS users (negative FIDs)
-      if (searchedFid < 0 || isENS) {
-        console.log(`Found ENS user: ${data.searchedUsername} with FID ${searchedFid}`);
-      }
       
       // Only add if this fid hasn't been seen yet (first occurrence is most recent due to orderBy)
       if (!uniqueSearches.has(searchedFid)) {
@@ -674,13 +663,6 @@ export const getRecentSearches = async (fid?: number): Promise<SearchedUser[]> =
       if (user && !recentSearches.some(s => s.fid === searchedFid)) {
         recentSearches.push(user);
       }
-    });
-    
-    // Log final results
-    console.log('=== FINAL RECENT SEARCHES ===');
-    console.log(`Returning ${recentSearches.length} recent searches`);
-    recentSearches.forEach(user => {
-      console.log(`User in results: ${user.username}, FID=${user.fid}, isENS=${user.isENS}`);
     });
 
     // Take first 8 unique users
@@ -2371,7 +2353,6 @@ export const updatePodplayrFollowerCount = async (): Promise<number> => {
       pfp_url: PODPLAYR_ACCOUNT.pfp_url,
     }, { merge: true });
     
-    console.log(`Updated PODPlayr follower count to ${followerCount}`);
     return followerCount;
   } catch (error) {
     console.error('Error updating PODPlayr follower count:', error);
@@ -2382,7 +2363,6 @@ export const updatePodplayrFollowerCount = async (): Promise<number> => {
 // Update the followers subcollection for PODPlayr
 async function updatePodplayrFollowersSubcollection(userDocs: QueryDocumentSnapshot<DocumentData>[]): Promise<void> {
   try {
-    console.log('Updating PODPlayr followers subcollection');
     
     // Process each user
     for (const userDoc of userDocs) {
@@ -2397,7 +2377,6 @@ async function updatePodplayrFollowersSubcollection(userDocs: QueryDocumentSnaps
       
       if (!followerDoc.exists()) {
         // User is not in PODPlayr's followers collection, add them
-        console.log(`Adding user ${userFid} to PODPlayr's followers collection`);
         
         // Try to get user data from searchedusers collection
         let followerData: any = {
@@ -2426,7 +2405,6 @@ async function updatePodplayrFollowersSubcollection(userDocs: QueryDocumentSnaps
       }
     }
     
-    console.log('Successfully updated PODPlayr followers subcollection');
   } catch (error) {
     console.error('Error updating PODPlayr followers subcollection:', error);
   }
@@ -2439,17 +2417,14 @@ export const ensurePodplayrFollow = async (userFid: number): Promise<void> => {
     
     // Prevent PODPlayr from following itself
     if (userFid === PODPLAYR_ACCOUNT.fid) {
-      console.log('Skipping self-follow for PODPlayr account');
       return;
     }
     
-    console.log(`Checking if user ${userFid} follows PODPlayr account`);
     
     // Check if the user already follows PODPlayr
     const isFollowing = await isUserFollowed(userFid, PODPLAYR_ACCOUNT.fid);
     
     if (!isFollowing) {
-      console.log(`User ${userFid} does not follow PODPlayr - adding mandatory follow`);
       
       // Create PODPlayr user object
       const podplayrUser: FarcasterUser = {
@@ -2467,9 +2442,7 @@ export const ensurePodplayrFollow = async (userFid: number): Promise<void> => {
       // increments PODPlayr's cached followerCount — no separate recompute needed.
       await followUser(userFid, podplayrUser);
       
-      console.log(`Successfully added mandatory follow to PODPlayr for user ${userFid}`);
     } else {
-      console.log(`User ${userFid} already follows PODPlayr account`);
       
       // Even if already following, ensure the profile image is up to date
       const followingRef = doc(db, 'users', userFid.toString(), 'following', PODPLAYR_ACCOUNT.fid.toString());
@@ -2490,7 +2463,6 @@ export const unfollowUser = async (currentUserFid: number, userToUnfollow: Farca
       return;
     }
 
-    console.log(`User ${currentUserFid} is unfollowing user ${userToUnfollow.fid}`);
     
     // References to the documents to delete
     const followingRef = doc(db, 'users', currentUserFid.toString(), 'following', userToUnfollow.fid.toString());
@@ -2513,7 +2485,6 @@ export const unfollowUser = async (currentUserFid: number, userToUnfollow: Farca
     
     // Commit the batch
     await batch.commit();
-    console.log(`Successfully unfollowed user ${userToUnfollow.username}`);
   } catch (error) {
     console.error('Error unfollowing user:', error);
     throw error;
@@ -2542,13 +2513,11 @@ export const toggleFollowUser = async (currentUserFid: number, user: FarcasterUs
   try {
     // Prevent users from following themselves
     if (currentUserFid === user.fid) {
-      console.log('Cannot follow yourself - operation blocked at database level');
       return false;
     }
     
     // Prevent unfollowing the PODPlayr account
     if (user.fid === PODPLAYR_ACCOUNT.fid) {
-      console.log('Attempted to unfollow PODPlayr account - operation blocked');
       // If not already following, follow the PODPlayr account
       const isAlreadyFollowing = await isUserFollowed(currentUserFid, PODPLAYR_ACCOUNT.fid);
       if (!isAlreadyFollowing) {
@@ -2811,7 +2780,6 @@ export const getUserTotalPlays = async (userFid: number): Promise<number> => {
       }
     }
     
-    console.log(`Total plays for user ${userFid}: ${totalPlays}`);
     return totalPlays;
   } catch (error) {
     console.error('Error getting user total plays:', error);
@@ -2872,7 +2840,6 @@ export const getUserLikedNFTsCount = async (userFid: number): Promise<number> =>
     const globalSnapshot = await getDocs(globalLikesQuery);
     totalLiked += globalSnapshot.size;
     
-    console.log(`Total liked NFTs for user ${userFid}: ${totalLiked}`);
     return totalLiked;
   } catch (error) {
     console.error('Error getting user liked NFTs count:', error);
@@ -2896,7 +2863,6 @@ export const searchUsersByAddress = async (address: string): Promise<FarcasterUs
     const neynarKey = process.env.NEXT_PUBLIC_NEYNAR_API_KEY;
     if (!neynarKey) throw new Error('Neynar API key not found');
 
-    console.log(`Searching for users by ETH address: ${address}`);
     
     // Use the correct Neynar API endpoint
     const endpoint = `https://api.neynar.com/v2/farcaster/user/bulk-by-address?addresses=${address}`;
@@ -2922,7 +2888,6 @@ export const searchUsersByAddress = async (address: string): Promise<FarcasterUs
     } else if (data && typeof data === 'object') {
       rawUsers = Object.values(data).flat().filter((user: any) => user && typeof user === 'object' && user.fid);
     }
-    console.log(`Found ${rawUsers.length} users for address ${address}`);
 
     if (rawUsers.length === 0) {
       return [];
@@ -2950,7 +2915,6 @@ export const searchUsersByAddress = async (address: string): Promise<FarcasterUs
 };
 
 export const searchUsers = async (queryString: string): Promise<FarcasterUser[]> => {
-  console.log('🔍 SEARCHING USERS:', queryString);
   
   // Clear any pending search
   if (searchTimeout) clearTimeout(searchTimeout);
@@ -2961,7 +2925,6 @@ export const searchUsers = async (queryString: string): Promise<FarcasterUser[]>
   // Check if this is a negative FID (ENS user)
   const queryAsNumber = Number(queryString);
   if (!isNaN(queryAsNumber) && queryAsNumber < 0) {
-    console.log('🌐 Detected ENS user FID:', queryAsNumber);
     
     try {
       // Try to get ENS user from Firebase
@@ -2970,10 +2933,8 @@ export const searchUsers = async (queryString: string): Promise<FarcasterUser[]>
       
       if (ensUserDoc.exists()) {
         const ensUserData = ensUserDoc.data() as FarcasterUser;
-        console.log('✅ Found ENS user in Firebase:', ensUserData.username);
         return [ensUserData];
       } else {
-        console.log('❌ ENS user not found in Firebase for FID:', queryAsNumber);
         return [];
       }
     } catch (error) {
@@ -2997,34 +2958,24 @@ export const searchUsers = async (queryString: string): Promise<FarcasterUser[]>
     }
     
     // Add debug logging
-    console.log('🔍 queryString type:', typeof queryString);
-    console.log('🔍 queryString value:', JSON.stringify(queryString));
-    console.log('🔍 Number(queryString):', Number(queryString));
-    console.log('🔍 isNaN(Number(queryString)):', isNaN(Number(queryString)));
     
     // Check if query is a number first (FID check should come before ENS check)
     const isFid = !isNaN(Number(queryString));
-    console.log('🔍 isFid check result:', isFid);
     
     // FOR FID SEARCHES: Check Firebase first before making API call
     if (isFid) {
-      console.log('🔍 Entering FID search branch');
       try {
         const userRef = doc(db, 'searchedusers', queryString);
         const userDoc = await getDoc(userRef);
         
         if (userDoc.exists()) {
           const userData = userDoc.data() as FarcasterUser;
-          console.log('✅ Found user in Firebase cache:', userData.username);
           return [userData];
         }
-        console.log('🔍 User not in Firebase cache, fetching from API...');
       } catch (firebaseError) {
         console.error('Error checking Firebase cache:', firebaseError);
         // Continue to API call as fallback
       }
-    } else {
-      console.log('🔍 NOT entering FID search branch - treating as username search');
     }
     
     // Only perform ENS lookup when the query ends with .eth AND is not a FID
@@ -3037,27 +2988,15 @@ export const searchUsers = async (queryString: string): Promise<FarcasterUser[]>
         // Dynamically import ENS functions to avoid circular dependencies
         const { getEnsProfile } = await import('./ens');
         const { createENSUser } = await import('../types/ens');
-        
-        // Only log during development
-        if (process.env.NODE_ENV === 'development') {
-          console.log('Attempting ENS lookup for:', queryString);
-        }
-        
         const ensProfile = await getEnsProfile(queryString);
         
         if (ensProfile && ensProfile.address) {
-          // Only log during development
-          if (process.env.NODE_ENV === 'development') {
-            console.log('ENS profile found for:', queryString);
-          }
-          
           // Create the ENS user
           const ensUser = createENSUser(ensProfile);
           
           // Check if this ENS address matches any Farcaster user's wallet
           // First, check in our local database
           try {
-            console.log('Checking if ENS address matches any Farcaster user wallet:', ensProfile.address);
             const usersRef = collection(db, 'searchedusers');
             const q = query(usersRef, 
               where('custody_address', '==', ensProfile.address.toLowerCase()),
@@ -3070,7 +3009,6 @@ export const searchUsers = async (queryString: string): Promise<FarcasterUser[]>
             if (!snapshot.empty) {
               // Found a Farcaster user with the same wallet address
               const farcasterUser = snapshot.docs[0].data() as FarcasterUser;
-              console.log('Found matching Farcaster user for ENS address:', farcasterUser.username);
               
               // Add a linked identity property to both users
               ensUser.linkedIdentity = {
@@ -3106,7 +3044,6 @@ export const searchUsers = async (queryString: string): Promise<FarcasterUser[]>
       ? `https://api.neynar.com/v2/farcaster/user/bulk?fids=${queryString}`
       : `https://api.neynar.com/v2/farcaster/user/search?q=${encodeURIComponent(queryString)}`;
 
-    console.log('📡 API Request:', endpoint);
     const response = await fetchWithRetry(endpoint, {
       headers: {
         'accept': 'application/json',
@@ -3114,7 +3051,6 @@ export const searchUsers = async (queryString: string): Promise<FarcasterUser[]>
       }
     });
 
-    console.log('📡 API Response Status:', response.status);
     
     if (!response.ok) {
       const errorText = await response.text();
@@ -3123,7 +3059,6 @@ export const searchUsers = async (queryString: string): Promise<FarcasterUser[]>
     }
 
     const data = await response.json();
-    console.log('📊 Initial API response:', data);
     
     // Handle different response structures for search vs bulk lookup
     let users = isFid ? data.users : data.result?.users || [];
@@ -3134,7 +3069,6 @@ export const searchUsers = async (queryString: string): Promise<FarcasterUser[]>
         .map((u: any) => parseInt(u.fid, 10))
         .filter((fid: number) => Number.isInteger(fid) && fid > 0 && fid <= 2147483647)
         .join(',');
-      console.log('📋 Fetching full profiles for FIDs:', fids);
       
       const profileResponse = await fetchWithRetry(
         `https://api.neynar.com/v2/farcaster/user/bulk?fids=${fids}`,
@@ -3146,7 +3080,6 @@ export const searchUsers = async (queryString: string): Promise<FarcasterUser[]>
         }
       );
 
-      console.log('📡 Profile Response Status:', profileResponse.status);
       
       if (!profileResponse.ok) {
         const errorText = await profileResponse.text();
@@ -3155,7 +3088,6 @@ export const searchUsers = async (queryString: string): Promise<FarcasterUser[]>
       }
 
       const profileData = await profileResponse.json();
-      console.log('👤 Profile data response:', profileData);
       users = profileData.users;
     }
 
@@ -3178,11 +3110,6 @@ export const searchUsers = async (queryString: string): Promise<FarcasterUser[]>
         addr && addr.startsWith('0x') && addr.length === 42
       );
 
-      console.log('📍 Processed addresses for user:', {
-        fid: user.fid,
-        username: user.username,
-        addresses: allAddresses
-      });
 
       // Special handling for PODPlayr account follower count
       let followerCount = user.follower_count || 0;
@@ -3267,7 +3194,6 @@ export const searchUsers = async (queryString: string): Promise<FarcasterUser[]>
           };
           
           await setDoc(userRef, userData, { merge: true });
-          console.log('💾 Saved user to Firebase cache:', user.username);
         });
         
         await Promise.all(savePromises);
@@ -3288,7 +3214,6 @@ export const searchUsers = async (queryString: string): Promise<FarcasterUser[]>
     // By this point, if it was an ENS query, we either returned the ENS result
     // or continued with Farcaster search as a fallback. No need to check again.
     
-    console.log('✅ Returning', farcasterUsers.length, 'Farcaster users');
     return farcasterUsers;
   } catch (error) {
     console.error('❌ Search Users Error:', error);
@@ -3302,20 +3227,9 @@ export const searchUsers = async (queryString: string): Promise<FarcasterUser[]>
       try {
         const { getEnsProfile } = await import('./ens');
         const { createENSUser } = await import('../types/ens');
-        
-        // Only log during development
-        if (process.env.NODE_ENV === 'development') {
-          console.log('Attempting ENS lookup as fallback for:', queryString);
-        }
-        
         const ensProfile = await getEnsProfile(queryString);
         
         if (ensProfile && ensProfile.address) {
-          // Only log during development
-          if (process.env.NODE_ENV === 'development') {
-            console.log('ENS profile found as fallback for:', queryString);
-          }
-          
           const ensUser = createENSUser(ensProfile);
           return [ensUser];
         }

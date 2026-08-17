@@ -114,36 +114,20 @@ export async function GET(request: NextRequest) {
     // Fetch NFT metadata if contract and tokenId are provided
     if (contract && tokenId) {
       try {
-        console.log('🔍 Fetching NFT metadata for:', { contract, tokenId });
         
         // First try Firebase cache (same as main app)
-        console.log('🔍 Checking Firebase cache...');
         const cachedNFT = await fetchNFTDetails(contract, tokenId);
         if (cachedNFT?.image) {
           nftImage = await processMediaUrlServer(cachedNFT.image);
           nftTitle = cachedNFT.name || fallbackTitle;
           nftDescription = cachedNFT.description || fallbackDescription;
-          console.log('✅ Found NFT data in Firebase cache:', {
-            image: nftImage,
-            title: nftTitle,
-            description: nftDescription
-          });
         } else {
-          console.log('❌ No cached NFT found in Firebase');
           
           // Fallback to Alchemy with both networks (same as main app)
           for (const network of ['ethereum', 'base'] as const) {
             try {
               const nft = await getNFTMetadata(contract, tokenId, network);
               
-              console.log(`🔍 NFT metadata for ${network}:`, {
-                hasImage: !!nft.image,
-                hasMetadataImage: !!nft.metadata?.image,
-                name: nft.name,
-                description: nft.description,
-                imageUrl: nft.image,
-                metadataImageUrl: nft.metadata?.image
-              });
               
               // Try multiple image sources with proper URL processing
               const imageUrl = nft.image || nft.metadata?.image;
@@ -152,15 +136,9 @@ export async function GET(request: NextRequest) {
                 // Use collection name if available, fallback to NFT name, then fallback title
                 nftTitle = nft.name || nft.metadata?.name || nft.collection?.name || fallbackTitle;
                 nftDescription = nft.description || nft.metadata?.description || fallbackDescription;
-                console.log('✅ Found NFT data via Alchemy:', {
-                  image: nftImage,
-                  title: nftTitle,
-                  description: nftDescription
-                });
                 break;
               }
             } catch (error) {
-              console.log(`❌ Error with network ${network}:`, (error as Error).message);
             }
           }
         }

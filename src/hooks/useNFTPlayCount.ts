@@ -37,17 +37,10 @@ export const useNFTPlayCount = (nft: NFT | null, shouldFetch: boolean = true) =>
       if (cancelled) return;
       // An empty cache hit is not "0 plays". Wait for the server (or a cached doc).
       if (snapshot.metadata.fromCache && !snapshot.exists()) {
-        console.log('[PLAY-DEBUG] play count skip empty cache', { mediaKey });
         return;
       }
 
       const newCount = snapshot.exists() ? (snapshot.data()?.playCount || 0) : 0;
-      console.log('[PLAY-DEBUG] play count', {
-        mediaKey,
-        count: newCount,
-        fromCache: snapshot.metadata.fromCache,
-        exists: snapshot.exists(),
-      });
 
       if (newCount > previousCountRef.current && !isInitialLoadRef.current) {
         playCountLogger.debug('REAL PLAY COUNT INCREASE:', {

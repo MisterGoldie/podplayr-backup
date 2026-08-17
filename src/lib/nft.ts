@@ -1,4 +1,4 @@
-import type { NFT } from '../types/user';
+import type { NFT, NFTMetadata } from '../types/user';
 import { Alchemy, Network } from 'alchemy-sdk';
 import { createHash } from 'crypto';
 import { rewriteLegacyOpenSeaMediaUrl } from '../utils/openSeaMedia';
@@ -253,8 +253,8 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
       try {
         const decimalValue = BigInt(hexWithPrefix).toString();
         tokenIdFormats.push(decimalValue);
-      } catch (e) {
-        console.log('Failed to convert hex to decimal:', e);
+      } catch {
+        // keep original tokenId formats
       }
       
       // Also try with 0x prefix if not already present
@@ -276,10 +276,8 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
     for (const testTokenId of tokenIdFormats) {
       try {
         metadata = await client.nft.getNftMetadata(contract, testTokenId);
-        console.log(`✅ Successfully fetched metadata with tokenId format: ${testTokenId}`);
         break;
       } catch (error) {
-        console.log(`❌ Failed with tokenId format ${testTokenId}:`, (error as Error).message);
         lastError = error;
       }
     }
@@ -288,7 +286,7 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
       throw lastError || new Error('Failed to fetch metadata with any tokenId format');
     }
 
-    const rawMeta = metadata.raw.metadata || {};
+    const rawMeta = (metadata.raw.metadata || {}) as NFTMetadata;
     const alchemyImage = metadata as {
       image?: AlchemyImageFields;
       animation?: AlchemyImageFields;
@@ -316,7 +314,7 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
     const alchemyAnimType = (alchemyImage.animation?.contentType || '').toLowerCase();
 
     const alchemyAnimation = alchemyAnimCached || alchemyAnimOriginal || alchemyImageAsAudio || '';
-    const mergedMeta = {
+    const mergedMeta: NFTMetadata = {
       ...rawMeta,
       // Prefer Alchemy CDN for playback; keep original IPFS as secondary via image fields.
       animation_url:
@@ -591,7 +589,7 @@ export const enrichNftMediaFromChain = async (nft: NFT): Promise<NFT> => {
       hasValidAudio: nft.hasValidAudio ?? data.hasValidAudio,
       collection: {
         ...nft.collection,
-        name: data.collection?.name || nft.collection?.name,
+        name: data.collection?.name || nft.collection?.name || '',
         image: data.collection?.image || nft.collection?.image,
       },
       metadata: {
@@ -646,11 +644,9 @@ async function fetchAlchemyWithRetry(url: string, maxRetries = 3): Promise<Respo
 
 export const fetchOwnedNftsFromAlchemy = async (address: string): Promise<NFT[]> => {
   try {
-    console.log('\n🔍 Fetching NFTs for address:', address);
     const alchemyKey = process.env.NEXT_PUBLIC_ALCHEMY_API_KEY || process.env.ALCHEMY_API_KEY;
     if (!alchemyKey) throw new Error('Alchemy API key not found');
 
-    console.log('🌐 Starting parallel fetch from ETH and BASE networks...');
     
     // Fetch from both networks
     const [ethResponse, baseResponse] = await Promise.all([
@@ -663,10 +659,6 @@ export const fetchOwnedNftsFromAlchemy = async (address: string): Promise<NFT[]>
     ]);
 
     // Check responses
-    console.log('📡 Network Response Status:', {
-      ethereum: ethResponse.status,
-      base: baseResponse.status
-    });
 
     if (!ethResponse.ok || !baseResponse.ok) {
       const errorText = await ((!ethResponse.ok ? ethResponse : baseResponse).text());
@@ -678,21 +670,8 @@ export const fetchOwnedNftsFromAlchemy = async (address: string): Promise<NFT[]>
       baseResponse.json()
     ]);
 
-    console.log('📦 ETH Network NFTs:', {
-      count: ethData.ownedNfts?.length || 0,
-      sampleNFT: ethData.ownedNfts?.[0]?.contract?.address
-    });
-    console.log('📦 BASE Network NFTs:', {
-      count: baseData.ownedNfts?.length || 0,
-      sampleNFT: baseData.ownedNfts?.[0]?.contract?.address
-    });
 
     const ownedNfts = [...(ethData.ownedNfts || []), ...(baseData.ownedNfts || [])];
-    console.log(`✨ Combined NFTs for ${address}:`, {
-      total: ownedNfts.length,
-      fromEth: ethData.ownedNfts?.length || 0,
-      fromBase: baseData.ownedNfts?.length || 0
-    });
 
     interface AlchemyNFT {
       contract: {
@@ -932,13 +911,11 @@ export const fetchUserNFTsFromAlchemy = async (address: string): Promise<NFT[]> 
 
 export const fetchUserNFTs = async (fid: number): Promise<NFT[]> => {
   try {
-    console.log('🚀 === START NFT FETCH FOR FID:', fid, '===');
 
     // Get user profile from Neynar for verified addresses
     const neynarKey = process.env.NEXT_PUBLIC_NEYNAR_API_KEY;
     if (!neynarKey) throw new Error('Neynar API key not found');
 
-    console.log('📡 Fetching user profile from Neynar...');
     const profileResponse = await fetch(
       `https://api.neynar.com/v2/farcaster/user/bulk?fids=${fid}`,
       {
@@ -955,7 +932,6 @@ export const fetchUserNFTs = async (fid: number): Promise<NFT[]> => {
     }
 
     const profileData = await profileResponse.json();
-    console.log('👤 Raw Neynar Profile Data:', JSON.stringify(profileData, null, 2));
     
     let allAddresses: string[] = [];
     const user = profileData.users?.[0];
@@ -972,53 +948,32 @@ export const fetchUserNFTs = async (fid: number): Promise<NFT[]> => {
     }
 
     allAddresses = [...new Set(allAddresses)].filter(addr => {
-      const isValid = addr && addr.startsWith('0x') && addr.length === 42;
-      if (!isValid) {
-        console.log('⚠️ Invalid address found:', addr);
-      }
-      return isValid;
+      return Boolean(addr && addr.startsWith('0x') && addr.length === 42);
     });
 
     if (allAddresses.length === 0) {
       throw new Error('No valid addresses found for this user');
     }
 
-    console.log('📋 Valid addresses found:', allAddresses);
 
     // Process addresses sequentially
     const allNFTs: NFT[] = [];
     
     for (let i = 0; i < allAddresses.length; i++) {
       const address = allAddresses[i];
-      console.log(`\n🔄 Processing address ${i + 1}/${allAddresses.length}:`, address);
       
       try {
         const nfts = await fetchOwnedNftsFromAlchemy(address);
-        console.log(`✨ NFTs found for address ${address}:`, {
-          total: nfts.length,
-          audio: nfts.filter(nft => nft.hasValidAudio).length,
-          video: nfts.filter(nft => nft.isVideo).length,
-          animation: nfts.filter(nft => nft.isAnimation).length
-        });
         allNFTs.push(...nfts);
         
         if (i < allAddresses.length - 1) {
-          console.log('⏳ Waiting 2 seconds before next address...');
-          await delay(2000);
+          await alchemyFetchDelay(2000);
         }
       } catch (error) {
         console.error(`❌ Error processing address ${address}:`, error);
       }
     }
 
-    console.log('\n📊 Final NFT Collection Summary:', {
-      totalNFTs: allNFTs.length,
-      byType: {
-        audio: allNFTs.filter(nft => nft.hasValidAudio).length,
-        video: allNFTs.filter(nft => nft.isVideo).length,
-        animation: allNFTs.filter(nft => nft.isAnimation).length
-      }
-    });
     return allNFTs;
 
   } catch (error) {
@@ -1027,7 +982,5 @@ export const fetchUserNFTs = async (fid: number): Promise<NFT[]> => {
       error
     });
     throw error;
-  } finally {
-    console.log('🏁 === END NFT FETCH ===');
   }
 };

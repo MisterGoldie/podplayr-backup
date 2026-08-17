@@ -57,10 +57,6 @@ export function usePrerollAd() {
       Date.now() - lastAdAtRef.current >= MIN_MS_BETWEEN_ADS;
 
     if (due && cooledDown) {
-      console.log('[PLAY-DEBUG] preroll ad BEFORE play', {
-        uniquePlays: uniquePlaysRef.current,
-        playsUntilNextAd: playsUntilNextAdRef.current,
-      });
       afterAdRef.current = run;
       pauseCurrent?.();
       setShowAd(true);

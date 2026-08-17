@@ -118,7 +118,6 @@ export const preloadVideoMetadata = async (nft: NFT): Promise<void> => {
             headers: { Range: 'bytes=0-0' },
           });
           if (response.ok || response.status === 206) {
-            console.log(`Preloaded metadata for ${nft.name}, size: ${response.headers.get('content-length')} bytes`);
             return;
           }
         } catch (err) {
@@ -143,7 +142,6 @@ export const preloadVideoMetadata = async (nft: NFT): Promise<void> => {
         };
 
         video.onloadedmetadata = () => {
-          console.log(`Preloaded metadata for ${nft.name}, duration: ${video.duration}s`);
           video.src = '';
           resolve();
         };
@@ -186,7 +184,6 @@ export const preloadVideoInitialChunk = async (nft: NFT): Promise<void> => {
 
         const chunk = await response.arrayBuffer();
         videoCache.setChunk(processedUrl, 0, chunkSize - 1, chunk);
-        console.log(`Preloaded initial ${chunkSize} bytes for ${nft.name}`);
         return;
       } catch (err) {
         lastError = err;
@@ -218,7 +215,6 @@ export const predictivePreload = (nfts: NFT[], currentIndex: number, preloadCoun
     const nextNFT = nfts[nextIndex];
     
     if (nextNFT && nextNFT.metadata?.animation_url) {
-      console.log(`Predictively preloading NFT ${i} of ${actualPreloadCount}: ${nextNFT.name || 'Unnamed NFT'}`);
       
       // For cellular connections, just preload metadata
       if (isCellular) {

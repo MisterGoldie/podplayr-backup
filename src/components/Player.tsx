@@ -65,7 +65,6 @@ export const Player: React.FC<PlayerProps> = ({ nft, onPlaybackComplete, onError
         setNetworkQuality('good');
       }
       
-      console.log(`Network quality detected: ${effectiveType}, ${downlink}Mbps`);
     };
     
     updateNetworkQuality();

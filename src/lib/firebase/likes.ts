@@ -608,51 +608,12 @@ export const getLikedNFTs = async (userIdOrWallet: number | string): Promise<NFT
 };
 
 // Toggle NFT like status globally - SIMPLIFIED TO MATCH PLAY COUNTING SYSTEM
-// Create a debug function with a CUSTOM FILTER TAG that can be isolated in DevTools
-const debugLike = (message: string, data: any = {}) => {
-  // Create a custom filter tag "PODPLAYR-DEBUG" that can be isolated in the DevTools console
-  // By typing "PODPLAYR-DEBUG" in the filter box, you'll only see these messages
-  console.log('PODPLAYR-DEBUG', `LIKE: ${message}`, data);
-  
-  // Also log as error to make it appear in the error tab
-  console.error('PODPLAYR-DEBUG', `LIKE: ${message}`, data);
-};
-
-// Modified to support both Farcaster IDs and wallet addresses for Privy users
 export const toggleLikeNFT = async (nft: NFT, fidOrWalletAddress: number | string, forceUnlike: boolean = false): Promise<boolean> => {
-  // EXTREME UNMISSABLE CONSOLE LOGS
-  console.error('🔴🔴🔴 FIREBASE LIKES.TS: toggleLikeNFT FUNCTION STARTED 🔴🔴🔴');
-  console.error('📌 NFT:', {
-    name: nft.name,
-    contract: nft.contract,
-    tokenId: nft.tokenId,
-    mediaKey: nft.mediaKey || getMediaKey(nft),
-    fidOrWalletAddress,
-    isWalletAddress: typeof fidOrWalletAddress === 'string',
-    isFid: typeof fidOrWalletAddress === 'number',
-    timestamp: new Date().toISOString()
-  });
-  
-  // Use window.console to bypass any possible filtering
-  window.console.warn('DIRECT WINDOW CONSOLE: toggleLikeNFT STARTED', {
-    nft_name: nft?.name,
-    contract: nft?.contract,
-    tokenId: nft?.tokenId,
-    fidOrWalletAddress,
-    isWalletAddress: typeof fidOrWalletAddress === 'string',
-    isFid: typeof fidOrWalletAddress === 'number',
-    timestamp: new Date().toISOString()
-  });
-  
-  // Record the start time for performance tracking
-  const startTime = performance.now();
-  
   firebaseLogger.info('Starting toggleLikeNFT with NFT:', nft.name, 'and user ID:', fidOrWalletAddress, 
     typeof fidOrWalletAddress === 'string' ? '(wallet address)' : '(fid)');
   
   // Validate the user identifier (either fid or wallet address)
   if (typeof fidOrWalletAddress === 'number' && (!fidOrWalletAddress || fidOrWalletAddress <= 0)) {
-    debugLike('ERROR: Invalid FID', { fid: fidOrWalletAddress });
     firebaseLogger.error('Invalid fid provided to toggleLikeNFT:', fidOrWalletAddress);
     
     // Try to recover from localStorage as a fallback for Privy users
@@ -661,7 +622,6 @@ export const toggleLikeNFT = async (nft: NFT, fidOrWalletAddress: number | strin
       if (savedAddress && savedAddress.startsWith('0x')) {
         fidOrWalletAddress = savedAddress.toLowerCase();
         firebaseLogger.info('Recovered wallet address from localStorage as fallback:', fidOrWalletAddress);
-        debugLike('RECOVERED WALLET ADDRESS', { walletAddress: fidOrWalletAddress });
       } else {
         return false; // No valid user ID available
       }
@@ -672,13 +632,11 @@ export const toggleLikeNFT = async (nft: NFT, fidOrWalletAddress: number | strin
   } else if (typeof fidOrWalletAddress === 'string') {
     // For string identifiers, ensure it's a valid wallet address
     if (!fidOrWalletAddress || !fidOrWalletAddress.startsWith('0x')) {
-      debugLike('ERROR: Invalid wallet address', { walletAddress: fidOrWalletAddress });
       firebaseLogger.error('Invalid wallet address provided to toggleLikeNFT:', fidOrWalletAddress);
       return false;
     }
     // CRITICAL: Ensure wallet addresses are always lowercase for consistency
     fidOrWalletAddress = fidOrWalletAddress.toLowerCase();
-    console.error('🔴 NORMALIZING WALLET ADDRESS:', fidOrWalletAddress);
     
     // Store the wallet address in localStorage for persistence across sessions
     try {
@@ -691,7 +649,6 @@ export const toggleLikeNFT = async (nft: NFT, fidOrWalletAddress: number | strin
   }
   
   if (!nft || !nft.contract || !nft.tokenId) {
-    debugLike('ERROR: Invalid NFT data', { nft });
     firebaseLogger.error('Invalid NFT data provided to toggleLikeNFT:', nft);
     return false;
   }
@@ -711,30 +668,15 @@ export const toggleLikeNFT = async (nft: NFT, fidOrWalletAddress: number | strin
   
   // CRITICAL: Verify the userId is valid before proceeding
   if (!userId || (userId.startsWith('0x') && userId.length < 10)) {
-    debugLike('ERROR: Invalid user ID after normalization', { userId });
     firebaseLogger.error('Invalid user ID after normalization:', userId);
     return false;
   }
-    
-  console.error('🔴 USING USER ID FOR FIREBASE:', {
-    userId,
-    originalValue: fidOrWalletAddress,
-    isWalletAddress: userId.startsWith('0x'),
-    isFid: !userId.startsWith('0x'),
-    timestamp: new Date().toISOString()
-  });
   
   try {
     // Get mediaKey - critical for content-based likes
     const mediaKey = nft.mediaKey || getMediaKey(nft);
-    debugLike('MEDIA KEY', { 
-      mediaKey, 
-      nftMediaKey: nft.mediaKey, 
-      calculatedMediaKey: getMediaKey(nft) 
-    });
     
     if (!mediaKey) {
-      debugLike('ERROR: No mediaKey', { id: `${nft.contract}-${nft.tokenId}` });
       firebaseLogger.error('Invalid mediaKey for NFT:', nft);
       return false;
     }
@@ -745,17 +687,8 @@ export const toggleLikeNFT = async (nft: NFT, fidOrWalletAddress: number | strin
     // For Privy users, userId is the wallet address (lowercase)
     const userLikeRef = doc(db, 'users', userId, 'likes', mediaKey);
     firebaseLogger.info('Using mediaKey for like operation:', mediaKey);
-    debugLike('USER LIKE REF', { path: userLikeRef.path });
-    console.log('%c📄 FIREBASE PATH:', 'font-size:14px;color:purple;font-weight:bold', userLikeRef.path);
-    console.error('🔴 FIREBASE LIKE PATH:', userLikeRef.path, {
-      userId,
-      mediaKey,
-      isWalletAddress: userId.startsWith('0x'),
-      isFid: !userId.startsWith('0x')
-    });
     
     // Check if user already liked this NFT
-    console.log('%c🔎 CHECKING CURRENT LIKE STATUS', 'font-size:14px;color:blue;font-weight:bold');
     const userLikeDoc = await getDoc(userLikeRef);
     const isLiked = userLikeDoc.exists();
     
@@ -784,38 +717,20 @@ export const toggleLikeNFT = async (nft: NFT, fidOrWalletAddress: number | strin
       // Continue with the operation even if localStorage fails
     }
     
-    // CRITICAL: Log the current like status for debugging
-    console.error('🔴 CURRENT LIKE STATUS:', {
-      isLiked,
-      docExists: userLikeDoc.exists(),
-      userId,
-      mediaKey,
-      path: userLikeRef.path,
-      data: userLikeDoc.exists() ? userLikeDoc.data() : null
-    });
-    
     // If forceUnlike is true, we always want to unlike, regardless of current state
     // This ensures Library view unlike operations always work correctly
     const shouldUnlike = forceUnlike || isLiked;
-    console.log('%c👍 CURRENT STATUS:', 'font-size:14px;color:orange;font-weight:bold', { 
-      liked: isLiked, 
-      exists: userLikeDoc.exists(),
-      mediaKey
-    });
     
     // Create a batch for all operations
     const batch = writeBatch(db);
-    console.log('%c💾 CREATED BATCH OPERATION', 'font-size:14px;color:blue;font-weight:bold');
     
     // CRITICAL: Update all DOM elements with this mediaKey before Firebase operations
     // This ensures immediate UI feedback regardless of Firebase operation timing
     try {
-      console.log('%c🔄 UPDATING DOM ELEMENTS', 'font-size:14px;color:blue;font-weight:bold');
       const newLikeState = !isLiked;
       
       // Use a direct DOM update to ensure all instances are updated immediately
       const elementsToUpdate = document.querySelectorAll(`[data-media-key="${mediaKey}"]`);
-      console.log(`Found ${elementsToUpdate.length} elements with mediaKey ${mediaKey}`);
       
       // Track which elements were updated for verification later
       const updatedElements: Element[] = [];
@@ -829,7 +744,6 @@ export const toggleLikeNFT = async (nft: NFT, fidOrWalletAddress: number | strin
           element.setAttribute('data-is-liked', newLikeState ? 'true' : 'false');
         }
         updatedElements.push(element);
-        console.log(`Updated element: ${element.tagName} with data-liked=${newLikeState}`);
       });
       
       // Also force update any NFT cards that might be using this NFT
@@ -838,11 +752,9 @@ export const toggleLikeNFT = async (nft: NFT, fidOrWalletAddress: number | strin
         const nftSelector = `[data-nft-id="${nft.contract}-${nft.tokenId}"]`;
         document.querySelectorAll(nftSelector).forEach(element => {
           element.setAttribute('data-liked', newLikeState ? 'true' : 'false');
-          console.log(`Updated NFT element by contract-tokenId: ${element.tagName}`);
         });
       }
       
-      console.log(`Updated ${updatedElements.length} of ${elementsToUpdate.length} elements with mediaKey ${mediaKey}`);
     } catch (domError) {
       console.error('Error updating DOM elements:', domError);
       // Continue with Firebase operations even if DOM update fails
@@ -850,12 +762,6 @@ export const toggleLikeNFT = async (nft: NFT, fidOrWalletAddress: number | strin
     
     if (shouldUnlike) {
       // UNLIKE: Simple deletion from user's likes collection using mediaKey
-      console.log('%c💔 UNLIKE OPERATION', 'font-size:16px;color:red;font-weight:bold;background:lightgray;padding:3px;border-radius:3px', { 
-        key: mediaKey, 
-        name: nft.name,
-        contract: nft.contract,
-        tokenId: nft.tokenId
-      });
       firebaseLogger.info(`Unliking NFT: ${nft.name} (mediaKey: ${mediaKey})`);
       batch.delete(userLikeRef);
       
@@ -866,13 +772,10 @@ export const toggleLikeNFT = async (nft: NFT, fidOrWalletAddress: number | strin
       if (globalLikeDoc.exists()) {
         const globalData = globalLikeDoc.data();
         const currentCount = typeof globalData?.likeCount === 'number' ? globalData.likeCount : 0;
-        console.log('🌐 Global:', { count: currentCount });
         
         if (currentCount <= 1) {
-          console.log('🗑️ Del global:', mediaKey.slice(0, 8));
           batch.delete(globalLikeRef);
         } else {
-          console.log('⬇️ Count--:', { key: mediaKey.slice(0, 8), new: currentCount - 1 });
           batch.update(globalLikeRef, {
             likeCount: increment(-1),
             lastUnliked: serverTimestamp()
@@ -881,16 +784,9 @@ export const toggleLikeNFT = async (nft: NFT, fidOrWalletAddress: number | strin
       }
     } else {
       // LIKE: Add to user's likes collection using mediaKey as document ID
-      debugLike('LIKE OPERATION', { 
-        key: mediaKey, 
-        name: nft.name,
-        contract: nft.contract,
-        tokenId: nft.tokenId
-      });
       firebaseLogger.info(`Liking NFT: ${nft.name} (mediaKey: ${mediaKey})`);
       
       // Store essential NFT data
-      debugLike('CREATING USER LIKE DATA', { nftName: nft.name });
       const userLikeData = {
         mediaKey,
         contract: nft.contract,
@@ -914,45 +810,23 @@ export const toggleLikeNFT = async (nft: NFT, fidOrWalletAddress: number | strin
         isFid: !userId.startsWith('0x'),
         likedAt: new Date().toISOString()
       };
-      debugLike('USER LIKE DATA CREATED', userLikeData);
       
-      console.log('%c📝 SETTING USER LIKE DOCUMENT', 'font-size:14px;color:blue;font-weight:bold', { 
-        key: mediaKey, 
-        path: userLikeRef.path,
-        userId: userId
-      });
       batch.set(userLikeRef, userLikeData);
       
       // We no longer need to track permanently removed NFTs
       // Simply adding to the likes collection is sufficient
-      console.log('%c✅ ADDING TO LIKES COLLECTION', 'font-size:14px;color:green;font-weight:bold', { 
-        mediaKey, 
-        nftName: nft.name 
-      });
       firebaseLogger.info(`Adding ${mediaKey} to likes collection`);
       
       // Update or create global like entry
-      console.log('%c🌎 CHECKING GLOBAL LIKES ENTRY', 'font-size:14px;color:purple;font-weight:bold');
       const globalLikeRef = doc(db, 'global_likes', mediaKey);
       const globalLikeDoc = await getDoc(globalLikeRef);
       
       if (globalLikeDoc.exists()) {
-        console.log('%c⬆️ INCREMENTING GLOBAL LIKE COUNT', 'font-size:14px;color:orange;font-weight:bold', { 
-          mediaKey, 
-          currentCount: globalLikeDoc.data()?.likeCount || 0,
-          nftName: nft.name
-        });
         batch.update(globalLikeRef, {
           likeCount: increment(1),
           lastLiked: serverTimestamp()
         });
       } else {
-        console.log('%c🆕 CREATING NEW GLOBAL LIKE ENTRY', 'font-size:14px;color:green;font-weight:bold', { 
-          mediaKey, 
-          nftName: nft.name,
-          contract: nft.contract,
-          tokenId: nft.tokenId
-        });
         batch.set(globalLikeRef, {
           likeCount: 1,
           contract: nft.contract,
@@ -969,12 +843,9 @@ export const toggleLikeNFT = async (nft: NFT, fidOrWalletAddress: number | strin
     }
     
     // Commit all changes
-    console.log('%c💾 COMMITTING BATCH TO FIREBASE', 'font-size:16px;color:blue;font-weight:bold;background:lightblue;padding:3px;border-radius:3px');
     await batch.commit();
-    console.log('%c✅ BATCH COMMITTED SUCCESSFULLY', 'font-size:14px;color:green;font-weight:bold');
     
     // Double-check the like status after the operation AND verify synchronization
-    console.log('%c🔎 VERIFYING FINAL LIKE STATUS AND COLLECTION SYNC', 'font-size:14px;color:blue;font-weight:bold');
     const verifyUserDoc = await getDoc(userLikeRef);
     const verifyGlobalDoc = await getDoc(doc(db, 'global_likes', mediaKey));
     const finalLikeStatus = verifyUserDoc.exists();
@@ -984,19 +855,10 @@ export const toggleLikeNFT = async (nft: NFT, fidOrWalletAddress: number | strin
     const globalLikeCount = globalExists ? verifyGlobalDoc.data()?.likeCount || 0 : 0;
     
     // Log synchronization status
-    console.log('%c🔐 SYNC STATUS', 'font-size:14px;color:purple;font-weight:bold', {
-      userDocExists: finalLikeStatus,
-      globalDocExists: globalExists,
-      globalLikeCount,
-      expectedLiked: !isLiked,
-      mediaKey,
-      nftName: nft.name
-    });
     
     // AUTO-RECOVERY: If collections are out of sync, fix it with another batch
     if (finalLikeStatus && (!globalExists || globalLikeCount <= 0)) {
       // User has it liked but global is missing or count is 0 - fix global
-      console.log('%c🔧 SYNC ERROR DETECTED - FIXING GLOBAL RECORD', 'font-size:14px;color:red;font-weight:bold');
       
       const recoveryBatch = writeBatch(db);
       const globalLikeRef = doc(db, 'global_likes', mediaKey);
@@ -1018,10 +880,8 @@ export const toggleLikeNFT = async (nft: NFT, fidOrWalletAddress: number | strin
       });
       
       await recoveryBatch.commit();
-      console.log('%c🔧 SYNC FIXED - RECREATED GLOBAL RECORD', 'font-size:14px;color:green;font-weight:bold');
     } else if (!finalLikeStatus && globalExists && globalLikeCount > 0) {
       // User unliked but global still shows likes - check if other users have it liked
-      console.log('%c🔎 CHECKING IF OTHER USERS HAVE THIS LIKED', 'font-size:14px;color:blue;font-weight:bold');
       
       const otherUsersQuery = query(
         collectionGroup(db, 'likes'),
@@ -1032,14 +892,9 @@ export const toggleLikeNFT = async (nft: NFT, fidOrWalletAddress: number | strin
       const otherLikesSnapshot = await getDocs(otherUsersQuery);
       const otherLikesCount = otherLikesSnapshot.size;
       
-      console.log('%c🔎 OTHER USERS WITH THIS LIKED:', 'font-size:14px;color:blue;font-weight:bold', {
-        count: otherLikesCount,
-        users: otherLikesSnapshot.docs.map(d => d.ref.parent.parent?.id)
-      });
       
       // If no other users have it liked, but global count is > 0, fix global
       if (otherLikesCount === 0 && globalLikeCount > 0) {
-        console.log('%c🔧 SYNC ERROR DETECTED - FIXING GLOBAL COUNT', 'font-size:14px;color:red;font-weight:bold');
         
         const recoveryBatch = writeBatch(db);
         const globalLikeRef = doc(db, 'global_likes', mediaKey);
@@ -1048,7 +903,6 @@ export const toggleLikeNFT = async (nft: NFT, fidOrWalletAddress: number | strin
         recoveryBatch.delete(globalLikeRef);
         
         await recoveryBatch.commit();
-        console.log('%c🔧 SYNC FIXED - DELETED GLOBAL RECORD', 'font-size:14px;color:green;font-weight:bold');
       }
     }
     
@@ -1058,22 +912,12 @@ export const toggleLikeNFT = async (nft: NFT, fidOrWalletAddress: number | strin
     const finalFinalLikeStatus = finalVerifyUserDoc.exists();
     const finalGlobalExists = finalVerifyGlobalDoc.exists();
     
-    console.log('%c✅ OPERATION COMPLETE', 'font-size:16px;color:green;font-weight:bold;background:lightgreen;padding:3px;border-radius:3px', { 
-      expected: !isLiked, 
-      actual: finalFinalLikeStatus, 
-      match: finalFinalLikeStatus === !isLiked,
-      globalInSync: finalFinalLikeStatus === finalGlobalExists || (!finalFinalLikeStatus && finalGlobalExists && finalVerifyGlobalDoc.data()?.likeCount > 0),
-      mediaKey,
-      nftName: nft.name
-    });
     
     // CRITICAL: Update all DOM elements again after Firebase operation completes
     // This ensures UI state is consistent with Firebase state
     try {
-      console.log('%c🔄 FINAL DOM UPDATE', 'font-size:14px;color:blue;font-weight:bold');
       // Force update ALL elements with this mediaKey
       const elementsToUpdate = document.querySelectorAll(`[data-media-key="${mediaKey}"]`);
-      console.log(`Final update: Found ${elementsToUpdate.length} elements with mediaKey ${mediaKey}`);
       
       elementsToUpdate.forEach(element => {
         // Update the data-liked attribute
@@ -1082,7 +926,6 @@ export const toggleLikeNFT = async (nft: NFT, fidOrWalletAddress: number | strin
         if (element.hasAttribute('data-is-liked')) {
           element.setAttribute('data-is-liked', finalLikeStatus ? 'true' : 'false');
         }
-        console.log(`Final update for element: ${element.tagName} with data-liked=${finalLikeStatus}`);
       });
       
       // Also update any elements that might be identified by contract-tokenId
@@ -1097,41 +940,15 @@ export const toggleLikeNFT = async (nft: NFT, fidOrWalletAddress: number | strin
       // Continue even if DOM update fails
     }
     
-    // Calculate performance metrics
-    const endTime = performance.now();
-    const operationTime = endTime - startTime;
-    
-    console.log('%c⏱️ OPERATION COMPLETED IN', 'font-size:14px;color:purple;font-weight:bold', {
-      time: `${operationTime.toFixed(2)}ms`,
-      nftName: nft.name,
-      mediaKey,
-      userIdentifier: userId,
-      finalState: finalLikeStatus
-    });
-    
     // Return the new like state
     return finalLikeStatus;
   } catch (error) {
-    // Calculate performance metrics even for errors
-    const endTime = performance.now();
-    const operationTime = endTime - startTime;
-    
-    console.error('%c❌ ERROR IN TOGGLE LIKE', 'font-size:16px;color:white;font-weight:bold;background:red;padding:5px;border-radius:5px', {
-      error,
-      time: `${operationTime.toFixed(2)}ms`,
-      nftName: nft.name,
-      mediaKey: nft.mediaKey || getMediaKey(nft),
-      userIdentifier: userId,
-      isWalletAddress: typeof fidOrWalletAddress === 'string',
-      source: 'firebase-toggle'
-    });
     firebaseLogger.error('Error in toggleLikeNFT:', error);
     
     // CRITICAL: On error, revert any DOM changes to maintain consistency
     try {
       const mediaKey = nft.mediaKey || getMediaKey(nft);
       if (mediaKey) {
-        console.log('%c🔄 REVERTING DOM CHANGES DUE TO ERROR', 'font-size:14px;color:red;font-weight:bold');
         // Check current state in Firebase to revert correctly
         // Even in error handling, use the proper user identifier
         const errorUserRef = doc(db, 'users', userId, 'likes', mediaKey);
@@ -1139,7 +956,6 @@ export const toggleLikeNFT = async (nft: NFT, fidOrWalletAddress: number | strin
         const currentLikeState = errorUserDoc.exists();
         
         const elementsToRevert = document.querySelectorAll(`[data-media-key="${mediaKey}"]`);
-        console.log(`Reverting ${elementsToRevert.length} elements with mediaKey ${mediaKey} to ${currentLikeState ? 'liked' : 'not liked'}`);
         
         elementsToRevert.forEach(element => {
           element.setAttribute('data-liked', currentLikeState ? 'true' : 'false');
@@ -1155,27 +971,22 @@ export const toggleLikeNFT = async (nft: NFT, fidOrWalletAddress: number | strin
 
 // Add NFT to user's liked collection using mediaKey (content-first approach)
 export const addLikedNFT = async (fid: number, nft: NFT): Promise<void> => {
-  console.log('🔍 ADD:', { id: `${nft.contract}-${nft.tokenId}`, fid });
   try {
     // Validate inputs
     if (!fid || fid <= 0) {
-      console.error('❌ Invalid fid:', fid);
       firebaseLogger.error('Invalid fid provided to addLikedNFT:', fid);
       throw new Error('Invalid user ID');
     }
     
     if (!nft || !nft.contract || !nft.tokenId) {
-      console.error('❌ Invalid NFT:', { id: nft?.contract ? `${nft.contract}-${nft.tokenId}` : 'missing' });
       firebaseLogger.error('Invalid NFT data provided to addLikedNFT:', nft);
       throw new Error('Invalid NFT data');
     }
     
     // Get mediaKey - critical for content-based likes
     const mediaKey = nft.mediaKey || getMediaKey(nft);
-    console.log('🔑 Key:', mediaKey?.slice(0, 8));
     
     if (!mediaKey) {
-      console.error('❌ No mediaKey:', { id: `${nft.contract}-${nft.tokenId}` });
       firebaseLogger.error('Could not generate mediaKey for NFT:', nft);
       throw new Error('Could not generate mediaKey');
     }
@@ -1243,44 +1054,33 @@ export const addLikedNFT = async (fid: number, nft: NFT): Promise<void> => {
 
 // Remove NFT from user's liked collection using mediaKey (content-first approach)
 export const removeLikedNFT = async (fid: number, nft: NFT): Promise<void> => {
-  console.log('🔍 DEBUG - removeLikedNFT STARTED', { nft, fid });
   try {
     // Validate inputs
     if (!fid || fid <= 0) {
-      console.error('❌ DEBUG - removeLikedNFT ERROR: Invalid fid', { fid });
       firebaseLogger.error('Invalid fid provided to removeLikedNFT:', fid);
       throw new Error('Invalid user ID');
     }
     
     if (!nft || !nft.contract || !nft.tokenId) {
-      console.error('❌ DEBUG - removeLikedNFT ERROR: Invalid NFT data', { nft });
       firebaseLogger.error('Invalid NFT data provided to removeLikedNFT:', nft);
       throw new Error('Invalid NFT data');
     }
     
     // Get mediaKey - critical for content-based likes
     const mediaKey = nft.mediaKey || getMediaKey(nft);
-    console.log('🔑 DEBUG - removeLikedNFT mediaKey', { mediaKey, nftMediaKey: nft.mediaKey, calculatedMediaKey: getMediaKey(nft) });
     
     if (!mediaKey) {
-      console.error('❌ DEBUG - removeLikedNFT ERROR: Could not get mediaKey', { nft });
       firebaseLogger.error('Could not generate mediaKey for NFT:', nft);
       throw new Error('Could not generate mediaKey');
     }
     
     // Reference to user's likes subcollection document using mediaKey
     const userLikeRef = doc(db, 'users', fid.toString(), 'likes', mediaKey);
-    console.log('📄 DEBUG - removeLikedNFT userLikeRef path', userLikeRef.path);
-    
-    // Check if the like exists before removing
-    const likeDoc = await getDoc(userLikeRef);
-    console.log('🔎 DEBUG - removeLikedNFT checking if like exists', { exists: likeDoc.exists(), data: likeDoc.data() });
     
     // Create a batch for all operations
     const batch = writeBatch(db);
     
     // Remove from user's likes collection
-    console.log('💔 DEBUG - removeLikedNFT deleting user like', { mediaKey });
     batch.delete(userLikeRef);
     
     // Also update global like entry
@@ -1290,34 +1090,21 @@ export const removeLikedNFT = async (fid: number, nft: NFT): Promise<void> => {
     if (globalLikeDoc.exists()) {
       const globalData = globalLikeDoc.data();
       const currentCount = globalData?.likeCount || 1;
-      console.log('🌐 DEBUG - removeLikedNFT global like data', { globalData, currentCount });
       
       if (currentCount <= 1) {
-        console.log('🗑️ DEBUG - removeLikedNFT deleting global like', { mediaKey });
         batch.delete(globalLikeRef);
       } else {
-        console.log('⬇️ DEBUG - removeLikedNFT decrementing global like count', { mediaKey, newCount: currentCount - 1 });
         batch.update(globalLikeRef, {
           likeCount: currentCount - 1,
           lastUnliked: serverTimestamp()
         });
       }
-    } else {
-      console.log('⚠️ DEBUG - removeLikedNFT global like not found', { mediaKey });
     }
     
-    // Commit all changes
-    console.log('💾 DEBUG - removeLikedNFT committing batch');
     await batch.commit();
     
-    // Verify the like was removed
-    const verifyDoc = await getDoc(userLikeRef);
-    console.log('✅ DEBUG - removeLikedNFT verification', { exists: verifyDoc.exists(), shouldBeRemoved: true });
-    
-    console.log('✅ DEBUG - removeLikedNFT COMPLETED', { nft: nft.name, mediaKey });
     firebaseLogger.info(`Removed NFT from likes: ${nft.name} (mediaKey: ${mediaKey})`);
   } catch (error) {
-    console.error('❌ DEBUG - removeLikedNFT ERROR', error);
     firebaseLogger.error('Error removing liked NFT:', error);
     throw error;
   }

@@ -15,7 +15,6 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    console.log(`Fetching NFT metadata for contract: ${contract}, tokenId: ${tokenId}, network: ${network}`);
     
     const nftData = await getNFTMetadata(contract, tokenId, network);
     

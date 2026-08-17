@@ -85,7 +85,6 @@ import { logger } from '../utils/logger';
 import { useToast } from './useToast';
 import { reviveNftMedia } from '../utils/deadNftRegistry';
 import { prioritizeRememberedUrl, rememberWorkingMediaUrl, forgetMediaUrl, getRememberedMediaUrl } from '../utils/gatewayMemory';
-import { playDebugStart, playDebug, playbackSpeedLog, shortUrl, audioDebugSnapshot } from '../utils/playDebug';
 import { enrichNftMediaFromChain, nftNeedsChainMediaEnrich } from '../lib/nft';
 
 // Create a dedicated logger for this module
@@ -254,12 +253,10 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
         : visualPlaybackRef.current;
 
     if (isPlaying || !clock.paused) {
-      playDebug('handlePlayPause → pause', audioDebugSnapshot(clock));
       clock.pause();
       if (video && video !== clock) video.pause();
       setIsPlaying(false);
     } else {
-      playDebug('handlePlayPause → play', audioDebugSnapshot(clock));
       setIsPlaying(true);
       clock.play().catch((error) => {
         audioLogger.error('Error in handlePlayPause:', error);
@@ -297,16 +294,6 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
   
   // Define handlePlayAudio first, before it's used in other functions
   const handlePlayAudio = useCallback(async (nft: NFT, context?: { queue?: NFT[], queueType?: string }) => {
-    playDebugStart('handlePlayAudio enter', {
-      name: nft.name,
-      contract: nft.contract,
-      tokenId: nft.tokenId,
-      audio: nft.audio,
-      animation: nft.metadata?.animation_url,
-      videoUrl: nft.videoUrl,
-      isVideo: nft.isVideo,
-      playbackMode: nft.playbackMode,
-    });
 
     // Add mobile optimization
     const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
@@ -329,7 +316,6 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     // hang or 404, Alchemy still has cached CDN copies — refresh via /api/nft.
     let playNft = nft;
     if (nftNeedsChainMediaEnrich(nft)) {
-      playDebug('enriching media via /api/nft (IPFS may be unreplicated)');
       playNft = await enrichNftMediaFromChain(nft);
       if (playNft !== nft) {
         clearNftMediaUrlCache(nft, 'image');
@@ -352,10 +338,6 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     let plan = getNftPlaybackPlan(playNft);
     const probeUrl = plan.videoUrl || plan.audioUrl || playNft.audio;
     if (urlLooksLike3dModel(probeUrl) || urlLooksLikeImage(probeUrl) || !isPlayableMediaNFT(playNft)) {
-      playDebug('rejected non-audio/video media (3D/image/model)', {
-        name: playNft.name,
-        url: probeUrl,
-      });
       audioLogger.info('Skipping non-playable media NFT', { name: playNft.name, url: probeUrl });
       showErrorToast(`"${playNft.name || 'This NFT'}" isn't playable audio or video.`);
       return;
@@ -368,18 +350,11 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       knownMime.startsWith('audio/') ||
       knownMime.startsWith('video/');
     if (mediaUrlNeedsMimeProbe(probeUrl) && !skipMimeProbe) {
-      playDebug('extensionless media — probing Content-Type');
       plan = await resolveNftPlaybackPlan(playNft);
-    } else if (knownMime || skipMimeProbe) {
-      playDebug('skipping MIME probe', { knownMime: knownMime || '(alchemy-cdn)' });
     }
     applyPlaybackPlanToNft(playNft, plan);
     applyPlaybackPlanToNft(nft, plan);
     if (!plan.audioUrl && !plan.videoUrl) {
-      playDebug('rejected non-audio/video media', {
-        name: playNft.name,
-        url: probeUrl,
-      });
       showErrorToast(`"${playNft.name || 'This NFT'}" isn't playable audio or video.`);
       return;
     }
@@ -400,7 +375,6 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     ].find((url): url is string => Boolean(url) && !urlLooksLike3dModel(url));
 
     if (!rawAudioUrl) {
-      playDebug('NO audio URL on NFT — abort');
       audioLogger.error('No audio URL found for NFT');
       return;
     }
@@ -435,28 +409,7 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       ];
     }
 
-    playbackSpeedLog('play start', {
-      name: nft.name,
-      mobile: isMobile,
-      mode: plan.mode,
-      cdnBase: process.env.NEXT_PUBLIC_MEDIA_CDN_BASE || '(not set — using originals)',
-      cdnCount: cdnUrls.length,
-      cdnUrls: cdnUrls.map(shortUrl),
-      originCount: playbackUrls.length - cdnUrls.length,
-      failoverMs: FIRST_BYTE_FAILOVER_MS,
-      firstUrl: shortUrl(playbackUrls[0]),
-    });
 
-    playDebug('URLs ready', {
-      planMode: plan.mode,
-      speculative: false,
-      videoUrl: plan.videoUrl,
-      raw: rawAudioUrl,
-      cdn: cdnUrls,
-      count: playbackUrls.length,
-      urls: playbackUrls,
-      remembered: getRememberedMediaUrl(mediaKeyForMemory, 'audio'),
-    });
 
     // If same NFT is clicked: pause/resume mid-track; restart when ended so a
     // new play session can hit the 25% play-count threshold again.
@@ -470,12 +423,10 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
               clock.currentTime >= clock.duration - 0.35))
       );
       if (!atEnd) {
-        playDebug('same NFT — toggle pause/play instead of reload');
         audioLogger.info('Same NFT clicked, toggling play/pause');
         handlePlayPause();
         return;
       }
-      playDebug('same NFT ended — restart for new play session');
     }
 
     playAttemptRef.current += 1;
@@ -588,10 +539,6 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       videoEl.loop = false;
       if (isMobile) videoEl.volume = 0.7;
       visualPlaybackRef.current = videoEl;
-      playDebug('using <video> as playback clock', {
-        id: videoEl.id,
-        createdFallback: !(mounted instanceof HTMLVideoElement),
-      });
     }
 
     let urlIndex = 0;
@@ -619,60 +566,44 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
 
     const startCompanionVideo = () => {
       if (media instanceof HTMLVideoElement) {
-        playDebug('playback clock is the video — no separate companion');
         return;
       }
       if (!(plan.videoUrl || plan.mode !== 'audio-only')) {
-        playDebug('no companion video');
         return;
       }
       const newVideo = document.getElementById(
         `video-${nft.contract}-${nft.tokenId}`
       ) as HTMLVideoElement | null;
       if (!newVideo) {
-        playDebug('companion video element not in DOM yet');
         return;
       }
-      playDebug('starting muted companion video', { src: newVideo.currentSrc || newVideo.src });
       newVideo.muted = true;
       newVideo.play().then(() => restorePageScroll()).catch((error) => {
         if (!(error instanceof DOMException && error.name === 'AbortError')) {
-          playDebug('companion video play failed', { name: error?.name, message: error?.message });
           audioLogger.error('Error playing muted companion video:', error);
         }
       });
     };
 
     const kickPlay = () => {
-      playDebug('media.play() called', audioDebugSnapshot(media));
       setIsPlaying(true);
       const playPromise = media.play();
       if (!playPromise) {
-        playDebug('media.play() returned nothing');
         return;
       }
       playPromise.then(() => {
-        playDebug('media.play() resolved', audioDebugSnapshot(media));
         restorePageScroll();
       }).catch((err) => {
         if (playAttempt !== playAttemptRef.current) return;
-        playDebug('media.play() rejected', {
-          name: err?.name,
-          message: err?.message,
-          ...audioDebugSnapshot(media),
-        });
         if (err instanceof DOMException && err.name === 'AbortError') return;
         if (err instanceof DOMException && err.name === 'NotAllowedError' && isMobile) {
-          playDebug('NotAllowedError — retry muted');
           media.muted = true;
           media.play()
             .then(() => {
-              playDebug('muted play resolved — will unmute');
               restorePageScroll();
               setTimeout(() => { media.muted = false; }, 300);
             })
             .catch((mutedErr) => {
-              playDebug('muted play also failed', { name: mutedErr?.name, message: mutedErr?.message });
             });
           return;
         }
@@ -686,11 +617,9 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
 
     const tryUrl = (index: number) => {
       if (playAttempt !== playAttemptRef.current) {
-        playDebug('tryUrl ignored — stale attempt', { index, playAttempt, current: playAttemptRef.current });
         return;
       }
       if (index >= playbackUrls.length) {
-        playDebug('all URLs exhausted', { tried: playbackUrls });
         clearStall();
         showUnplayableToast();
         setIsPlaying(false);
@@ -720,23 +649,9 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
         !knownPlayMime.startsWith('video/');
       const failoverMs = isIpfsDirCandidate ? IPFS_DIR_FAILOVER_MS : FIRST_BYTE_FAILOVER_MS;
 
-      playDebug(`tryUrl[${index}/${playbackUrls.length - 1}]`, {
-        url: nextUrl,
-        assignedSrc: media.src,
-        ...audioDebugSnapshot(media),
-      });
-      playbackSpeedLog(`trying URL ${index + 1}/${playbackUrls.length}`, {
-        source: cdnUrls.includes(nextUrl) ? 'cdn' : 'origin',
-        failoverMs,
-        url: shortUrl(nextUrl),
-      });
 
       stallTimerRef.current = setTimeout(() => {
         if (playAttempt !== playAttemptRef.current || playbackStarted) return;
-        playDebug('still waiting for first bytes (NOT switching — URL may still be loading)', {
-          url: playbackUrls[index],
-          ...audioDebugSnapshot(media),
-        });
       }, PLAYBACK_STALL_MS);
 
       failoverTimerRef.current = setTimeout(() => {
@@ -754,19 +669,10 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
           !hungIpfsDir &&
           (media.networkState === HTMLMediaElement.NETWORK_LOADING || !media.paused)
         ) {
-          playbackSpeedLog('failover skipped — still loading', {
-            networkState: media.networkState,
-            paused: media.paused,
-            url: shortUrl(playbackUrls[index]),
-          });
           if (isHlsUrl(playbackUrls[index]) && isHlsAttached()) {
             failoverTimerRef.current = setTimeout(() => {
               if (playAttempt !== playAttemptRef.current || playbackStarted) return;
               if (media.readyState > 0 || media.currentTime > 0) return;
-              playbackSpeedLog('failover — HLS never started', {
-                from: shortUrl(playbackUrls[index]),
-                next: shortUrl(playbackUrls[index + 1]),
-              });
               tryUrl(index + 1);
             }, 25000);
             return;
@@ -774,25 +680,10 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
           failoverTimerRef.current = setTimeout(() => {
             if (playAttempt !== playAttemptRef.current || playbackStarted) return;
             if (media.readyState > 0) return;
-            playbackSpeedLog('failover — hard (still readyState 0)', {
-              waitedMs: FIRST_BYTE_FAILOVER_MS * 2,
-              from: shortUrl(playbackUrls[index]),
-              next: shortUrl(playbackUrls[index + 1]),
-            });
             tryUrl(index + 1);
           }, FIRST_BYTE_FAILOVER_MS);
           return;
         }
-        playDebug('no first byte — switching gateway', {
-          url: playbackUrls[index],
-          ...audioDebugSnapshot(media),
-        });
-        playbackSpeedLog('failover — no first byte', {
-          waitedMs: failoverMs,
-          from: shortUrl(playbackUrls[index]),
-          next: shortUrl(playbackUrls[index + 1]),
-          hungIpfsDir,
-        });
         tryUrl(index + 1);
       }, failoverMs);
 
@@ -811,28 +702,13 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
 
     media.onerror = () => {
       if (playAttempt !== playAttemptRef.current || switchingUrl) {
-        playDebug('onerror ignored', {
-          stale: playAttempt !== playAttemptRef.current,
-          switchingUrl,
-          ...audioDebugSnapshot(media),
-        });
         return;
       }
       const failedSrc = media.currentSrc || media.src;
       if (!failedSrc || failedSrc === window.location.href) {
-        playDebug('onerror empty src — ignore', audioDebugSnapshot(media));
         return;
       }
 
-      playDebug(playbackStarted ? 'stream died after start — next gateway' : 'media.onerror', {
-        mediaError: media.error ? { code: media.error.code, message: media.error.message } : null,
-        ...audioDebugSnapshot(media),
-      });
-      playbackSpeedLog('media error — next URL', {
-        afterStart: playbackStarted,
-        failed: shortUrl(failedSrc),
-        next: shortUrl(playbackUrls[urlIndex + 1]),
-      });
       if (!isHlsUrl(failedSrc) && !/stream\.mux\.com/i.test(failedSrc)) {
         rememberDeadGateway(rawAudioUrl, failedSrc);
       }
@@ -846,7 +722,6 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
 
     media.onloadedmetadata = () => {
       if (playAttempt !== playAttemptRef.current) return;
-      playDebug('loadedmetadata', audioDebugSnapshot(media));
       if (Number.isFinite(media.duration)) {
         setAudioDuration(media.duration);
       }
@@ -861,26 +736,21 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
 
     media.oncanplay = () => {
       if (playAttempt !== playAttemptRef.current) return;
-      playDebug('canplay', audioDebugSnapshot(media));
     };
 
     media.onwaiting = () => {
       if (playAttempt !== playAttemptRef.current) return;
-      playDebug('waiting (buffering)', audioDebugSnapshot(media));
     };
 
     media.onstalled = () => {
       if (playAttempt !== playAttemptRef.current) return;
-      playDebug('stalled event', audioDebugSnapshot(media));
       // First frame then starve (Pinata HTTP2 on a huge IPFS file): drop that
       // gateway and try the next instead of freezing on a still.
       if (playbackStarted && media.readyState <= 2 && media.currentTime < 8) {
         const failedSrc = media.currentSrc || media.src;
         if (isHlsUrl(playbackUrls[urlIndex]) || isHlsUrl(failedSrc) || /stream\.mux\.com/i.test(failedSrc)) {
-          playDebug('early stall ignored for HLS');
           return;
         }
-        playDebug('early stall after start — next gateway', { failedSrc });
         rememberDeadGateway(rawAudioUrl, failedSrc);
         forgetMediaUrl(mediaKey, 'audio');
         playbackStarted = false;
@@ -892,11 +762,6 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       if (playAttempt !== playAttemptRef.current) return;
       playbackStarted = true;
       clearStall();
-      playDebug('PLAYING', audioDebugSnapshot(media));
-      playbackSpeedLog('PLAYING', {
-        url: shortUrl(media.currentSrc || media.src),
-        readyState: media.readyState,
-      });
       setIsPlaying(true);
       startCompanionVideo();
     };
@@ -907,7 +772,6 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       if (playAttempt !== playAttemptRef.current) return;
       if (!firstProgressLogged && media.currentTime > 0) {
         firstProgressLogged = true;
-        playDebug('first timeupdate > 0', audioDebugSnapshot(media));
       }
       setAudioProgress(media.currentTime);
       // Only remember a gateway after it has actually streamed, not on the first frame.
@@ -933,12 +797,10 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     };
 
     media.onplay = () => {
-      playDebug('media.onplay (not marking isPlaying yet — waiting for playing)', audioDebugSnapshot(media));
       resumeHlsBuffering();
     };
     media.onpause = () => {
       if (playAttempt !== playAttemptRef.current || switchingUrl) return;
-      playDebug('media.onpause', audioDebugSnapshot(media));
       if (!media.ended) setIsPlaying(false);
       pauseHlsBuffering();
     };
@@ -957,8 +819,6 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     };
 
     tryUrl(0);
-    playDebug('handlePlayAudio setup done — waiting on network/events');
-    playbackSpeedLog('no gateway race — extra Range probes steal bandwidth from the video download');
 
     // iOS audio unlock only — do not reset video to 0 (desyncs from Audio)
     const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);

@@ -10,7 +10,6 @@ export function DisableWalletConnectClient() {
   useEffect(() => {
     // AGGRESSIVE MONKEY PATCH: Complete override of WalletConnect initialization
     // This blocks ANY attempts by third-party libraries to initialize WalletConnect
-    console.log('\ud83d\udd12 Installing WalletConnect initialization protection');
     
     // Global flags that libraries might check
     (window as any).__WALLET_CONNECT_ALREADY_INITIALIZED = true;
@@ -20,12 +19,10 @@ export function DisableWalletConnectClient() {
     // Find it in node_modules and monkey patch its initialization function
     if ((window as any).ethereum) {
       // Force Privy to use the existing ethereum provider
-      console.log('\ud83d\udd12 Using existing ethereum provider, blocking additional initialization');
     }
     
     // Create a no-op function to replace WalletConnect initialization
     const noopFunction = () => {
-      console.log('\ud83d\ude45‍♂️ Blocked attempt to initialize WalletConnect');
       return Promise.resolve({});
     };
     
@@ -33,7 +30,6 @@ export function DisableWalletConnectClient() {
     // We're using this approach since we can't directly modify the package
     (window as any).__reownWalletProviderPatched = true;
     
-    console.log('\ud83d\udd12 WalletConnect complete protection installed');
   }, []);
   
   return null;

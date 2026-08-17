@@ -299,13 +299,6 @@ const DemoBase: React.FC = () => {
       ? getMediaKey(currentPlayingNFT) === getMediaKey(nft)
       : currentlyPlaying === `${nft.contract}-${nft.tokenId}`;
 
-    console.log('[PLAY-DEBUG] Demo.handlePlayNFT', {
-      name: nft.name,
-      sameTrack,
-      isPlaying,
-      queueType: context?.queueType,
-      queueLen: context?.queue?.length,
-    });
 
     setIsPlayerMinimized(true);
 

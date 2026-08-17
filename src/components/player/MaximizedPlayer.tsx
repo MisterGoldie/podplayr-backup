@@ -169,17 +169,13 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
   // PiP event handlers that need access to the latest state
   // Define these using useCallback to maintain reference stability
   const handlePipPlay = useCallback(() => {
-    console.log('PiP play event fired, current isPlaying state:', isPlaying);
     if (!isPlaying) {
-      console.log('Syncing state: PiP started playing → updating app state');
       onPlayPause();
     }
   }, [isPlaying, onPlayPause]);
   
   const handlePipPause = useCallback(() => {
-    console.log('PiP pause event fired, current isPlaying state:', isPlaying);
     if (isPlaying) {
-      console.log('Syncing state: PiP paused → updating app state');
       onPlayPause();
     }
   }, [isPlaying, onPlayPause]);
@@ -195,7 +191,6 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
     
     // Function to set up event listeners when PiP starts
     const handleEnterPiP = (event: any) => {
-      console.log('Entered PiP mode, setting up sync event listeners');
       setPipActive(true);
       
       // Add direct event listeners to sync state when PiP controls are used
@@ -205,7 +200,6 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
     
     // Function to clean up when PiP ends
     const handleLeavePiP = () => {
-      console.log('Left PiP mode, removing sync event listeners');
       setPipActive(false);
       
       // Remove the PiP-specific event listeners
@@ -219,7 +213,6 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
     
     // If PiP is already active when component renders/updates, ensure listeners are attached
     if (document.pictureInPictureElement === videoElement) {
-      console.log('Component updated while PiP active - ensuring listeners are attached');
       setPipActive(true);
       videoElement.addEventListener('play', handlePipPlay);
       videoElement.addEventListener('pause', handlePipPause);
@@ -239,13 +232,11 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
     try {
       // If already in PiP, exit
       if (document.pictureInPictureElement) {
-        console.log('Exiting PiP mode');
         await document.exitPictureInPicture();
         return;
       }
       
       if (!nft?.isVideo && !hasVideoLayer) {
-        console.log('No video content to put in PiP mode');
         return;
       }
       
@@ -256,13 +247,6 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
         const hasVideo = video.videoWidth > 0 && video.videoHeight > 0;
         const canUsePiP = document.pictureInPictureEnabled && video.disablePictureInPicture !== true;
         
-        console.log('Video readiness check:', { 
-          readyState: video.readyState,
-          hasVideo,
-          canUsePiP,
-          videoWidth: video.videoWidth,
-          videoHeight: video.videoHeight
-        });
         
         return isLoaded && hasVideo && canUsePiP;
       };
@@ -276,7 +260,6 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
             return;
           }
           
-          console.log('Waiting for video to be ready for PiP...');
           
           // Add event listeners for video readiness
           const readyHandler = () => {
@@ -302,12 +285,10 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
       // Try with ref first
       if (videoRef.current) {
         try {
-          console.log('Preparing to request PiP with ref');
           
           // Wait for video to be ready before requesting PiP
           await waitForVideoReadiness(videoRef.current);
           
-          console.log('Video is ready, requesting PiP with ref');
           await videoRef.current.requestPictureInPicture();
           return;
         } catch (e) {
@@ -321,12 +302,10 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
       
       if (videoElement) {
         try {
-          console.log('Preparing to request PiP with DOM query');
           
           // Wait for video to be ready before requesting PiP
           await waitForVideoReadiness(videoElement);
           
-          console.log('Video is ready, requesting PiP with DOM query');
           await videoElement.requestPictureInPicture();
           return;
         } catch (e) {

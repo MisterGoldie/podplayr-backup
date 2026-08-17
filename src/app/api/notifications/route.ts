@@ -10,10 +10,8 @@ const requestSchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
-  console.log('Received notification request');
   
   const requestJson = await request.json();
-  console.log('Request body:', requestJson);
   
   const requestBody = requestSchema.safeParse(requestJson);
 
@@ -27,10 +25,8 @@ export async function POST(request: NextRequest) {
 
   // Get notification details for this user
   const details = await NotificationStore.get(parseInt(requestBody.data.fid));
-  console.log('Retrieved notification details:', details);
   
   if (!details) {
-    console.log('No notification details found for FID:', requestBody.data.fid);
     return Response.json(
       { success: false, error: "No notification details found for user" },
       { status: 404 }
@@ -53,11 +49,9 @@ export async function POST(request: NextRequest) {
     });
 
     const responseJson = await response.json();
-    console.log('Farcaster notification response:', responseJson);
 
     // Check for rate limiting
     if (responseJson.result?.rateLimitedTokens?.length) {
-      console.log('Rate limited tokens:', responseJson.result.rateLimitedTokens);
       return Response.json(
         { success: false, error: "Rate limited" },
         { status: 429 }

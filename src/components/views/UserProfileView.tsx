@@ -134,7 +134,7 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
       setLikedNFTsCount(0);
       setIsFollowed(false);
       
-      console.log(`User profile changed to: ${user?.username} (FID: ${user?.fid})`); 
+ 
     }
   }, [user?.fid, user?.username]);
 
@@ -181,7 +181,6 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
     const loadFollowCounts = async () => {
       // If the user has changed since we started loading, abort
       if (targetFid !== currentLoadingFidRef.current) {
-        console.log(`Aborting load for previous user ${user?.username} (FID: ${targetFid}), new user selected`);
         return;
       }
       
@@ -193,7 +192,6 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
         
         // Check if user changed during this async operation
         if (targetFid !== currentLoadingFidRef.current) {
-          console.log(`User changed during follower count fetch, aborting`);
           return;
         }
         
@@ -201,7 +199,6 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
         
         // Check if user changed during this async operation
         if (targetFid !== currentLoadingFidRef.current) {
-          console.log(`User changed during following count fetch, aborting`);
           return;
         }
         
@@ -210,7 +207,6 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
         
         // Check if user changed during this async operation
         if (targetFid !== currentLoadingFidRef.current) {
-          console.log(`User changed during play count fetch, aborting`);
           return;
         }
         
@@ -218,7 +214,6 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
         
         // Final check if user changed during any async operation
         if (targetFid !== currentLoadingFidRef.current) {
-          console.log(`User changed during liked NFTs count fetch, aborting`);
           return;
         }
         
@@ -228,7 +223,6 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
         setTotalPlays(plays);
         setLikedNFTsCount(liked);
         
-        console.log(`App stats for ${user?.username} (FID: ${targetFid}): ${followerCount} followers, ${followingCount} following, ${plays} total plays, ${liked} liked NFTs`);
       } catch (error) {
         // Only show error if this is still the current user
         if (targetFid === currentLoadingFidRef.current) {
@@ -250,7 +244,6 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
       try {
         // Check if user changed during this async operation
         if (targetFid !== currentLoadingFidRef.current) {
-          console.log(`User changed before follow status check, aborting`);
           return;
         }
         

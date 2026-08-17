@@ -10,11 +10,9 @@ export default async function handler(
   res: NextApiResponse
 ) {
   try {
-    console.log('Starting cleanup of top_played collection...');
     
     const result = await syncTopPlayedCollection();
     
-    console.log('Cleanup result:', result);
     
     return res.status(200).json({
       success: true,

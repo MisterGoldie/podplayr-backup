@@ -18,7 +18,6 @@ export const db = getFirestore(app);
 // Initialize Firebase Storage with custom settings
 export const storage = getStorage(app, 'gs://podplayr2.firebasestorage.app');
 
-console.log('Initialized Firebase Storage with bucket:', storage.app.options.storageBucket);
 
 // Upload profile background image
 export const uploadProfileBackground = async (fid: number, file: File): Promise<string> => {
@@ -32,11 +31,6 @@ export const uploadProfileBackground = async (fid: number, file: File): Promise<
       throw new Error('File size must be less than 5MB');
     }
 
-    console.log('Starting upload for file:', {
-      name: file.name,
-      type: file.type,
-      size: file.size
-    });
 
     // Get file extension and create storage path
     const fileExtension = file.type.split('/')[1] || 'png';
@@ -55,18 +49,12 @@ export const uploadProfileBackground = async (fid: number, file: File): Promise<
       }
     };
 
-    console.log('Starting Firebase upload:', {
-      path: storagePath,
-      bucket: storage.app.options.storageBucket
-    });
 
     // Upload the file
     const snapshot = await uploadBytes(storageRef, file, metadata);
-    console.log('Upload complete:', snapshot.metadata);
 
     // Get download URL
     const downloadUrl = await getDownloadURL(snapshot.ref);
-    console.log('Got download URL:', downloadUrl);
 
     // Store the URL in Firestore
     const userRef = doc(db, 'users', fid.toString());
@@ -75,7 +63,6 @@ export const uploadProfileBackground = async (fid: number, file: File): Promise<
       backgroundUpdatedAt: new Date().toISOString()
     }, { merge: true });
     
-    console.log('Updated Firestore with new background URL');
     return downloadUrl;
   } catch (error) {
     // Log detailed error information

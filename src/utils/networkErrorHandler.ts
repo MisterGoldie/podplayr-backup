@@ -14,9 +14,7 @@ export function setupArweaveUrlInterceptor() {
   window.fetch = function(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
     if (typeof input === 'string') {
       if (input.startsWith('ar://') || input.startsWith('ipfs://')) {
-        console.log(`Intercepted ${input.substring(0, 6)} URL in fetch:`, input);
         const fixedUrl = processMediaUrl(input);
-        console.log('Converted to:', fixedUrl);
         return originalFetch(fixedUrl, init);
       }
     }
@@ -28,9 +26,7 @@ export function setupArweaveUrlInterceptor() {
   XMLHttpRequest.prototype.open = function(method: string, url: string, async: boolean = true, username?: string, password?: string): void {
     if (url && typeof url === 'string') {
       if (url.startsWith('ar://') || url.startsWith('ipfs://')) {
-        console.log(`Intercepted ${url.substring(0, 6)} URL in XMLHttpRequest:`, url);
         const fixedUrl = processMediaUrl(url);
-        console.log('Converted to:', fixedUrl);
         return originalOpen.call(this, method, fixedUrl, async, username, password);
       }
     }
@@ -47,9 +43,7 @@ export function setupArweaveUrlInterceptor() {
         set: function(url: string) {
           if (url && typeof url === 'string') {
             if (url.startsWith('ar://') || url.startsWith('ipfs://')) {
-              console.log(`Intercepted ${url.substring(0, 6)} URL in image src:`, url);
               const fixedUrl = processMediaUrl(url);
-              console.log('Converted to:', fixedUrl);
               originalSet.call(this, fixedUrl);
             } else {
               originalSet.call(this, url);
@@ -65,5 +59,4 @@ export function setupArweaveUrlInterceptor() {
     console.error('Failed to patch HTMLImageElement.src:', error);
   }
 
-  console.log('Arweave URL interceptor set up successfully');
 } 

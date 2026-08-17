@@ -12,6 +12,7 @@ import {
   isIpfsCorsHostileUrl,
 } from '../../utils/media';
 import { rememberWorkingMediaUrl, forgetMediaUrl, getRememberedMediaUrl } from '../../utils/gatewayMemory';
+import { shouldPreserveAnimation } from '../../utils/imageOptimizer';
 
 interface NFTGifImageProps {
   nft: NFT;
@@ -21,23 +22,8 @@ interface NFTGifImageProps {
   priority?: boolean;
 }
 
-const IMG_LOG = true;
 const GIF_HANG_MS = 15000;
 const GIF_HANG_MS_SMALL = 2500;
-
-const shortUrl = (url?: string | null, max = 120): string => {
-  if (!url) return '(empty)';
-  return url.length <= max ? url : `${url.slice(0, max)}…`;
-};
-
-const gifLog = (stage: string, nft: NFT, details: Record<string, unknown> = {}) => {
-  if (!IMG_LOG) return;
-  console.log(`[NFT-IMG:GIF] ${stage}`, {
-    name: nft.name,
-    id: `${nft.contract?.slice(0, 10)}…/${nft.tokenId}`,
-    ...details,
-  });
-};
 
 const preferPublicIpfs = (urls: string[]): string[] => {
   return [...urls].sort((a, b) => {
@@ -70,7 +56,6 @@ const NFTGifImageInner: React.FC<NFTGifImageProps> = ({
   const elementRef = useRef<HTMLDivElement>(null);
   const nftRef = useRef(nft);
   nftRef.current = nft;
-  const loggedVisibleRef = useRef(false);
 
   const candidates = useMemo(() => {
     const rawCandidates = pickImageCandidates(nft);
@@ -108,13 +93,10 @@ const NFTGifImageInner: React.FC<NFTGifImageProps> = ({
       }
     }
 
-    gifLog('resolve:candidates', nft, {
-      primary: shortUrl(primary),
-      rawCandidates: rawCandidates.map((u) => shortUrl(u)),
-      count: urls.length,
-      urls: urls.map((u) => shortUrl(u, 80)),
-    });
-    return urls.length ? urls : ['/default-nft.png'];
+    const preferred = urls.filter((u) => shouldPreserveAnimation(u));
+    const rest = urls.filter((u) => !shouldPreserveAnimation(u));
+    const ordered = preferred.length ? [...preferred, ...rest] : urls;
+    return ordered.length ? ordered : ['/default-nft.png'];
   }, [nft.contract, nft.tokenId, nft.image, nft.metadata?.image, nft.name]);
 
   const imageUrl = candidates[Math.min(attemptIndex, candidates.length - 1)];
@@ -123,7 +105,6 @@ const NFTGifImageInner: React.FC<NFTGifImageProps> = ({
     setAttemptIndex(0);
     setHasError(false);
     setImgLoading(true);
-    loggedVisibleRef.current = false;
   }, [nft.contract, nft.tokenId, nft.image]);
 
   useEffect(() => {
@@ -144,26 +125,15 @@ const NFTGifImageInner: React.FC<NFTGifImageProps> = ({
     return () => observer.disconnect();
   }, [priority, isVisible]);
 
-  useEffect(() => {
-    if (!(isVisible || priority) || loggedVisibleRef.current) return;
-    loggedVisibleRef.current = true;
-    gifLog('visible', nftRef.current, { url: shortUrl(imageUrl) });
-  }, [isVisible, priority, imageUrl]);
-
   // Large GIFs can hang on one gateway without firing onError.
   useEffect(() => {
     if (!imgLoading || hasError || !(isVisible || priority)) return;
     if (attemptIndex >= candidates.length - 1) return;
 
-    const hangMs = width <= 200 ? GIF_HANG_MS_SMALL : GIF_HANG_MS;
+    const hangMs = priority ? GIF_HANG_MS : width <= 200 ? GIF_HANG_MS_SMALL : GIF_HANG_MS;
     const timeout = window.setTimeout(() => {
       const next = attemptIndex + 1;
       const current = nftRef.current;
-      gifLog('timeout:hang → next gateway', current, {
-        hung: shortUrl(imageUrl),
-        next: shortUrl(candidates[next]),
-        attempt: next,
-      });
       if (imageUrl === getRememberedMediaUrl(getMediaKey(current), 'image')) {
         forgetMediaUrl(getMediaKey(current), 'image');
       }
@@ -184,24 +154,17 @@ const NFTGifImageInner: React.FC<NFTGifImageProps> = ({
 
     const next = attemptIndex + 1;
     if (next < candidates.length) {
-      gifLog('error:retry', current, {
-        failed: shortUrl(failed),
-        next: shortUrl(candidates[next]),
-        attempt: next,
-      });
       setAttemptIndex(next);
       setImgLoading(true);
       return;
     }
 
-    gifLog('give-up → default-nft.png', current, { failed: shortUrl(failed) });
     setHasError(true);
     setImgLoading(false);
   };
 
   const handleLoad = () => {
     setImgLoading(false);
-    gifLog('success:loaded', nftRef.current, { loaded: shortUrl(imageUrl) });
     if (imageUrl && !imageUrl.includes('default-nft.png')) {
       rememberWorkingMediaUrl(getMediaKey(nftRef.current), 'image', imageUrl);
     }

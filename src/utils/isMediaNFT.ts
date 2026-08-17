@@ -799,13 +799,6 @@ export const confirmAudioOnlyPlayback = async (nfts: NFT[]): Promise<boolean> =>
     pending.push(nft);
   }
 
-  if (pending.length) {
-    console.log('[PLAY-DEBUG] confirming audio-only CIDs', {
-      count: pending.length,
-      names: pending.map((nft) => nft.name),
-    });
-  }
-
   if (!pending.length) return changed;
 
   let index = 0;

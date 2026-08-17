@@ -1,5 +1,4 @@
 import type Hls from 'hls.js';
-import { playDebug, playbackSpeedLog, shortUrl } from '../utils/playDebug';
 
 let currentHls: Hls | null = null;
 
@@ -16,7 +15,6 @@ export function pauseHlsBuffering() {
   if (!currentHls) return;
   try {
     currentHls.pauseBuffering();
-    playDebug('hls pause buffering');
   } catch {
     try {
       currentHls.stopLoad();
@@ -31,7 +29,6 @@ export function resumeHlsBuffering() {
   if (!currentHls) return;
   try {
     currentHls.resumeBuffering();
-    playDebug('hls resume buffering');
   } catch {
     try {
       currentHls.startLoad();
@@ -115,8 +112,6 @@ export async function attachPlaybackSource(
     });
     currentHls = hls;
 
-    playbackSpeedLog('hls.js attaching', { url: shortUrl(url) });
-    playDebug('hls.js attaching', { url });
 
     return new Promise((resolve, reject) => {
       let settled = false;
@@ -130,12 +125,10 @@ export async function attachPlaybackSource(
       };
 
       const onAttached = () => {
-        playDebug('hls media attached');
         hls.loadSource(url);
       };
 
       const onParsed = () => {
-        playDebug('hls manifest parsed');
         finish();
       };
 
@@ -143,11 +136,6 @@ export async function attachPlaybackSource(
       hls.on(Hls.Events.MANIFEST_PARSED, onParsed);
       hls.on(Hls.Events.ERROR, (_event, data) => {
         if (data.details === 'aborted') return;
-        playDebug('hls.js error', {
-          fatal: data.fatal,
-          type: data.type,
-          details: data.details,
-        });
         if (!data.fatal) return;
         detachHlsPlayback(media);
         onFatalError();
@@ -159,12 +147,9 @@ export async function attachPlaybackSource(
   }
 
   if (canUseNativeHls(media)) {
-    playbackSpeedLog('hls native', { url: shortUrl(url) });
-    playDebug('hls native (Safari)');
     media.src = url;
     return;
   }
 
-  playDebug('hls unsupported — setting src anyway');
   media.src = url;
 }

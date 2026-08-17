@@ -4,7 +4,6 @@ import { useState } from 'react';
 import { NFT as UserNFT } from '../types/user';
 import { v4 as uuidv4 } from 'uuid';
 import { getRememberedMediaUrl, forgetMediaUrl } from './gatewayMemory';
-import { playbackSpeedLog, shortUrl } from './playDebug';
 import {
   rewriteLegacyOpenSeaMediaUrl,
   unwrapMediaProxyUrl,
@@ -990,15 +989,9 @@ export async function pickFastestPlaybackUrl(
   timeoutMs = GATEWAY_RACE_MS
 ): Promise<string[]> {
   if (urls.length <= 1) {
-    playbackSpeedLog('gateway race skipped', { reason: 'only one candidate', urls: urls.map(shortUrl) });
     return urls;
   }
 
-  playbackSpeedLog('gateway race start', {
-    timeoutMs,
-    count: urls.length,
-    urls: urls.map(shortUrl),
-  });
 
   const probe = (url: string, signal: AbortSignal): Promise<number> =>
     new Promise((resolve, reject) => {
@@ -1010,27 +1003,19 @@ export async function pickFastestPlaybackUrl(
         signal,
       })
         .then((res) => {
-          const ms = Math.round(performance.now() - started);
           if (res.ok || res.status === 206) {
-            playbackSpeedLog('gateway race probe OK', { ms, status: res.status, url: shortUrl(url) });
-            resolve(ms);
+            resolve(Math.round(performance.now() - started));
             return;
           }
-          playbackSpeedLog('gateway race probe HTTP fail', { ms, status: res.status, url: shortUrl(url) });
           reject(new Error(String(res.status)));
         })
         .catch((err: unknown) => {
-          const ms = Math.round(performance.now() - started);
-          const name = err instanceof Error ? err.name : 'error';
-          const message = err instanceof Error ? err.message : String(err);
-          playbackSpeedLog('gateway race probe fail', { ms, name, message, url: shortUrl(url) });
           reject(err);
         });
     });
 
   const controllers = urls.map(() => new AbortController());
   const timer = window.setTimeout(() => {
-    playbackSpeedLog('gateway race timeout — aborting remaining probes', { timeoutMs });
     controllers.forEach((c) => c.abort());
   }, timeoutMs);
 
@@ -1039,10 +1024,8 @@ export async function pickFastestPlaybackUrl(
       urls.map((url, i) => probe(url, controllers[i].signal).then((ms) => ({ url, ms })))
     );
     controllers.forEach((c) => c.abort());
-    playbackSpeedLog('gateway race winner', { ms: Math.round(winner.ms), url: shortUrl(winner.url) });
     return [winner.url, ...urls.filter((u) => u !== winner.url)];
   } catch {
-    playbackSpeedLog('gateway race no winner — keeping original order (CORS or all failed)');
     return urls;
   } finally {
     window.clearTimeout(timer);

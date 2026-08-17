@@ -369,6 +369,52 @@ export function shouldPreserveAnimation(url: string): boolean {
   return false;
 }
 
+type AnimatedCoverNft = {
+  image?: string | null;
+  mimeType?: string | null;
+  collection?: { image?: string | null } | null;
+  metadata?: {
+    image?: string | null;
+    image_url?: string | null;
+    mimeType?: string | null;
+    mime_type?: string | null;
+    properties?: {
+      mimeType?: string | null;
+      image?: string | null;
+      files?: Array<{
+        uri?: string | null;
+        url?: string | null;
+        type?: string | null;
+        mimeType?: string | null;
+      }> | null;
+    } | null;
+  } | null;
+};
+
+/** True when any cover field/mime says GIF/APNG — ignore Featured stills. */
+export function nftHasAnimatedCover(nft?: AnimatedCoverNft | null): boolean {
+  if (!nft) return false;
+  const mimes = [
+    nft.mimeType,
+    nft.metadata?.mimeType,
+    nft.metadata?.mime_type,
+    nft.metadata?.properties?.mimeType,
+  ];
+  if (mimes.some((m) => !!m && /image\/(gif|apng)/i.test(m))) return true;
+  for (const file of nft.metadata?.properties?.files || []) {
+    const mime = `${file?.type || ''} ${file?.mimeType || ''}`.toLowerCase();
+    if (/image\/(gif|apng)/.test(mime)) return true;
+    if (shouldPreserveAnimation(file?.uri || file?.url || '')) return true;
+  }
+  return [
+    nft.image,
+    nft.metadata?.image,
+    nft.metadata?.image_url,
+    nft.metadata?.properties?.image,
+    nft.collection?.image,
+  ].some((u) => shouldPreserveAnimation(u || ''));
+}
+
 /**
  * OpenSea / Cloudinary / Alchemy / similar CDNs already serve sized assets and
  * often hang or block behind wsrv.nl + Next image-optimizer. Load them direct.

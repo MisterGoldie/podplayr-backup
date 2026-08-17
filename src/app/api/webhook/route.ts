@@ -77,7 +77,6 @@ export async function POST(request: NextRequest) {
 
   // If Redis isn't configured, just acknowledge the webhook
   if (!isRedisConfigured) {
-    console.log('Redis not configured - skipping notification operations');
     return Response.json({ 
       success: true, 
       message: 'Webhook received, notifications disabled (Redis not configured)' 
