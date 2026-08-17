@@ -216,8 +216,10 @@ const DemoBase: React.FC = () => {
   }, [currentPlayingNFT, releaseVideoResources]);
 
   const handleNFTsLoaded = useCallback((nfts: NFT[]) => {
-    setUserNFTs(deduplicateNFTsByMediaKey(nfts));
+    const unique = deduplicateNFTsByMediaKey(nfts);
+    setUserNFTs(unique);
     setUserNftsLoading(false);
+    applyConfirmedPlayback(unique, setUserNFTs);
   }, []);
 
   const handleUserDataError = useCallback((loadError: string) => {

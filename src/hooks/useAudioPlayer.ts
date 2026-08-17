@@ -45,7 +45,6 @@ import {
   playbackVideoElementId,
   releaseOrphanPlaybackVideos,
   shouldProbeIpfsDirectory,
-  extractIPFSPath,
   PLAYBACK_STALL_MS,
   FIRST_BYTE_FAILOVER_MS,
   IPFS_DIR_FAILOVER_MS,
@@ -79,6 +78,8 @@ import {
   rememberDeadGateway,
   isPlayableMediaNFT,
   urlLooksLike3dModel,
+  urlLooksLikeImage,
+  getCachedMediaMime,
 } from '../utils/isMediaNFT';
 import { logger } from '../utils/logger';
 import { useToast } from './useToast';
@@ -350,12 +351,13 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     // Probe before mounting <video>, even if metadata put the sound in animation_url.
     let plan = getNftPlaybackPlan(playNft);
     const probeUrl = plan.videoUrl || plan.audioUrl || playNft.audio;
-    if (urlLooksLike3dModel(probeUrl) || !isPlayableMediaNFT(playNft)) {
-      playDebug('rejected non-audio/video media (3D/model)', {
+    if (urlLooksLike3dModel(probeUrl) || urlLooksLikeImage(probeUrl) || !isPlayableMediaNFT(playNft)) {
+      playDebug('rejected non-audio/video media (3D/image/model)', {
         name: playNft.name,
         url: probeUrl,
       });
       audioLogger.info('Skipping non-playable media NFT', { name: playNft.name, url: probeUrl });
+      showErrorToast(`"${playNft.name || 'This NFT'}" isn't playable audio or video.`);
       return;
     }
     const knownMime = String(
@@ -373,6 +375,14 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     }
     applyPlaybackPlanToNft(playNft, plan);
     applyPlaybackPlanToNft(nft, plan);
+    if (!plan.audioUrl && !plan.videoUrl) {
+      playDebug('rejected non-audio/video media', {
+        name: playNft.name,
+        url: probeUrl,
+      });
+      showErrorToast(`"${playNft.name || 'This NFT'}" isn't playable audio or video.`);
+      return;
+    }
     audioLogger.info('NFT playback plan:', {
       mode: plan.mode,
       audioUrl: plan.audioUrl?.slice(0, 80),
@@ -703,11 +713,11 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       }
 
       const currentUrlForTimer = playbackUrls[index] || '';
+      const knownPlayMime = getCachedMediaMime(currentUrlForTimer);
       const isIpfsDirCandidate =
-        shouldProbeIpfsDirectory(currentUrlForTimer) ||
-        (!!extractIPFSPath(currentUrlForTimer) &&
-          /\/ipfs\/[^/?#]+\/?$/i.test(currentUrlForTimer) &&
-          !/\.(mp3|wav|m4a|aac|ogg|flac|mp4|webm|mov)(?:\?|#|$)/i.test(currentUrlForTimer));
+        shouldProbeIpfsDirectory(currentUrlForTimer) &&
+        !knownPlayMime.startsWith('audio/') &&
+        !knownPlayMime.startsWith('video/');
       const failoverMs = isIpfsDirCandidate ? IPFS_DIR_FAILOVER_MS : FIRST_BYTE_FAILOVER_MS;
 
       playDebug(`tryUrl[${index}/${playbackUrls.length - 1}]`, {
@@ -733,12 +743,9 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
         if (playAttempt !== playAttemptRef.current || playbackStarted) return;
         if (media.readyState > 0) return;
 
-        const currentUrl = playbackUrls[index] || '';
         // Directory CIDs often sit in NETWORK_LOADING forever then 404 — don't
         // wait 30s+; hop to the next audio/video candidate.
-        const hungIpfsDir =
-          shouldProbeIpfsDirectory(currentUrl) ||
-          (!!extractIPFSPath(currentUrl) && /\/ipfs\/[^/?#]+\/?$/i.test(currentUrl));
+        const hungIpfsDir = isIpfsDirCandidate;
 
         // Huge Arweave MP4s stay at readyState 0 for a long time while bytes
         // are in flight. networkState 2 = actually downloading — do not abort
