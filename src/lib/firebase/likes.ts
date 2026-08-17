@@ -29,6 +29,7 @@ import { db, firebaseLogger } from './config';
 import { v4 as uuidv4 } from 'uuid';
 import { getMediaKey } from '../../utils/media';
 import { applyConfirmedPlayback, hydrateNftPlayback, restoreStoredAnimationUrl, isPlayableMediaNFT } from '../../utils/isMediaNFT';
+import { stampNftLikeTime, sortLikedNewestFirst, getNftLikedTime, snapshotCreateMillis, fetchLikeCreateTimes } from '../../utils/likeTime';
 
 
 
@@ -182,12 +183,10 @@ export const subscribeToLikedNFTs = (fid: number, callback: (nfts: NFT[]) => voi
 
   // Get real-time updates from user's likes subcollection
   const likesRef = collection(db, 'users', fid.toString(), 'likes');
-  const q = query(likesRef, orderBy('timestamp', 'desc'));
   
   firebaseLogger.info(`Subscribing to liked NFTs for user ${fid}`);
   
-  // Set up the real-time listener with immediate callback
-  const unsubscribe = onSnapshot(q, async (snapshot) => {
+  const unsubscribe = onSnapshot(likesRef, async (snapshot) => {
     try {
       // Provide immediate empty array if no data
       if (snapshot.empty) {
@@ -196,9 +195,13 @@ export const subscribeToLikedNFTs = (fid: number, callback: (nfts: NFT[]) => voi
       }
       
       // Transform documents to NFTs quickly
-      const likedNFTs: NFT[] = snapshot.docs.map(doc => {
-        const data = doc.data();
-        const mediaKey = doc.id;
+      let createTimes = new Map<string, number>();
+      if (snapshot.docs.some((docSnap) => !snapshotCreateMillis(docSnap))) {
+        createTimes = await fetchLikeCreateTimes(fid.toString());
+      }
+      const likedNFTs: NFT[] = snapshot.docs.map(docSnap => {
+        const data = docSnap.data();
+        const mediaKey = docSnap.id;
         const animationUrl = restoreStoredAnimationUrl(data);
         const nft = {
           mediaKey,
@@ -223,13 +226,17 @@ export const subscribeToLikedNFTs = (fid: number, callback: (nfts: NFT[]) => voi
           nft.metadata = { ...(nft.metadata || {}), animation_url: animationUrl };
         }
         hydrateNftPlayback(nft);
+        stampNftLikeTime(nft, {
+          ...data,
+          createTime: snapshotCreateMillis(docSnap) || createTimes.get(mediaKey) || 0,
+        });
         return nft;
       });
       
       firebaseLogger.info(`Found ${likedNFTs.length} liked NFTs for user ${fid}`);
-      const playable = likedNFTs.filter(isPlayableMediaNFT);
+      const playable = sortLikedNewestFirst(likedNFTs.filter(isPlayableMediaNFT));
       callback(playable);
-      applyConfirmedPlayback(playable, callback);
+      applyConfirmedPlayback(playable, (nfts) => callback(sortLikedNewestFirst(nfts)));
     } catch (error) {
       firebaseLogger.error('Error in liked NFTs subscription:', error);
       callback([]);
@@ -319,20 +326,20 @@ export const getLikedNFTs = async (userIdOrWallet: number | string): Promise<NFT
     
     // Get likes from user's subcollection using mediaKey as document ID
     const likesRef = collection(db, 'users', userId, 'likes');
-    const q = query(likesRef, orderBy('timestamp', 'desc')); // Newest first
     
     firebaseLogger.info(`Getting liked NFTs for user ${userId} using mediaKey-based approach`);
-    const snapshot = await getDocs(q);
+    const snapshot = await getDocs(likesRef);
     
     if (snapshot.empty) {
       firebaseLogger.info(`No liked NFTs found for user ${userId}`);
       return [];
     }
     
+    const createTimes = await fetchLikeCreateTimes(userId);
     // Transform the documents into NFT objects with mediaKey as primary identifier
-    let likedNFTs: NFT[] = snapshot.docs.map(doc => {
-      const data = doc.data();
-      const mediaKey = doc.id; // The document ID is the mediaKey in our content-first architecture
+    let likedNFTs: NFT[] = snapshot.docs.map(docSnap => {
+      const data = docSnap.data();
+      const mediaKey = docSnap.id; // The document ID is the mediaKey in our content-first architecture
       
       // Construct the NFT object with mediaKey as primary identifier
       const nft: NFT = {
@@ -351,19 +358,6 @@ export const getLikedNFTs = async (userIdOrWallet: number | string): Promise<NFT
             restoreStoredAnimationUrl(data) || data.metadata?.animation_url,
           ...(data.mediaMime ? { mimeType: data.mediaMime } : {}),
         },
-        // Add timestamp fields for sorting (never fall back to Date.now() —
-        // that makes old likes without a stamp look like they were just liked)
-        likedAt: data.likedAt || data.timestampISO,
-        timestamp: data.timestamp,
-        likedTimestamp: data.timestamp?.toMillis
-          ? data.timestamp.toMillis()
-          : (typeof data.timestamp === 'number'
-            ? data.timestamp
-            : (typeof data.timestamp?.seconds === 'number'
-              ? data.timestamp.seconds * 1000
-              : (data.likedAt || data.timestampISO
-                ? Date.parse(data.likedAt || data.timestampISO) || 0
-                : 0)))
       };
       
       // If we have a nested nft object, prioritize those values
@@ -513,6 +507,10 @@ export const getLikedNFTs = async (userIdOrWallet: number | string): Promise<NFT
       }
       
       hydrateNftPlayback(nft);
+      stampNftLikeTime(nft, {
+        ...data,
+        createTime: snapshotCreateMillis(docSnap) || createTimes.get(mediaKey) || 0,
+      });
       return nft;
     });
     
@@ -578,17 +576,25 @@ export const getLikedNFTs = async (userIdOrWallet: number | string): Promise<NFT
     for (const nft of likedNFTs) {
       if (nft && nft.contract && nft.tokenId) {
         const key = `${nft.contract}-${nft.tokenId}`;
-        
-        // Only add if not already in the map or if this one has more complete data
-        if (!uniqueNFTs.has(key) || 
-            (!uniqueNFTs.get(key)?.name && nft.name) || 
-            (!uniqueNFTs.get(key)?.image && nft.image)) {
+        const existing = uniqueNFTs.get(key);
+        if (!existing) {
           uniqueNFTs.set(key, nft);
+          continue;
+        }
+        if (getNftLikedTime(nft) > getNftLikedTime(existing)) {
+          uniqueNFTs.set(key, nft);
+          continue;
+        }
+        if (
+          getNftLikedTime(nft) === getNftLikedTime(existing) &&
+          ((!existing.name && nft.name) || (!existing.image && nft.image))
+        ) {
+          uniqueNFTs.set(key, stampNftLikeTime({ ...existing, ...nft }, existing));
         }
       }
     }
     
-    likedNFTs = Array.from(uniqueNFTs.values()).filter(isPlayableMediaNFT);
+    likedNFTs = sortLikedNewestFirst(Array.from(uniqueNFTs.values()).filter(isPlayableMediaNFT));
     
     // We no longer need to check for permanently removed NFTs
     // Simply return playable audio/video likes (3D models are excluded)

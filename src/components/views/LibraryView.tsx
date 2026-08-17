@@ -11,32 +11,7 @@ import { PAGE_SIZE, usePagedItems } from '../../hooks/usePagedItems';
 import { useNFTLike } from '../../hooks/useNFTLike';
 import { withFeaturedCover } from '~/data/featuredNfts';
 import { isPlayableMediaNFT } from '../../utils/isMediaNFT';
-
-function getNftLikedTime(nft: NFT): number {
-  if (typeof nft.likedTimestamp === 'number' && Number.isFinite(nft.likedTimestamp) && nft.likedTimestamp > 0) {
-    return nft.likedTimestamp;
-  }
-
-  const ts = nft.timestamp as { toMillis?: () => number; seconds?: number } | number | string | undefined;
-  if (ts && typeof ts === 'object' && typeof ts.toMillis === 'function') {
-    return ts.toMillis();
-  }
-  if (typeof ts === 'number' && Number.isFinite(ts)) {
-    return ts;
-  }
-  if (ts && typeof ts === 'object' && typeof ts.seconds === 'number') {
-    return ts.seconds * 1000;
-  }
-  if (typeof ts === 'string') {
-    const parsed = Date.parse(ts);
-    if (Number.isFinite(parsed)) return parsed;
-  }
-  if (typeof nft.likedAt === 'string') {
-    const parsed = Date.parse(nft.likedAt);
-    if (Number.isFinite(parsed)) return parsed;
-  }
-  return 0;
-}
+import { getNftLikedTime } from '../../utils/likeTime';
 
 function getUniqueLikedNFTs(likedNFTs: NFT[]) {
   const uniqueNFTs: NFT[] = [];

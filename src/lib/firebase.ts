@@ -32,6 +32,7 @@ import type { NFT } from '../types/nft';
 import { fetchUserNFTsFromAlchemy } from './nft';
 import { getMediaKey } from '~/utils/media';
 import { getNftPlaybackPlan, hydrateNftPlayback, isPlayableMediaNFT, restoreStoredAnimationUrl, applyConfirmedPlayback, getCachedMediaMime } from '../utils/isMediaNFT';
+import { stampNftLikeTime, sortLikedNewestFirst, snapshotCreateMillis, fetchLikeCreateTimes } from '../utils/likeTime';
 import { logger } from '../utils/logger';
 import { v4 as uuidv4 } from 'uuid';
 import { isENSUser } from '../utils/ensUtils';
@@ -1205,8 +1206,9 @@ export const getLikedNFTs = (fid: number): Promise<NFT[]> => {
     
     // Get the user's likes directly without filtering by removed_likes
     const userLikesRef = collection(db, 'users', fid.toString(), 'likes');
-    const q = query(userLikesRef, orderBy('timestamp', 'asc'));
-    const querySnapshot = await getDocs(q);
+    // Do not orderBy timestamp — legacy likes stored a serverTimestamp sentinel
+    // map, and mixing that with real timestamps omits docs.
+    const querySnapshot = await getDocs(userLikesRef);
     
     if (querySnapshot.empty) {
       firebaseLogger.info('No liked NFTs found for user:', fid);
@@ -1219,11 +1221,19 @@ export const getLikedNFTs = (fid: number): Promise<NFT[]> => {
     const missingGlobalLikes = new Map<string, any>(); // Store mediaKey -> user like data
     
     // Collect all media keys and user like data without filtering
-    const mediaKeysWithData = querySnapshot.docs
-      .map(doc => ({
-        mediaKey: doc.id,
-        data: doc.data()
+    let mediaKeysWithData = querySnapshot.docs
+      .map(docSnap => ({
+        mediaKey: docSnap.id,
+        data: docSnap.data(),
+        createdMs: snapshotCreateMillis(docSnap),
       }));
+    if (mediaKeysWithData.some((row) => !row.createdMs)) {
+      const createTimes = await fetchLikeCreateTimes(fid.toString());
+      mediaKeysWithData = mediaKeysWithData.map((row) => ({
+        ...row,
+        createdMs: row.createdMs || createTimes.get(row.mediaKey) || 0,
+      }));
+    }
     
     firebaseLogger.info(`Found ${querySnapshot.docs.length} liked NFTs`);
     
@@ -1231,7 +1241,7 @@ export const getLikedNFTs = (fid: number): Promise<NFT[]> => {
     const batchSize = 10;
     for (let i = 0; i < mediaKeysWithData.length; i += batchSize) {
       const batch = mediaKeysWithData.slice(i, i + batchSize);
-      const promises = batch.map(({ mediaKey, data: userLikeData }) => {
+      const promises = batch.map(({ mediaKey, data: userLikeData, createdMs }) => {
         if (seenMediaKeys.has(mediaKey)) {
           firebaseLogger.info(`Skipping duplicate mediaKey: ${mediaKey}`);
           return null;
@@ -1281,19 +1291,22 @@ export const getLikedNFTs = (fid: number): Promise<NFT[]> => {
             };
 
             if (!globalLikeDoc.exists()) {
-              missingGlobalLikes.set(mediaKey, userLikeData);
+              missingGlobalLikes.set(mediaKey, { ...userLikeData, createdMs });
             }
 
             if (!merged.nftContract || !merged.tokenId) {
               return nested.contract && nested.tokenId
-                ? hydrateNftPlayback({
-                    ...nested,
-                    audio: nested.audio || userLikeData.audioUrl || '',
-                    metadata: {
-                      ...(nested.metadata || {}),
-                      ...(userLikeData.metadata || {}),
-                    },
-                  } as NFT)
+                ? stampNftLikeTime(
+                    hydrateNftPlayback({
+                      ...nested,
+                      audio: nested.audio || userLikeData.audioUrl || '',
+                      metadata: {
+                        ...(nested.metadata || {}),
+                        ...(userLikeData.metadata || {}),
+                      },
+                    } as NFT),
+                    { ...userLikeData, createTime: createdMs }
+                  )
                 : null;
             }
 
@@ -1304,7 +1317,10 @@ export const getLikedNFTs = (fid: number): Promise<NFT[]> => {
             }
             seenNFTKeys.add(nftKey);
 
-            return nftFromPlayRecord(merged);
+            return stampNftLikeTime(nftFromPlayRecord(merged), {
+              ...userLikeData,
+              createTime: createdMs,
+            });
           })
           .catch(err => {
             firebaseLogger.warn(`Error fetching global like for ${mediaKey}:`, err);
@@ -1371,7 +1387,7 @@ export const getLikedNFTs = (fid: number): Promise<NFT[]> => {
         
         // Add to the list of NFTs to include
         if (!seenNFTKeys.has(`${nft.contract}-${nft.tokenId}`.toLowerCase())) {
-          nftsToAdd.push(nft);
+          nftsToAdd.push(stampNftLikeTime(nft as NFT, { ...userLikeData, createTime: userLikeData.createdMs }));
           seenNFTKeys.add(`${nft.contract}-${nft.tokenId}`.toLowerCase());
         }
       }
@@ -1392,7 +1408,7 @@ export const getLikedNFTs = (fid: number): Promise<NFT[]> => {
     }
 
     firebaseLogger.info(`Processed ${likedNFTs.length} liked NFTs after deduplication`);
-    return likedNFTs.filter(isPlayableMediaNFT);
+    return sortLikedNewestFirst(likedNFTs.filter(isPlayableMediaNFT));
     } catch (error) {
       firebaseLogger.error('Error getting liked NFTs:', error);
       return [];
@@ -1586,13 +1602,12 @@ export const toggleLikeNFT = async (nft: NFT, fid: number, forceUnlike: boolean 
           metadata: nft.metadata || {},
           collection: nft.collection?.name || 'Unknown Collection',
           network: nft.network || 'base',
-          timestamp: serverTimestamp()
+          timestamp: serverTimestamp(),
+          likedAt: new Date().toISOString()
         };
         
         // We want to store only essential NFT data, excluding duplicative or derived fields
-        const sanitizedUserLikeData = JSON.parse(JSON.stringify(userLikeData));
-        
-        batch.set(userLikeRef, sanitizedUserLikeData);
+        batch.set(userLikeRef, userLikeData);
         
         if (globalLikeDoc.exists()) {
           // Update existing global like document
