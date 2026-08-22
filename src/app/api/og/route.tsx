@@ -8,7 +8,6 @@ const IPFS_GATEWAYS = [
   'https://gateway.pinata.cloud/ipfs/',
   'https://dweb.link/ipfs/',
   'https://nftstorage.link/ipfs/',
-  'https://ipfs.io/ipfs/',
 ];
 
 const extractIPFSHash = (url: string): string | null => {

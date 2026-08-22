@@ -1,4 +1,5 @@
 import type Hls from 'hls.js';
+import { playbackDebug } from '../utils/playbackDebug'; // TEMP — remove with playbackDebug.ts
 
 let currentHls: Hls | null = null;
 
@@ -135,6 +136,13 @@ export async function attachPlaybackSource(
       hls.on(Hls.Events.MEDIA_ATTACHED, onAttached);
       hls.on(Hls.Events.MANIFEST_PARSED, onParsed);
       hls.on(Hls.Events.ERROR, (_event, data) => {
+        playbackDebug('hls:error', {
+          url,
+          fatal: data.fatal,
+          type: data.type,
+          details: data.details,
+          error: data.error?.message,
+        });
         if (data.details === 'aborted') return;
         if (!data.fatal) return;
         detachHlsPlayback(media);

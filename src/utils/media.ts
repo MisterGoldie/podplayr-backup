@@ -39,7 +39,8 @@ export const sanitizeMediaUrl = (url?: string | null): string => {
 
 // Prefer gateways that currently resolve and serve NFT media reliably.
 // cloudflare-ipfs.com is dead (ERR_NAME_NOT_RESOLVED).
-// Pinata / ipfs.io: usable from the browser (img + CORS HEAD for mime probes).
+// ipfs.io / gateway.ipfs.io: Protocol Labs public gateway 403s browser media
+// (ERR_BLOCKED_BY_RESPONSE.NotSameOrigin) — rewrite to Pinata, do not play from it.
 // w3s.link / nftstorage.link / dweb.link: often CORS-block fetch or return 500 —
 // keep only as last-resort fallbacks for <img>/<video>, never first for probes.
 export const PRIMARY_IPFS_GATEWAY = 'https://gateway.pinata.cloud/ipfs/';
@@ -285,22 +286,20 @@ export const isAudioUrlUsedAsImage = (nft: UserNFT, imageUrl: string): boolean =
 
 export const IPFS_GATEWAYS = [
   'https://gateway.pinata.cloud/ipfs/',
-  'https://ipfs.io/ipfs/',
-  'https://gateway.ipfs.io/ipfs/',
   'https://w3s.link/ipfs/',
   'https://dweb.link/ipfs/',
   'https://nftstorage.link/ipfs/',
 ];
 
-/** Hosts that break browser fetch(CORS) MIME probes — skip for HEAD/Range GET. */
+/** Hosts that break browser media / CORS probes — skip for <audio>/<video> and HEAD. */
 export const IPFS_CORS_HOSTILE =
-  /(?:^|\.)(?:w3s\.link|nftstorage\.link|dweb\.link|gateway\.ipfs\.io)$/i;
+  /(?:^|\.)(?:w3s\.link|nftstorage\.link|dweb\.link|ipfs\.io)$/i;
 
 export const isIpfsCorsHostileUrl = (url: string): boolean => {
   try {
     return IPFS_CORS_HOSTILE.test(new URL(url).hostname);
   } catch {
-    return /w3s\.link|nftstorage\.link|dweb\.link/i.test(url);
+    return /w3s\.link|nftstorage\.link|dweb\.link|(?:^|\/\/)(?:gateway\.)?ipfs\.io/i.test(url);
   }
 };
 
@@ -366,7 +365,7 @@ export const buildIpfsFallbackUrls = (
     // short playback candidate budget without helping.
     const gateways =
       kind === 'media'
-        ? IPFS_GATEWAYS.filter((g) => !/w3s\.link|nftstorage\.link|dweb\.link/i.test(g))
+        ? IPFS_GATEWAYS.filter((g) => !/w3s\.link|nftstorage\.link|dweb\.link|ipfs\.io/i.test(g))
         : IPFS_GATEWAYS;
 
     if (kind === 'media') {
@@ -783,10 +782,15 @@ export const processMediaUrl = (url: string, fallbackUrl: string = '/default-nft
         }
       }
 
-      // Dedicated Pinata + flaky w3s subdomain hosts — rewrite to public Pinata.
+      // Dedicated Pinata, Protocol Labs public gateway (browser 403), and flaky
+      // w3s subdomain hosts — rewrite to public Pinata.
       // Keep nftstorage/dweb path URLs as-is (they often work for <img>);
       // NFTImage still cycles gateways via buildIpfsFallbackUrls on error.
-      if (/mypinata\.cloud$/i.test(host) || /(?:^|\.)w3s\.link$/i.test(host)) {
+      if (
+        /(?:^|\.)ipfs\.io$/i.test(host) ||
+        /mypinata\.cloud$/i.test(host) ||
+        /(?:^|\.)w3s\.link$/i.test(host)
+      ) {
         if (path) {
           return toIpfsGatewayUrl(path);
         }

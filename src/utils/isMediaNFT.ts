@@ -557,15 +557,18 @@ export const filterLivePlaybackUrls = (assetUrl: string, urls: string[]): string
   const ordered = source
     ? [source, ...urls.filter((u) => u !== source)]
     : urls;
-  if (!dead?.size) return ordered;
-  const live = ordered.filter((u) => {
+  // ipfs.io 403s in-browser even if it was remembered from an older session.
+  const reachable = ordered.filter((u) => !isIpfsCorsHostileUrl(u));
+  const pool = reachable.length ? reachable : ordered;
+  if (!dead?.size) return pool;
+  const live = pool.filter((u) => {
     try {
       return !dead.has(new URL(u).hostname);
     } catch {
       return true;
     }
   });
-  return live.length ? live : ordered;
+  return live.length ? live : pool;
 };
 
 /** True when URL has no clear audio/video extension (Arweave/IPFS CIDs). */
@@ -601,7 +604,7 @@ export const probeMediaContentType = async (url: string): Promise<string> => {
     if (primary) candidates.add(primary);
     buildArweaveMediaFallbackUrls(url).slice(0, 4).forEach((u) => candidates.add(u));
   } else if (url.startsWith('ipfs://') || extractIPFSPath(url)) {
-    // Prefer Pinata / ipfs.io. Skip w3s / nft.storage / dweb — they CORS-fail
+    // Prefer Pinata. Skip ipfs.io / w3s / nft.storage / dweb — they CORS-fail
     // from the mini-app / tunnel origin and stall NFT card hydration.
     buildIpfsFallbackUrls(url, { kind: 'media' })
       .filter((u) => !isIpfsCorsHostileUrl(u))

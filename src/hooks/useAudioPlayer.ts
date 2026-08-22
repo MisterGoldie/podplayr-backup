@@ -86,6 +86,7 @@ import { useToast } from './useToast';
 import { reviveNftMedia } from '../utils/deadNftRegistry';
 import { prioritizeRememberedUrl, rememberWorkingMediaUrl, forgetMediaUrl, getRememberedMediaUrl } from '../utils/gatewayMemory';
 import { enrichNftMediaFromChain, nftNeedsChainMediaEnrich } from '../lib/nft';
+import { mediaDebugSnapshot, playbackDebug } from '../utils/playbackDebug'; // TEMP — remove with playbackDebug.ts
 
 // Create a dedicated logger for this module
 const audioLogger = logger.getModuleLogger('audioPlayer');
@@ -310,6 +311,20 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       setQueueType('single');
     }
     audioLogger.info('handlePlayAudio called with NFT:', nft);
+    playbackDebug('play:start', {
+      name: nft.name,
+      contract: nft.contract,
+      tokenId: String(nft.tokenId),
+      network: nft.network,
+      isVideo: nft.isVideo,
+      playbackMode: nft.playbackMode,
+      hasValidAudio: nft.hasValidAudio,
+      audio: nft.audio,
+      videoUrl: nft.videoUrl,
+      animationUrl: nft.metadata?.animation_url || nft.animationUrl,
+      mime: nft.metadata?.mimeType || nft.metadata?.mime_type,
+      mediaKey: nft.mediaKey,
+    });
     reviveNftMedia(nft, 'audio');
 
     // Likes / recently-played often store raw IPFS URLs. When public gateways
@@ -317,6 +332,13 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     let playNft = nft;
     if (nftNeedsChainMediaEnrich(nft)) {
       playNft = await enrichNftMediaFromChain(nft);
+      playbackDebug('play:enrich', {
+        name: nft.name,
+        changed: playNft !== nft,
+        audio: playNft.audio,
+        videoUrl: playNft.videoUrl,
+        mime: playNft.metadata?.mimeType || playNft.metadata?.mime_type,
+      });
       if (playNft !== nft) {
         clearNftMediaUrlCache(nft, 'image');
         clearNftMediaUrlCache(nft, 'audio');
@@ -339,6 +361,14 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     const probeUrl = plan.videoUrl || plan.audioUrl || playNft.audio;
     if (urlLooksLike3dModel(probeUrl) || urlLooksLikeImage(probeUrl) || !isPlayableMediaNFT(playNft)) {
       audioLogger.info('Skipping non-playable media NFT', { name: playNft.name, url: probeUrl });
+      playbackDebug('play:skip-not-playable', {
+        name: playNft.name,
+        probeUrl,
+        looks3d: urlLooksLike3dModel(probeUrl),
+        looksImage: urlLooksLikeImage(probeUrl),
+        isPlayable: isPlayableMediaNFT(playNft),
+        plan,
+      });
       showErrorToast(`"${playNft.name || 'This NFT'}" isn't playable audio or video.`);
       return;
     }
@@ -355,6 +385,7 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     applyPlaybackPlanToNft(playNft, plan);
     applyPlaybackPlanToNft(nft, plan);
     if (!plan.audioUrl && !plan.videoUrl) {
+      playbackDebug('play:skip-empty-plan', { name: playNft.name, plan, probeUrl, knownMime });
       showErrorToast(`"${playNft.name || 'This NFT'}" isn't playable audio or video.`);
       return;
     }
@@ -376,6 +407,7 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
 
     if (!rawAudioUrl) {
       audioLogger.error('No audio URL found for NFT');
+      playbackDebug('play:no-raw-url', { name: playNft.name, plan });
       return;
     }
     
@@ -391,6 +423,7 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     }
     if (audioUrls.length === 0) {
       audioLogger.error('Failed to generate any valid audio URLs', { raw: rawAudioUrl });
+      playbackDebug('play:no-candidate-urls', { name: playNft.name, rawAudioUrl });
       return;
     }
 
@@ -408,6 +441,15 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
         ...playbackUrls.filter((url) => !cdnUrls.includes(url)),
       ];
     }
+    playbackDebug('play:urls', {
+      name: playNft.name,
+      planMode: plan.mode,
+      rawAudioUrl,
+      audioUrls,
+      cdnUrls,
+      playbackUrls,
+      remembered: getRememberedMediaUrl(mediaKeyForMemory, 'audio'),
+    });
 
 
 
@@ -612,6 +654,13 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
           url: playbackUrls[urlIndex],
           nftId: `${nft.contract}-${nft.tokenId}`,
         });
+        playbackDebug('play:kick-failed', {
+          name: nft.name,
+          url: playbackUrls[urlIndex],
+          errorName: err instanceof Error ? err.name : undefined,
+          errorMessage: err instanceof Error ? err.message : String(err),
+          media: mediaDebugSnapshot(media),
+        });
       });
     };
 
@@ -620,6 +669,11 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
         return;
       }
       if (index >= playbackUrls.length) {
+        playbackDebug('play:exhausted-urls', {
+          name: nft.name,
+          tried: playbackUrls,
+          media: mediaDebugSnapshot(media),
+        });
         clearStall();
         showUnplayableToast();
         setIsPlaying(false);
@@ -648,7 +702,17 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
         !knownPlayMime.startsWith('audio/') &&
         !knownPlayMime.startsWith('video/');
       const failoverMs = isIpfsDirCandidate ? IPFS_DIR_FAILOVER_MS : FIRST_BYTE_FAILOVER_MS;
-
+      playbackDebug('play:try-url', {
+        name: nft.name,
+        index,
+        of: playbackUrls.length,
+        url: nextUrl,
+        isHls: isHlsUrl(nextUrl),
+        isIpfsDirCandidate,
+        failoverMs,
+        cachedMime: knownPlayMime,
+        element: media.tagName,
+      });
 
       stallTimerRef.current = setTimeout(() => {
         if (playAttempt !== playAttemptRef.current || playbackStarted) return;
@@ -684,19 +748,32 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
           }, FIRST_BYTE_FAILOVER_MS);
           return;
         }
+        playbackDebug('play:failover', {
+          name: nft.name,
+          from: playbackUrls[index],
+          hungIpfsDir,
+          media: mediaDebugSnapshot(media),
+        });
         tryUrl(index + 1);
       }, failoverMs);
 
       void attachPlaybackSource(media, nextUrl, () => {
         if (playAttempt !== playAttemptRef.current || urlIndex !== index) return;
+        playbackDebug('play:hls-fatal', { name: nft.name, url: nextUrl, media: mediaDebugSnapshot(media) });
         tryUrl(index + 1);
       }).then(() => {
         if (playAttempt !== playAttemptRef.current || urlIndex !== index) return;
         switchingUrl = false;
         kickPlay();
-      }).catch(() => {
+      }).catch((attachErr) => {
         if (playAttempt !== playAttemptRef.current || urlIndex !== index) return;
         switchingUrl = false;
+        playbackDebug('play:attach-failed', {
+          name: nft.name,
+          url: nextUrl,
+          error: attachErr instanceof Error ? attachErr.message : String(attachErr),
+          media: mediaDebugSnapshot(media),
+        });
       });
     };
 
@@ -706,8 +783,20 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       }
       const failedSrc = media.currentSrc || media.src;
       if (!failedSrc || failedSrc === window.location.href) {
+        playbackDebug('play:media-error-empty-src', {
+          name: nft.name,
+          media: mediaDebugSnapshot(media),
+        });
         return;
       }
+
+      playbackDebug('play:media-error', {
+        name: nft.name,
+        index: urlIndex,
+        url: playbackUrls[urlIndex],
+        failedSrc,
+        media: mediaDebugSnapshot(media),
+      });
 
       if (!isHlsUrl(failedSrc) && !/stream\.mux\.com/i.test(failedSrc)) {
         rememberDeadGateway(rawAudioUrl, failedSrc);
@@ -763,6 +852,11 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       playbackStarted = true;
       clearStall();
       setIsPlaying(true);
+      playbackDebug('play:playing', {
+        name: nft.name,
+        url: playbackUrls[urlIndex],
+        media: mediaDebugSnapshot(media),
+      });
       startCompanionVideo();
     };
 

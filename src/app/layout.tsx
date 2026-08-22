@@ -46,8 +46,6 @@ export default function RootLayout({
         <link rel="preconnect" href="https://permagate.io" crossOrigin="anonymous" />
         <link rel="preconnect" href="https://gateway.irys.xyz" crossOrigin="anonymous" />
         <link rel="preconnect" href="https://gateway.pinata.cloud" crossOrigin="anonymous" />
-        <link rel="preconnect" href="https://ipfs.io" crossOrigin="anonymous" />
-        <link rel="preconnect" href="https://gateway.ipfs.io" crossOrigin="anonymous" />
         <link rel="dns-prefetch" href="https://w3s.link" />
         <link rel="dns-prefetch" href="https://dweb.link" />
         <link rel="dns-prefetch" href="https://nftstorage.link" />

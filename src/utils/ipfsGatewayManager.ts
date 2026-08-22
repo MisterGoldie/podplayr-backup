@@ -13,11 +13,10 @@ class IPFSGatewayManager {
   private readonly maxFailures = 3;
   private readonly timeout = 5000; // 5 seconds timeout
 
-  // Prefer Pinata / ipfs.io — w3s / nft.storage / dweb often CORS-fail or 500 in-browser
+  // Prefer Pinata. ipfs.io 403s browser media (NotSameOrigin).
+  // w3s / nft.storage / dweb often CORS-fail or 500 in-browser.
   private gateways = [
     'https://gateway.pinata.cloud/ipfs/',
-    'https://ipfs.io/ipfs/',
-    'https://gateway.ipfs.io/ipfs/',
     'https://w3s.link/ipfs/',
     'https://dweb.link/ipfs/',
     'https://nftstorage.link/ipfs/',
