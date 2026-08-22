@@ -8,7 +8,7 @@ import FollowNotification from './FollowNotification';
 import { useFollowNotification } from '../hooks/useFollowNotification';
 import { getArtistProfilePreviews } from '../lib/artistProfile';
 import ProfileAvatar from './user/ProfileAvatar';
-import { isOfficialAccount } from '../constants/community';
+import { isOfficialAccount, officialAccountDisplayName } from '../constants/community';
 
 interface FollowsModalProps {
   isOpen: boolean;
@@ -236,6 +236,7 @@ const FollowsModal: React.FC<FollowsModalProps> = ({
                   {users.map((user) => {
                     const isOfficial = isOfficialAccount(user.fid);
                     const pfp = pfpOverrides[user.fid] || user.pfp_url;
+                    const displayName = officialAccountDisplayName(user.fid, user.display_name) || user.username;
                     return (
                       <li key={user.fid}>
                         <div className="flex items-center gap-2 rounded-2xl bg-black/40 border border-purple-400/15 px-3 py-2.5">
@@ -247,7 +248,7 @@ const FollowsModal: React.FC<FollowsModalProps> = ({
                                 onUserProfileClick({
                                   fid: user.fid,
                                   username: user.username,
-                                  display_name: user.display_name,
+                                  display_name: displayName,
                                   pfp_url: pfp,
                                   follower_count: 0,
                                   following_count: 0,
@@ -257,7 +258,7 @@ const FollowsModal: React.FC<FollowsModalProps> = ({
                               window.open(`https://warpcast.com/${user.username}`, '_blank');
                             }}
                             className="flex items-center gap-3 min-w-0 flex-1 text-left active:scale-[0.99] touch-manipulation"
-                            aria-label={`Open ${user.display_name || user.username}`}
+                            aria-label={`Open ${displayName}`}
                           >
                             <ProfileAvatar
                               src={pfp}
@@ -267,7 +268,7 @@ const FollowsModal: React.FC<FollowsModalProps> = ({
                             />
                             <div className="min-w-0 flex-1">
                               <p className="text-white text-sm font-medium truncate">
-                                {user.display_name || user.username}
+                                {displayName}
                               </p>
                               {user.username ? (
                                 <p className="text-xs text-white/45 truncate">@{user.username}</p>
