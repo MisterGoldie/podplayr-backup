@@ -16,6 +16,7 @@ import {
 import type { FarcasterUser, SearchedUser } from '../../types/user';
 import { db, firebaseLogger } from './config';
 import { fetchWithRetry } from './utils';
+import { filterPopularFnameClones, pickExactFnameUser, rankByExactFname, normalizeSearchQuery } from '../../utils/farcasterFname';
 
 // Helper function to ensure string type for Firestore queries
 function ensureString(value: any): string {
@@ -74,7 +75,9 @@ export const trackUserSearch = async (username: string, fid: number): Promise<Fa
 
     const searchData = await searchResponse.json();
     firebaseLogger.info('Search response:', searchData);
-    const searchedUser = searchData.result?.users[0];
+    const searchHits = searchData.result?.users || [];
+    const searchedUser =
+      pickExactFnameUser(searchHits, username) || searchHits[0];
     if (!searchedUser) throw new Error('User not found');
 
     firebaseLogger.info('Found user, fetching full profile for FID:', searchedUser.fid);
@@ -404,7 +407,7 @@ export const searchUsers = async (query: string): Promise<FarcasterUser[]> => {
     }
     
     // Normalize search query
-    const normalizedQuery: string = query.toString().trim().toLowerCase();
+    const normalizedQuery: string = normalizeSearchQuery(query).toLowerCase();
     // Create string suffix for range queries
     const queryEnd = `${normalizedQuery}\uf8ff`;
     
@@ -450,41 +453,39 @@ export const searchUsers = async (query: string): Promise<FarcasterUser[]> => {
       return [];
     }
     
-    // Regular user search by username
-    // First try to get users from cache if it's a simple query
-    if (normalizedQuery.length >= 1) {
-      try {
-        const searchRef = collection(db, 'searchedusers');
-        const usernameQuery = firestoreQuery(
-          searchRef,
-          where('username', '>=', normalizedQuery),
-          where('username', '<=', queryEnd),
-          orderBy('username'),
-          limit(10)
-        );
-        
-        const displayNameQuery = firestoreQuery(
-          searchRef,
-          where('display_name', '>=', normalizedQuery),
-          where('display_name', '<=', queryEnd),
-          orderBy('display_name'),
-          limit(10)
-        );
-        
-        // Run both queries in parallel
-        const [usernameSnapshot, displayNameSnapshot] = await Promise.all([
-          getDocs(usernameQuery),
-          getDocs(displayNameQuery)
-        ]);
-        
-        // Combine results without duplicates
-        const userMap = new Map<number, FarcasterUser>();
-        
-        [...usernameSnapshot.docs, ...displayNameSnapshot.docs].forEach(doc => {
-          // Use a more explicit type assertion to fix TypeScript errors
-          const docData = doc.data() as Record<string, any>;
-          const data = {
-            fid: docData.fid as number,
+    // Regular user search by username — merge Firestore cache with live Neynar.
+    let cachedLocalUsers: FarcasterUser[] = [];
+    try {
+      const searchRef = collection(db, 'searchedusers');
+      const usernameQuery = firestoreQuery(
+        searchRef,
+        where('username', '>=', normalizedQuery),
+        where('username', '<=', queryEnd),
+        orderBy('username'),
+        limit(10)
+      );
+
+      const displayNameQuery = firestoreQuery(
+        searchRef,
+        where('display_name', '>=', normalizedQuery),
+        where('display_name', '<=', queryEnd),
+        orderBy('display_name'),
+        limit(10)
+      );
+
+      const [usernameSnapshot, displayNameSnapshot] = await Promise.all([
+        getDocs(usernameQuery),
+        getDocs(displayNameQuery)
+      ]);
+
+      const userMap = new Map<number, FarcasterUser>();
+
+      [...usernameSnapshot.docs, ...displayNameSnapshot.docs].forEach(docSnap => {
+        const docData = docSnap.data() as Record<string, any>;
+        const fid = docData.fid as number;
+        if (fid && !userMap.has(fid)) {
+          userMap.set(fid, {
+            fid,
             username: docData.username as string,
             display_name: docData.display_name as string,
             pfp_url: docData.pfp_url as string,
@@ -492,39 +493,18 @@ export const searchUsers = async (query: string): Promise<FarcasterUser[]> => {
             following_count: docData.following_count as number,
             custody_address: docData.custody_address as string,
             verifiedAddresses: (docData.verifiedAddresses as string[]) || []
-          };
-          const fid = data.fid;
-          
-          if (fid && !userMap.has(fid)) {
-            userMap.set(fid, {
-              fid: data.fid,
-              username: data.username,
-              display_name: data.display_name,
-              pfp_url: data.pfp_url,
-              follower_count: data.follower_count,
-              following_count: data.following_count,
-              custody_address: data.custody_address,
-              verifiedAddresses: data.verifiedAddresses
-            });
-          }
-        });
-        
-        const localUsers = Array.from(userMap.values());
-        
-        // If we have enough local results, return them immediately
-        if (localUsers.length >= 5) {
-          return localUsers.slice(0, 10);
+          });
         }
-      } catch (error) {
-        firebaseLogger.warn('Error searching local users:', error);
-        // Continue to API search
-      }
+      });
+
+      cachedLocalUsers = Array.from(userMap.values());
+    } catch (error) {
+      firebaseLogger.warn('Error searching local users:', error);
     }
-    
-    // Otherwise, fetch from API
+
     const neynarKey = process.env.NEXT_PUBLIC_NEYNAR_API_KEY;
     if (!neynarKey) throw new Error('Neynar API key not found');
-    
+
     const response = await fetchWithRetry(
       `https://api.neynar.com/v2/farcaster/user/search?q=${encodeURIComponent(normalizedQuery)}&limit=10`,
       {
@@ -534,12 +514,9 @@ export const searchUsers = async (query: string): Promise<FarcasterUser[]> => {
         }
       }
     );
-    
+
     const data = await response.json();
-    const users = data.result?.users || [];
-    
-    // Convert to consistent format
-    return users.map((user: any) => ({
+    const remoteUsers: FarcasterUser[] = (data.result?.users || []).map((user: any) => ({
       fid: user.fid,
       username: user.username,
       display_name: user.display_name || '',
@@ -547,8 +524,17 @@ export const searchUsers = async (query: string): Promise<FarcasterUser[]> => {
       follower_count: user.follower_count || 0,
       following_count: user.following_count || 0,
       custody_address: user.custody_address || null,
-      verifiedAddresses: []  // Will be populated if/when user is tracked
+      verifiedAddresses: []
     }));
+
+    const merged = new Map<number, FarcasterUser>();
+    cachedLocalUsers.forEach((user) => {
+      if (user.fid) merged.set(user.fid, user);
+    });
+    remoteUsers.forEach((user) => {
+      if (user.fid) merged.set(user.fid, user);
+    });
+    return rankByExactFname(Array.from(merged.values()), normalizedQuery).slice(0, 10);
   } catch (error) {
     firebaseLogger.error('Error searching users:', error);
     return [];
@@ -561,24 +547,26 @@ export const getPopularSearchedUsers = async (limitCount = 12): Promise<Searched
     const popularQuery = firestoreQuery(
       searchRef,
       orderBy('searchCount', 'desc'),
-      limit(limitCount)
+      limit(Math.max(limitCount * 3, 30))
     );
     const snapshot = await getDocs(popularQuery);
-    return snapshot.docs
-      .map((docSnap) => {
-        const data = docSnap.data() as Record<string, any>;
-        return {
-          fid: data.fid as number,
-          username: data.username as string,
-          display_name: (data.display_name as string) || (data.username as string),
-          pfp_url: data.pfp_url as string,
-          follower_count: (data.follower_count as number) || 0,
-          following_count: (data.following_count as number) || 0,
-          searchCount: (data.searchCount as number) || 0,
-          isENS: Boolean(data.isENS),
-        } as SearchedUser;
-      })
-      .filter((user) => Boolean(user.fid) && Boolean(user.username));
+    return filterPopularFnameClones(
+      snapshot.docs
+        .map((docSnap) => {
+          const data = docSnap.data() as Record<string, any>;
+          return {
+            fid: data.fid as number,
+            username: data.username as string,
+            display_name: (data.display_name as string) || (data.username as string),
+            pfp_url: data.pfp_url as string,
+            follower_count: (data.follower_count as number) || 0,
+            following_count: (data.following_count as number) || 0,
+            searchCount: (data.searchCount as number) || 0,
+            isENS: Boolean(data.isENS),
+          } as SearchedUser;
+        })
+        .filter((user) => Boolean(user.fid) && Boolean(user.username))
+    ).slice(0, limitCount);
   } catch (error) {
     firebaseLogger.warn('Error getting popular searched users:', error);
     return [];

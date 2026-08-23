@@ -28,6 +28,7 @@ import {
   startAfter
 } from 'firebase/firestore';
 import type { FarcasterUser, SearchedUser, NFTPlayData, FollowedUser } from '../types/user';
+import { pickExactFnameUser, rankByExactFname, normalizeSearchQuery } from '../utils/farcasterFname';
 import type { NFT } from '../types/nft';
 import { fetchUserNFTsFromAlchemy } from './nft';
 import { getMediaKey } from '~/utils/media';
@@ -310,7 +311,9 @@ export const trackUserSearch = async (username: string, fid: number): Promise<Fa
 
     const searchData = await searchResponse.json();
     firebaseLogger.info('Search response:', searchData);
-    const searchedUser = searchData.result?.users[0];
+    const searchHits = searchData.result?.users || [];
+    const searchedUser =
+      pickExactFnameUser(searchHits, username) || searchHits[0];
     if (!searchedUser) throw new Error('User not found');
 
     firebaseLogger.info('Found user, fetching full profile for FID:', searchedUser.fid);
@@ -2876,7 +2879,18 @@ export const searchUsersByAddress = async (address: string): Promise<FarcasterUs
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`Failed to fetch users by address: ${errorText}`);
+      let code = '';
+      try {
+        code = String(JSON.parse(errorText)?.code || '');
+      } catch {
+        // ignore parse errors
+      }
+      // No Farcaster account linked to this wallet — not a failure.
+      if (response.status === 404 || code === 'NotFound') {
+        return [];
+      }
+      console.warn('Neynar bulk-by-address failed:', response.status, errorText);
+      return [];
     }
 
     const data = await response.json();
@@ -2915,7 +2929,8 @@ export const searchUsersByAddress = async (address: string): Promise<FarcasterUs
 };
 
 export const searchUsers = async (queryString: string): Promise<FarcasterUser[]> => {
-  
+  queryString = normalizeSearchQuery(queryString);
+
   // Clear any pending search
   if (searchTimeout) clearTimeout(searchTimeout);
 
@@ -2960,7 +2975,7 @@ export const searchUsers = async (queryString: string): Promise<FarcasterUser[]>
     // Add debug logging
     
     // Check if query is a number first (FID check should come before ENS check)
-    const isFid = !isNaN(Number(queryString));
+    const isFid = /^\d+$/.test(queryString);
     
     // FOR FID SEARCHES: Check Firebase first before making API call
     if (isFid) {
@@ -3062,6 +3077,9 @@ export const searchUsers = async (queryString: string): Promise<FarcasterUser[]>
     
     // Handle different response structures for search vs bulk lookup
     let users = isFid ? data.users : data.result?.users || [];
+    if (!isFid) {
+      users = rankByExactFname(users, queryString);
+    }
     
     // If we got users from search, fetch their full profiles
     if (!isFid && users.length > 0) {
