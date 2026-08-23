@@ -1,16 +1,13 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback, useContext, useMemo } from 'react';
+import dynamic from 'next/dynamic';
 import { FarcasterContext, UserFidContext } from '~/app/providers';
 import { PlayerWithAds, usePrerollAd } from './player/PlayerWithAds';
 import { getMediaKey } from '~/utils/media';
 import { sameLikedTrack } from '../utils/likeDedupe';
 import { BottomNav } from './navigation/BottomNav';
 import HomeView from './views/HomeView';
-import ExploreView from './views/ExploreView';
-import LibraryView from './views/LibraryView';
-import ProfileView from './views/ProfileView';
-import UserProfileView from './views/UserProfileView';
 import {
   trackUserSearch,
   getLikedNFTs,
@@ -54,6 +51,36 @@ const HOME_PAGE: PageState = {
   isProfile: false,
   isUserProfile: false
 };
+
+function TabLoading() {
+  return (
+    <div className="page-scroll min-h-[50vh] pt-20 px-4 animate-pulse">
+      <div className="h-6 w-40 bg-purple-900/40 rounded mb-6" />
+      <div className="flex gap-4 overflow-hidden">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="w-[160px] aspect-square bg-purple-900/30 rounded-2xl flex-shrink-0" />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const ExploreView = dynamic(() => import('./views/ExploreView'), {
+  ssr: false,
+  loading: TabLoading,
+});
+const LibraryView = dynamic(() => import('./views/LibraryView'), {
+  ssr: false,
+  loading: TabLoading,
+});
+const ProfileView = dynamic(() => import('./views/ProfileView'), {
+  ssr: false,
+  loading: TabLoading,
+});
+const UserProfileView = dynamic(() => import('./views/UserProfileView'), {
+  ssr: false,
+  loading: TabLoading,
+});
 
 const deduplicateNFTsByMediaKey = (nfts: NFT[]): NFT[] => {
   const uniqueNFTs = new Map<string, NFT>();
@@ -116,6 +143,21 @@ const DemoBase: React.FC = () => {
   } = usePlayer();
   const { showAd, beforePlay, onAdComplete } = usePrerollAd();
   const { showNotification } = useNFTNotification();
+
+  useEffect(() => {
+    const prefetchTabs = () => {
+      void import('./views/ExploreView');
+      void import('./views/LibraryView');
+      void import('./views/ProfileView');
+      void import('./views/UserProfileView');
+    };
+    if (typeof requestIdleCallback === 'function') {
+      const id = requestIdleCallback(prefetchTabs, { timeout: 2500 });
+      return () => cancelIdleCallback(id);
+    }
+    const timer = window.setTimeout(prefetchTabs, 1500);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     try {
