@@ -9,6 +9,7 @@ import { getLikedNFTs, getFollowersCount, getFollowingCount } from '../../lib/fi
 import { uploadProfileBackground } from '../../firebase';
 import { optimizeImage } from '../../utils/imageOptimizer';
 import { getMediaKey } from '../../utils/media';
+import { sameLikedTrack } from '../../utils/likeDedupe';
 import { filterPlayableMediaNFTs, applyConfirmedPlayback, isPlayableMediaNFT } from '../../utils/isMediaNFT';
 import { useUserImages } from '../../contexts/UserImageContext';
 import FollowsModal from '../FollowsModal';
@@ -234,7 +235,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({
 
         const nftsWithMediaKey = list.map((nft: NFT) => ({
           ...nft,
-          mediaKey: nft.mediaKey || getMediaKey(nft)
+          mediaKey: getMediaKey(nft)
         }));
         
         if (nftsWithMediaKey.length > 0) {
@@ -583,8 +584,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({
               onLikeToggle={onLikeToggle}
               isNFTLiked={(nft: NFT) => {
                 if (isNFTLikedProp) return isNFTLikedProp(nft);
-                const mediaKey = getMediaKey(nft);
-                return likedNFTs.some(likedNFT => (likedNFT.mediaKey || getMediaKey(likedNFT)) === mediaKey);
+                return likedNFTs.some((likedNFT) => sameLikedTrack(likedNFT, nft));
               }}
               userFid={farcasterContext?.user?.fid}
               scrollRoot={scrollRoot}

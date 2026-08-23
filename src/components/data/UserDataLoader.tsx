@@ -87,7 +87,7 @@ const withLikeStatus = (nfts: NFT[]): NFT[] => {
   }
 
   return nfts.map((nft) => {
-    const mediaKey = nft.mediaKey || getMediaKey(nft);
+    const mediaKey = getMediaKey(nft);
     return {
       ...nft,
       mediaKey,

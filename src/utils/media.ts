@@ -12,6 +12,7 @@ import {
   toOpenSeaCdnProxyUrl,
   preferBrowserReachableMediaUrl,
 } from './openSeaMedia';
+import { getMediaKey } from './nftIdentity';
 
 export {
   rewriteLegacyOpenSeaMediaUrl,
@@ -1225,45 +1226,17 @@ const createSafeId = (url: string): string => {
     .slice(0, 100); // Limit length
 };
 
-/**
- * In-memory cache to avoid redundant mediaKey calculations
- * Maps NFT contract+tokenId to its calculated mediaKey
- */
-// Add caching to prevent regenerating the same mediaKeys
-// Remove duplicate declaration since mediaKeyCache is already declared below
-
-/**
- * Generate a unique mediaKey for an NFT
- * Uses UUID to ensure each NFT has a unique identifier for tracking
- */
-import { createHash } from 'crypto';
-// uuidv4 is already imported at the top of the fil
-
-// Cache for consistent mediaKey generation
-const mediaKeyCache = new Map<string, string>();
-
-export const getMediaKey = (nft: UserNFT): string => {
-  // Create a deterministic key based on NFT properties
-  // NORMALIZE the tokenId to ensure consistency
-  const normalizedTokenId = nft.tokenId?.toString().replace(/^0x+/, '0x') || '';
-  const nftIdentifier = `${nft.contract}-${normalizedTokenId}`;
-  
-  // Check cache first
-  if (mediaKeyCache.has(nftIdentifier)) {
-    return mediaKeyCache.get(nftIdentifier)!;
-  }
-  
-  // Generate deterministic mediaKey based on NFT properties
-  const mediaKey = createHash('sha256')
-    .update(`${nft.contract}-${normalizedTokenId}`)
-    .digest('hex')
-    .substring(0, 32); // Keep it shorter but still unique
-  
-  // Cache the result
-  mediaKeyCache.set(nftIdentifier, mediaKey);
-  
-  return mediaKey;
-};
+export {
+  getMediaKey,
+  getNftIdentityKey,
+  getNftMediaAssetId,
+  getMediaAssetId,
+  getLegacyMediaKeyCandidates,
+  sameNftIdentity,
+  uniqueNftsByIdentity,
+  normalizeNftContract,
+  normalizeNftTokenId,
+} from './nftIdentity';
 
 export const generateNewMediaKey = (): string => {
   return uuidv4();

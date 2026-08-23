@@ -6,36 +6,16 @@ import { NFTImage } from '../media/NFTImage';
 import { NFTGifImage } from '../media/NFTGifImage';
 import { NFTCard } from '../nft/NFTCard';
 import { getMediaKey } from '~/utils/media';
+import { uniqueLikedNfts } from '../../utils/likeDedupe';
 import { shouldPreserveAnimation } from '../../utils/imageOptimizer';
 import { PAGE_SIZE, usePagedItems } from '../../hooks/usePagedItems';
 import { useNFTLike } from '../../hooks/useNFTLike';
 import { withFeaturedCover } from '~/data/featuredNfts';
 import { isPlayableMediaNFT } from '../../utils/isMediaNFT';
-import { getNftLikedTime } from '../../utils/likeTime';
+import { sortLikedNewestFirst } from '../../utils/likeTime';
 
 function getUniqueLikedNFTs(likedNFTs: NFT[]) {
-  const uniqueNFTs: NFT[] = [];
-  const seenMediaKeys = new Set<string>();
-  const seenContractTokenIds = new Set<string>();
-
-  for (const nft of likedNFTs) {
-    if (!nft) continue;
-    const mediaKey = getMediaKey(nft);
-    if (!seenMediaKeys.has(mediaKey)) {
-      seenMediaKeys.add(mediaKey);
-      uniqueNFTs.push(nft);
-      continue;
-    }
-    if (nft.contract && nft.tokenId) {
-      const contractTokenKey = `${nft.contract.toLowerCase()}-${nft.tokenId}`;
-      if (!seenContractTokenIds.has(contractTokenKey)) {
-        seenContractTokenIds.add(contractTokenKey);
-        uniqueNFTs.push(nft);
-      }
-    }
-  }
-
-  return uniqueNFTs;
+  return uniqueLikedNfts(likedNFTs);
 }
 
 interface LibraryViewProps {
@@ -275,12 +255,13 @@ const LibraryView: React.FC<LibraryViewProps> = ({
 
   const filteredNFTs = useMemo(() => {
     const query = searchFilter.trim().toLowerCase();
-    return uniqueNFTs
-      .filter((nft) => !query || (nft.name || '').toLowerCase().includes(query))
-      .sort((a, b) => {
-        if (filterSort === 'name') return (a.name || '').localeCompare(b.name || '');
-        return getNftLikedTime(b) - getNftLikedTime(a);
-      });
+    const filtered = uniqueNFTs.filter(
+      (nft) => !query || (nft.name || '').toLowerCase().includes(query)
+    );
+    if (filterSort === 'name') {
+      return [...filtered].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    }
+    return sortLikedNewestFirst(filtered);
   }, [uniqueNFTs, searchFilter, filterSort]);
 
   useEffect(() => {

@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef, useCallback, useContext, useMemo } 
 import { FarcasterContext, UserFidContext } from '~/app/providers';
 import { PlayerWithAds, usePrerollAd } from './player/PlayerWithAds';
 import { getMediaKey } from '~/utils/media';
+import { sameLikedTrack } from '../utils/likeDedupe';
 import { BottomNav } from './navigation/BottomNav';
 import HomeView from './views/HomeView';
 import ExploreView from './views/ExploreView';
@@ -245,13 +246,7 @@ const DemoBase: React.FC = () => {
 
   const isNFTLiked = useCallback((nft: NFT): boolean => {
     if (!nft) return false;
-    const nftMediaKey = getMediaKey(nft);
-    if (!nftMediaKey) return false;
-
-    return likedNFTs.some((likedNFT) => {
-      const likedMediaKey = likedNFT.mediaKey || getMediaKey(likedNFT);
-      return likedMediaKey === nftMediaKey;
-    });
+    return likedNFTs.some((likedNFT) => sameLikedTrack(likedNFT, nft));
   }, [likedNFTs]);
 
   const onLikeToggle = useCallback(async (nft: NFT) => {
@@ -261,11 +256,7 @@ const DemoBase: React.FC = () => {
     }
 
     try {
-      const mediaKey = getMediaKey(nft);
-      const wasLiked = likedNFTs.some((likedNFT) => {
-        const likedMediaKey = likedNFT.mediaKey || getMediaKey(likedNFT);
-        return likedMediaKey === mediaKey;
-      });
+      const wasLiked = likedNFTs.some((likedNFT) => sameLikedTrack(likedNFT, nft));
 
       const newLikeState = await toggleLikeNFT(nft, fid);
 
@@ -274,19 +265,17 @@ const DemoBase: React.FC = () => {
           const likedAt = Date.now();
           const likedNft: NFT = {
             ...nft,
+            mediaKey: getMediaKey(nft),
             likedTimestamp: likedAt,
             likedAt: new Date(likedAt).toISOString(),
           };
           setLikedNFTs((prev) => [
             likedNft,
-            ...prev.filter((existing) => (existing.mediaKey || getMediaKey(existing)) !== mediaKey)
+            ...prev.filter((existing) => !sameLikedTrack(existing, nft))
           ]);
         }
       } else {
-        setLikedNFTs((prev) => prev.filter((likedNFT) => {
-          const likedMediaKey = likedNFT.mediaKey || getMediaKey(likedNFT);
-          return likedMediaKey !== mediaKey;
-        }));
+        setLikedNFTs((prev) => prev.filter((likedNFT) => !sameLikedTrack(likedNFT, nft)));
       }
     } catch (likeError) {
       demoLogger.error('Error toggling like:', likeError);

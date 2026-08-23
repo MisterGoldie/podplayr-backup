@@ -6,6 +6,7 @@ import type { NFT } from '~/types/nft';
 import FeaturedSection from '../sections/FeaturedSection';
 import RecentlyPlayed from '../RecentlyPlayed';
 import { getMediaKey } from '../../utils/media';
+import { sameLikedTrack } from '../../utils/likeDedupe';
 import { logger } from '~/utils/logger';
 import { UserFidContext } from '~/app/providers';
 
@@ -62,25 +63,7 @@ const HomeView: React.FC<HomeViewProps> = ({
 
   const checkDirectlyLiked = (nftToCheck: NFT): boolean => {
     if (!nftToCheck) return false;
-    const mediaKey = nftToCheck.mediaKey || getMediaKey(nftToCheck);
-
-    if (mediaKey) {
-      const mediaKeyMatch = likedNFTs.some((likedNFT) => {
-        const likedMediaKey = likedNFT.mediaKey || getMediaKey(likedNFT);
-        return likedMediaKey === mediaKey;
-      });
-      if (mediaKeyMatch) return true;
-    }
-
-    if (nftToCheck.contract && nftToCheck.tokenId) {
-      const nftKey = `${nftToCheck.contract}-${nftToCheck.tokenId}`.toLowerCase();
-      return likedNFTs.some((likedNFT) =>
-        likedNFT.contract && likedNFT.tokenId &&
-        `${likedNFT.contract}-${likedNFT.tokenId}`.toLowerCase() === nftKey
-      );
-    }
-
-    return false;
+    return likedNFTs.some((likedNFT) => sameLikedTrack(likedNFT, nftToCheck));
   };
 
   if (isLoading) {

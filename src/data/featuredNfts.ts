@@ -1,4 +1,5 @@
 import type { NFT } from '~/types/nft';
+import { normalizeNftTokenId } from '~/utils/nftIdentity';
 
 function playbackAssetUrl(nft: Pick<NFT, 'audio' | 'metadata'>): string {
   return (nft.audio || nft.metadata?.animation_url || '').split('?')[0];
@@ -9,10 +10,11 @@ export function findFeaturedNft(
   nft: Pick<NFT, 'contract' | 'tokenId' | 'audio' | 'metadata'>
 ): NFT | undefined {
   const contract = nft.contract?.toLowerCase();
-  const tokenId = String(nft.tokenId ?? '');
+  const tokenId = normalizeNftTokenId(nft.tokenId);
   const byId = FEATURED_NFTS.find(
     (featured) =>
-      featured.contract?.toLowerCase() === contract && String(featured.tokenId) === tokenId
+      featured.contract?.toLowerCase() === contract &&
+      normalizeNftTokenId(featured.tokenId) === tokenId
   );
   if (byId) return byId;
   const play = playbackAssetUrl(nft);

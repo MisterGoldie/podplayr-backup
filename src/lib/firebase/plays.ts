@@ -30,6 +30,7 @@ import { v4 as uuidv4 } from 'uuid';
 // Add import:
 import { getMediaKey } from '../../utils/media';
 import { hydrateNftPlayback, restoreStoredAnimationUrl, confirmAudioOnlyPlayback } from '../../utils/isMediaNFT';
+import { mergeLegacyPlayCounts } from '../consolidateGlobalPlays';
 
 // Track NFT play and update play count globally
 export const trackNFTPlay = async (nft: NFT, fid: number) => {
@@ -47,6 +48,7 @@ export const trackNFTPlay = async (nft: NFT, fid: number) => {
     }
     
     firebaseLogger.info(`Generated mediaKey: ${mediaKey}`);
+    await mergeLegacyPlayCounts(db, nft, mediaKey);
 
     // STEP 1: Update global play count (this part always works)
     // Create timestamps for consistency across collections

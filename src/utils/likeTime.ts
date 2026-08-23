@@ -40,17 +40,22 @@ const millisFromUnknown = (value: unknown): number => {
   return 0;
 };
 
-/** Milliseconds from a Firebase like doc (users/{id}/likes/{mediaKey}). */
-export const likeTimeFromDoc = (data?: LikeTimeSource | null): number => {
+/** Field times only — never document createTime (rewrites would scramble Library order). */
+export const likeTimeFromFields = (data?: LikeTimeSource | null): number => {
   if (!data) return 0;
   return (
-    millisFromUnknown(data.likedTimestamp) ||
     millisFromUnknown(data.likedAt) ||
     millisFromUnknown(data.timestampISO) ||
     millisFromUnknown(data.timestamp) ||
     millisFromUnknown(data.lastLiked) ||
-    millisFromUnknown(data.createTime)
+    millisFromUnknown(data.likedTimestamp)
   );
+};
+
+/** Milliseconds from a Firebase like doc (users/{id}/likes/{mediaKey}). */
+export const likeTimeFromDoc = (data?: LikeTimeSource | null): number => {
+  if (!data) return 0;
+  return likeTimeFromFields(data) || millisFromUnknown(data.createTime);
 };
 
 /** QueryDocumentSnapshot createTime — the real like time when `timestamp` is a sentinel map. */
@@ -72,7 +77,7 @@ export const stampNftLikeTime = <T extends object>(nft: T, data?: LikeTimeSource
     likedAt?: string;
     timestamp?: unknown;
   };
-  const ms = likeTimeFromDoc(data) || getNftLikedTime(timed);
+  const ms = likeTimeFromFields(data) || likeTimeFromFields(timed) || millisFromUnknown(data?.createTime);
   timed.likedTimestamp = ms;
   if (typeof data?.likedAt === 'string' && data.likedAt) {
     timed.likedAt = data.likedAt;
@@ -85,11 +90,25 @@ export const stampNftLikeTime = <T extends object>(nft: T, data?: LikeTimeSource
   return nft;
 };
 
-export const sortLikedNewestFirst = <T extends object>(nfts: T[]): T[] =>
-  nfts
-    .map((nft, index) => ({ nft, index, time: getNftLikedTime(nft as LikeTimeSource) }))
-    .sort((a, b) => b.time - a.time || a.index - b.index)
+export const sortLikedNewestFirst = <T extends object>(nfts: T[]): T[] => {
+  const times = nfts.map((nft) => getNftLikedTime(nft as LikeTimeSource));
+  const counts = new Map<number, number>();
+  for (const time of times) {
+    if (!time) continue;
+    counts.set(time, (counts.get(time) || 0) + 1);
+  }
+
+  return nfts
+    .map((nft, index) => {
+      let time = getNftLikedTime(nft as LikeTimeSource);
+      // A large set of identical timestamps is a rewrite batch, not real like order.
+      if (time && (counts.get(time) || 0) >= 5) time = 0;
+      const name = String((nft as { name?: string }).name || '');
+      return { nft, index, time, name };
+    })
+    .sort((a, b) => b.time - a.time || a.name.localeCompare(b.name) || a.index - b.index)
     .map(({ nft }) => nft);
+};
 
 /** Document createTime from Firestore REST — used when `timestamp` was stored as a sentinel map. */
 export async function fetchLikeCreateTimes(userId: string): Promise<Map<string, number>> {

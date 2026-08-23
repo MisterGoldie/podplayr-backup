@@ -27,9 +27,11 @@ import {
 import type { NFT } from '../../types/user';
 import { db, firebaseLogger } from './config';
 import { v4 as uuidv4 } from 'uuid';
-import { getMediaKey } from '../../utils/media';
+import { getMediaKey, getNftIdentityKey, normalizeNftContract, normalizeNftTokenId } from '../../utils/media';
+import { uniqueLikedNfts } from '../../utils/likeDedupe';
 import { applyConfirmedPlayback, hydrateNftPlayback, restoreStoredAnimationUrl, isPlayableMediaNFT } from '../../utils/isMediaNFT';
 import { stampNftLikeTime, sortLikedNewestFirst, getNftLikedTime, snapshotCreateMillis, fetchLikeCreateTimes } from '../../utils/likeTime';
+import { consolidateUserLikes, findExistingUserLikeIds } from '../consolidateUserLikes';
 
 
 
@@ -195,10 +197,7 @@ export const subscribeToLikedNFTs = (fid: number, callback: (nfts: NFT[]) => voi
       }
       
       // Transform documents to NFTs quickly
-      let createTimes = new Map<string, number>();
-      if (snapshot.docs.some((docSnap) => !snapshotCreateMillis(docSnap))) {
-        createTimes = await fetchLikeCreateTimes(fid.toString());
-      }
+      const createTimes = await fetchLikeCreateTimes(fid.toString());
       const likedNFTs: NFT[] = snapshot.docs.map(docSnap => {
         const data = docSnap.data();
         const mediaKey = docSnap.id;
@@ -228,15 +227,16 @@ export const subscribeToLikedNFTs = (fid: number, callback: (nfts: NFT[]) => voi
         hydrateNftPlayback(nft);
         stampNftLikeTime(nft, {
           ...data,
-          createTime: snapshotCreateMillis(docSnap) || createTimes.get(mediaKey) || 0,
+          createTime: snapshotCreateMillis(docSnap) || createTimes.get(docSnap.id) || 0,
         });
         return nft;
       });
       
       firebaseLogger.info(`Found ${likedNFTs.length} liked NFTs for user ${fid}`);
-      const playable = sortLikedNewestFirst(likedNFTs.filter(isPlayableMediaNFT));
+      const playable = uniqueLikedNfts(sortLikedNewestFirst(likedNFTs.filter(isPlayableMediaNFT)));
       callback(playable);
-      applyConfirmedPlayback(playable, (nfts) => callback(sortLikedNewestFirst(nfts)));
+      applyConfirmedPlayback(playable, (nfts) => callback(uniqueLikedNfts(sortLikedNewestFirst(nfts))));
+      void consolidateUserLikes(db, fid.toString(), snapshot.docs);
     } catch (error) {
       firebaseLogger.error('Error in liked NFTs subscription:', error);
       callback([]);
@@ -334,12 +334,23 @@ export const getLikedNFTs = async (userIdOrWallet: number | string): Promise<NFT
       firebaseLogger.info(`No liked NFTs found for user ${userId}`);
       return [];
     }
+
+    const migrated = await consolidateUserLikes(db, userId, snapshot.docs);
+    const likeDocs = migrated ? (await getDocs(likesRef)).docs : snapshot.docs;
     
     const createTimes = await fetchLikeCreateTimes(userId);
     // Transform the documents into NFT objects with mediaKey as primary identifier
-    let likedNFTs: NFT[] = snapshot.docs.map(docSnap => {
+    let likedNFTs: NFT[] = likeDocs.map(docSnap => {
       const data = docSnap.data();
-      const mediaKey = docSnap.id; // The document ID is the mediaKey in our content-first architecture
+      const mediaKey = getMediaKey({
+        contract: data.contract || data.nftContract || data.nft?.contract,
+        tokenId: data.tokenId || data.nft?.tokenId,
+        mediaKey: docSnap.id,
+        audio: data.audioUrl || data.nft?.audio || data.audio,
+        animationUrl: data.animationUrl || data.nft?.animationUrl,
+        videoUrl: data.videoUrl || data.nft?.videoUrl,
+        metadata: data.metadata || data.nft?.metadata,
+      }) || docSnap.id;
       
       // Construct the NFT object with mediaKey as primary identifier
       const nft: NFT = {
@@ -509,7 +520,8 @@ export const getLikedNFTs = async (userIdOrWallet: number | string): Promise<NFT
       hydrateNftPlayback(nft);
       stampNftLikeTime(nft, {
         ...data,
-        createTime: snapshotCreateMillis(docSnap) || createTimes.get(mediaKey) || 0,
+        createTime:
+          snapshotCreateMillis(docSnap) || createTimes.get(docSnap.id) || 0,
       });
       return nft;
     });
@@ -570,12 +582,12 @@ export const getLikedNFTs = async (userIdOrWallet: number | string): Promise<NFT
       }
     }
     
-    // Deduplicate NFTs by contract-tokenId
+    // Deduplicate NFTs by canonical contract-tokenId
     const uniqueNFTs = new Map<string, NFT>();
     
     for (const nft of likedNFTs) {
       if (nft && nft.contract && nft.tokenId) {
-        const key = `${nft.contract}-${nft.tokenId}`;
+        const key = getNftIdentityKey(nft) || `${nft.contract}-${nft.tokenId}`;
         const existing = uniqueNFTs.get(key);
         if (!existing) {
           uniqueNFTs.set(key, nft);
@@ -594,7 +606,7 @@ export const getLikedNFTs = async (userIdOrWallet: number | string): Promise<NFT
       }
     }
     
-    likedNFTs = sortLikedNewestFirst(Array.from(uniqueNFTs.values()).filter(isPlayableMediaNFT));
+    likedNFTs = uniqueLikedNfts(sortLikedNewestFirst(Array.from(uniqueNFTs.values()).filter(isPlayableMediaNFT)));
     
     // We no longer need to check for permanently removed NFTs
     // Simply return playable audio/video likes (3D models are excluded)
@@ -674,12 +686,14 @@ export const toggleLikeNFT = async (nft: NFT, fidOrWalletAddress: number | strin
   
   try {
     // Get mediaKey - critical for content-based likes
-    const mediaKey = nft.mediaKey || getMediaKey(nft);
+    const mediaKey = getMediaKey(nft);
     
     if (!mediaKey) {
       firebaseLogger.error('Invalid mediaKey for NFT:', nft);
       return false;
     }
+    nft.mediaKey = mediaKey;
+    const variantLikeIds = await findExistingUserLikeIds(db, userId, nft);
     
     // CRITICAL: This is the path where likes are stored in Firebase
     // Format: users/{userId}/likes/{mediaKey}
@@ -690,7 +704,7 @@ export const toggleLikeNFT = async (nft: NFT, fidOrWalletAddress: number | strin
     
     // Check if user already liked this NFT
     const userLikeDoc = await getDoc(userLikeRef);
-    const isLiked = userLikeDoc.exists();
+    const isLiked = userLikeDoc.exists() || variantLikeIds.length > 0;
     
     // CRITICAL: Save this mediaKey in localStorage to help recover liked state
     try {
@@ -764,6 +778,11 @@ export const toggleLikeNFT = async (nft: NFT, fidOrWalletAddress: number | strin
       // UNLIKE: Simple deletion from user's likes collection using mediaKey
       firebaseLogger.info(`Unliking NFT: ${nft.name} (mediaKey: ${mediaKey})`);
       batch.delete(userLikeRef);
+      for (const variantId of variantLikeIds) {
+        if (variantId !== mediaKey) {
+          batch.delete(doc(db, 'users', userId, 'likes', variantId));
+        }
+      }
       
       // Also delete from global_likes if this is the only user who liked it
       const globalLikeRef = doc(db, 'global_likes', mediaKey);
@@ -789,8 +808,8 @@ export const toggleLikeNFT = async (nft: NFT, fidOrWalletAddress: number | strin
       // Store essential NFT data
       const userLikeData = {
         mediaKey,
-        contract: nft.contract,
-        tokenId: nft.tokenId,
+        contract: normalizeNftContract(nft.contract),
+        tokenId: normalizeNftTokenId(nft.tokenId),
         name: nft.name || 'Untitled',
         description: nft.description || '',
         image: nft.image || '',
@@ -812,6 +831,11 @@ export const toggleLikeNFT = async (nft: NFT, fidOrWalletAddress: number | strin
       };
       
       batch.set(userLikeRef, userLikeData);
+      for (const variantId of variantLikeIds) {
+        if (variantId !== mediaKey) {
+          batch.delete(doc(db, 'users', userId, 'likes', variantId));
+        }
+      }
       
       // We no longer need to track permanently removed NFTs
       // Simply adding to the likes collection is sufficient
@@ -947,7 +971,7 @@ export const toggleLikeNFT = async (nft: NFT, fidOrWalletAddress: number | strin
     
     // CRITICAL: On error, revert any DOM changes to maintain consistency
     try {
-      const mediaKey = nft.mediaKey || getMediaKey(nft);
+      const mediaKey = getMediaKey(nft);
       if (mediaKey) {
         // Check current state in Firebase to revert correctly
         // Even in error handling, use the proper user identifier
@@ -984,7 +1008,7 @@ export const addLikedNFT = async (fid: number, nft: NFT): Promise<void> => {
     }
     
     // Get mediaKey - critical for content-based likes
-    const mediaKey = nft.mediaKey || getMediaKey(nft);
+    const mediaKey = getMediaKey(nft);
     
     if (!mediaKey) {
       firebaseLogger.error('Could not generate mediaKey for NFT:', nft);
@@ -1067,7 +1091,7 @@ export const removeLikedNFT = async (fid: number, nft: NFT): Promise<void> => {
     }
     
     // Get mediaKey - critical for content-based likes
-    const mediaKey = nft.mediaKey || getMediaKey(nft);
+    const mediaKey = getMediaKey(nft);
     
     if (!mediaKey) {
       firebaseLogger.error('Could not generate mediaKey for NFT:', nft);

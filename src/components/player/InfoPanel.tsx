@@ -72,7 +72,7 @@ const InfoPanel: React.FC<InfoPanelProps> = ({ nft, onClose, isLiked = false, on
   const description = nft.description || nft.metadata?.description || '';
   const descriptionIsLong = description.length > DESCRIPTION_CLAMP_CHARS;
   const collectionName = nft.collection?.name;
-  const mediaKey = nft.mediaKey || getMediaKey(nft);
+  const mediaKey = getMediaKey(nft);
 
   const chain = normalizeNftChain(nft.network);
   const chainLabel = chain === 'ethereum' ? 'Ethereum' : chain === 'base' ? 'Base' : null;

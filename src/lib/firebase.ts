@@ -31,7 +31,10 @@ import type { FarcasterUser, SearchedUser, NFTPlayData, FollowedUser } from '../
 import { pickExactFnameUser, rankByExactFname, normalizeSearchQuery } from '../utils/farcasterFname';
 import type { NFT } from '../types/nft';
 import { fetchUserNFTsFromAlchemy } from './nft';
-import { getMediaKey } from '~/utils/media';
+import { getMediaKey, getNftIdentityKey, normalizeNftContract, normalizeNftTokenId } from '~/utils/media';
+import { uniqueLikedNfts } from '~/utils/likeDedupe';
+import { consolidateUserLikes, findExistingUserLikeIds } from './consolidateUserLikes';
+import { mergeLegacyPlayCounts } from './consolidateGlobalPlays';
 import { getNftPlaybackPlan, hydrateNftPlayback, isPlayableMediaNFT, restoreStoredAnimationUrl, applyConfirmedPlayback, getCachedMediaMime } from '../utils/isMediaNFT';
 import { stampNftLikeTime, sortLikedNewestFirst, snapshotCreateMillis, fetchLikeCreateTimes } from '../utils/likeTime';
 import { logger } from '../utils/logger';
@@ -103,7 +106,7 @@ const nftFromPlayRecord = (data: DocumentData): NFT => {
       name: collectionName,
     },
     network: data.network || nested.network,
-    // Prefer canonical contract-tokenId key so play counts match InfoPanel.
+    // Prefer the media-file key so play counts match InfoPanel across mints.
     mediaKey: undefined,
   };
   const hydrated = hydrateNftPlayback(nft);
@@ -782,8 +785,8 @@ export const trackNFTPlay = async (nft: NFT, fid: number, options?: { forceTrack
       return;
     }
 
-    // Store the mediaKey on the NFT object for future reference
     nft.mediaKey = mediaKey;
+    await mergeLegacyPlayCounts(db, nft, mediaKey);
     
     // Add debug logging for tracking
     const isThresholdPlay = options?.thresholdReached === true;
@@ -1200,25 +1203,24 @@ export const getLikedNFTs = (fid: number): Promise<NFT[]> => {
       return [];
     }
 
+    const migrated = await consolidateUserLikes(db, fid.toString(), querySnapshot.docs);
+    const likeDocs = migrated
+      ? (await getDocs(userLikesRef)).docs
+      : querySnapshot.docs;
+
     const likedNFTs: NFT[] = [];
     const seenMediaKeys = new Set<string>();
     const seenNFTKeys = new Set<string>(); // Track NFTs by contract-tokenId
     const missingGlobalLikes = new Map<string, any>(); // Store mediaKey -> user like data
     
     // Collect all media keys and user like data without filtering
-    let mediaKeysWithData = querySnapshot.docs
+    const createTimes = await fetchLikeCreateTimes(fid.toString());
+    let mediaKeysWithData = likeDocs
       .map(docSnap => ({
         mediaKey: docSnap.id,
         data: docSnap.data(),
-        createdMs: snapshotCreateMillis(docSnap),
+        createdMs: snapshotCreateMillis(docSnap) || createTimes.get(docSnap.id) || 0,
       }));
-    if (mediaKeysWithData.some((row) => !row.createdMs)) {
-      const createTimes = await fetchLikeCreateTimes(fid.toString());
-      mediaKeysWithData = mediaKeysWithData.map((row) => ({
-        ...row,
-        createdMs: row.createdMs || createTimes.get(row.mediaKey) || 0,
-      }));
-    }
     
     firebaseLogger.info(`Found ${querySnapshot.docs.length} liked NFTs`);
     
@@ -1295,7 +1297,11 @@ export const getLikedNFTs = (fid: number): Promise<NFT[]> => {
                 : null;
             }
 
-            const nftKey = `${merged.nftContract}-${merged.tokenId}`.toLowerCase();
+            const nftKey =
+              getNftIdentityKey({
+                contract: merged.nftContract,
+                tokenId: merged.tokenId,
+              }) || `${merged.nftContract}-${merged.tokenId}`.toLowerCase();
             if (seenNFTKeys.has(nftKey)) {
               firebaseLogger.debug(`Skipping duplicate NFT: ${merged.name} (${nftKey})`);
               return null;
@@ -1371,9 +1377,11 @@ export const getLikedNFTs = (fid: number): Promise<NFT[]> => {
         });
         
         // Add to the list of NFTs to include
-        if (!seenNFTKeys.has(`${nft.contract}-${nft.tokenId}`.toLowerCase())) {
+        const nftKey =
+          getNftIdentityKey(nft) || `${nft.contract}-${nft.tokenId}`.toLowerCase();
+        if (!seenNFTKeys.has(nftKey)) {
           nftsToAdd.push(stampNftLikeTime(nft as NFT, { ...userLikeData, createTime: userLikeData.createdMs }));
-          seenNFTKeys.add(`${nft.contract}-${nft.tokenId}`.toLowerCase());
+          seenNFTKeys.add(nftKey);
         }
       }
       
@@ -1393,7 +1401,7 @@ export const getLikedNFTs = (fid: number): Promise<NFT[]> => {
     }
 
     firebaseLogger.info(`Processed ${likedNFTs.length} liked NFTs after deduplication`);
-    return sortLikedNewestFirst(likedNFTs.filter(isPlayableMediaNFT));
+    return uniqueLikedNfts(sortLikedNewestFirst(likedNFTs.filter(isPlayableMediaNFT)));
     } catch (error) {
       firebaseLogger.error('Error getting liked NFTs:', error);
       return [];
@@ -1421,6 +1429,8 @@ export const toggleLikeNFT = async (nft: NFT, fid: number, forceUnlike: boolean 
       firebaseLogger.error('Invalid mediaKey for NFT:', nft);
       return false;
     }
+    nft.mediaKey = mediaKey;
+    const variantLikeIds = await findExistingUserLikeIds(db, fid.toString(), nft);
     
     firebaseLogger.info('Using mediaKey for like operation:', mediaKey);
     
@@ -1446,18 +1456,23 @@ export const toggleLikeNFT = async (nft: NFT, fid: number, forceUnlike: boolean 
       return false; // Return false instead of throwing to avoid breaking the UI
     }
     
-    firebaseLogger.info('Document fetch complete. User like exists:', userLikeDoc.exists(), 'Global like exists:', globalLikeDoc.exists());
+    firebaseLogger.info('Document fetch complete. User like exists:', userLikeDoc.exists(), 'Global like exists:', globalLikeDoc.exists(), 'variant likes:', variantLikeIds.length);
     
     const batch = writeBatch(db);
     
     // If forceUnlike is true, we always want to unlike, regardless of current state
     // This ensures Library view unlike operations always work correctly
-    const shouldUnlike = forceUnlike || userLikeDoc.exists();
+    const shouldUnlike = forceUnlike || userLikeDoc.exists() || variantLikeIds.length > 0;
     
     if (shouldUnlike) {
       // UNLIKE FLOW - Remove like from user's likes
       firebaseLogger.info('User like exists - removing like');
       batch.delete(userLikeRef);
+      for (const variantId of variantLikeIds) {
+        if (variantId !== mediaKey) {
+          batch.delete(doc(db, 'users', fid.toString(), 'likes', variantId));
+        }
+      }
       
       // We no longer add to permanent removal list
       // This allows NFTs to be reliked and reappear in the library
@@ -1562,8 +1577,8 @@ export const toggleLikeNFT = async (nft: NFT, fid: number, forceUnlike: boolean 
         const userLikeData = {
           mediaKey,
           nft: {
-            contract: nft.contract,
-            tokenId: nft.tokenId,
+            contract: normalizeNftContract(nft.contract),
+            tokenId: normalizeNftTokenId(nft.tokenId),
             name: nft.name || 'Untitled',
             description: nft.description || nft.metadata?.description || '',
             image: nft.image || nft.metadata?.image || '',
@@ -1573,9 +1588,9 @@ export const toggleLikeNFT = async (nft: NFT, fid: number, forceUnlike: boolean 
             playbackMode: nft.playbackMode || '',
             metadata: nft.metadata || {}
           },
-          nftContract: nft.contract,
-          contract: nft.contract,
-          tokenId: nft.tokenId,
+          nftContract: normalizeNftContract(nft.contract),
+          contract: normalizeNftContract(nft.contract),
+          tokenId: normalizeNftTokenId(nft.tokenId),
           name: nft.name || 'Untitled',
           description: nft.description || nft.metadata?.description || '',
           image: nft.image || nft.metadata?.image || '',
@@ -1593,6 +1608,11 @@ export const toggleLikeNFT = async (nft: NFT, fid: number, forceUnlike: boolean 
         
         // We want to store only essential NFT data, excluding duplicative or derived fields
         batch.set(userLikeRef, userLikeData);
+        for (const variantId of variantLikeIds) {
+          if (variantId !== mediaKey) {
+            batch.delete(doc(db, 'users', fid.toString(), 'likes', variantId));
+          }
+        }
         
         if (globalLikeDoc.exists()) {
           // Update existing global like document
@@ -1719,58 +1739,19 @@ export const subscribeToRecentPlays = (fid: number, callback: (nfts: NFT[]) => v
     // Process each play history entry
     for (const playDoc of sortedDocs) {
       const playData = playDoc.data();
-      
-      // CRITICAL: Verify we have a mediaKey - this is the PRIMARY IDENTIFIER
-      if (!playData.mediaKey) {
-        // Create a temporary NFT object to generate the mediaKey
-        const tempNFT: NFT = {
-          contract: playData.nftContract,
-          tokenId: playData.tokenId,
-          name: playData.name || 'Unknown',
-          image: playData.image || '',
-          audio: playData.audioUrl || '',
-          metadata: {
-            animation_url: playData.animationUrl || playData.videoUrl || '',
-            image: playData.image || ''
-          }
-        };
-        
-        // Generate mediaKey from the NFT object
-        const mediaKey = getMediaKey(tempNFT);
-        
-        if (!mediaKey) {
-          continue;
-        }
-        
-        playData.mediaKey = mediaKey;
-      }
-      
-      // Skip if we've already processed this mediaKey in this snapshot
-      if (processedMediaKeys.has(playData.mediaKey)) {
-        continue;
-      }
-      
-      // Mark this mediaKey as processed
-      processedMediaKeys.add(playData.mediaKey);
-      
       const playedAt = playData.timestampMs || playTimestampMillis(playData.timestamp);
-      // Create NFT object from play data
       const nft: NFT = {
         ...nftFromPlayRecord(playData),
-        mediaKey: getMediaKey({
-          contract: playData.nftContract,
-          tokenId: playData.tokenId,
-          name: playData.name || 'Untitled NFT',
-          image: playData.image || ''
-        } as NFT),
         addedToRecentlyPlayed: true,
         addedToRecentlyPlayedAt: playedAt || Date.now(),
       };
-      
-      // Store in our map
-      nftByMediaKey.set(playData.mediaKey, nft);
-      
-      // Stop once we have 8 unique NFTs by mediaKey
+      const mediaKey = nft.mediaKey || playData.mediaKey;
+      if (!mediaKey || processedMediaKeys.has(mediaKey)) continue;
+
+      processedMediaKeys.add(mediaKey);
+      nft.mediaKey = mediaKey;
+      nftByMediaKey.set(mediaKey, nft);
+
       if (nftByMediaKey.size >= 8) break;
     }
     

@@ -130,7 +130,7 @@ class LikeStateManager {
   public addLikedNFT(nft: NFT): void {
     if (!nft) return;
     
-    const mediaKey = nft.mediaKey || getMediaKey(nft);
+    const mediaKey = getMediaKey(nft);
     if (!mediaKey) return;
     
     this.likedMediaKeys.add(mediaKey);
@@ -144,7 +144,7 @@ class LikeStateManager {
   public removeLikedNFT(nft: NFT): void {
     if (!nft) return;
     
-    const mediaKey = nft.mediaKey || getMediaKey(nft);
+    const mediaKey = getMediaKey(nft);
     if (!mediaKey) return;
     
     this.likedMediaKeys.delete(mediaKey);
@@ -158,7 +158,7 @@ class LikeStateManager {
   public isNFTLiked(nft: NFT): boolean {
     if (!nft) return false;
     
-    const mediaKey = nft.mediaKey || getMediaKey(nft);
+    const mediaKey = getMediaKey(nft);
     if (!mediaKey) return false;
     
     return this.likedMediaKeys.has(mediaKey);
@@ -323,7 +323,7 @@ export const observeLikeChanges = (callback: () => void): () => void => {
 const debouncedSetupListeners = debounce((nfts: NFT[]) => {
   nfts.forEach(nft => {
     // Add event listeners for like state changes
-    const mediaKey = nft.mediaKey || getMediaKey(nft);
+    const mediaKey = getMediaKey(nft);
     if (mediaKey) {
       const elements = document.querySelectorAll(`[data-media-key="${mediaKey}"]`);
       elements.forEach(element => {
