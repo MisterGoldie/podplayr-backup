@@ -13,7 +13,7 @@ import { logger } from '../../utils/logger';
 import { useUserProfileBackground } from '../../hooks/useUserProfileBackground';
 import UserInfoPanel from '../user/UserInfoPanel';
 import { isENSUserObject } from '../../utils/ensUtils';
-import { isAcylMember, isOfficialAccount, isPodMember } from '../../constants/community';
+import { isAcylMember, isOfficialAccount, isPodMember, officialAccountDisplayName } from '../../constants/community';
 import { getBioText } from '../../utils/format';
 import { ShareProfileButton } from '../ShareProfileButton';
 
@@ -387,7 +387,7 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
               <div className="w-[112px] h-[112px] rounded-full overflow-hidden relative ring-4 ring-[#1E1525] bg-purple-900/40 shadow-xl">
                 <Image
                   src={user?.pfp_url || '/default-avatar.png'}
-                  alt={user?.display_name || user?.username || 'User'}
+                  alt={officialAccountDisplayName(user?.fid ?? 0, user?.display_name) || user?.username || 'User'}
                   className="object-cover"
                   fill
                   sizes="112px"
@@ -464,7 +464,7 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
 
           <div className="mt-3">
             <h2 className="text-xl font-semibold text-white truncate">
-              {user?.display_name || user?.username || 'User'}
+              {officialAccountDisplayName(user?.fid ?? 0, user?.display_name) || user?.username || 'User'}
             </h2>
             {user?.username && (
               <p className={`truncate ${isENSUserObject(user) ? 'text-blue-300' : 'text-white/50'}`}>

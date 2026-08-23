@@ -16,6 +16,7 @@ import {
   isAcylMember,
   isOfficialAccount,
   isPodMember,
+  officialAccountDisplayName,
 } from '../../constants/community';
 import { getBioText } from '../../utils/format';
 import { SUGGESTED_MUSIC_VIDEOS } from '../../data/suggestedMusicVideos';
@@ -41,7 +42,7 @@ function toFarcasterUser(user: FarcasterUser | SearchedUser | FollowedUser): Far
   return {
     fid: user.fid,
     username: user.username,
-    display_name: user.display_name || user.username,
+    display_name: officialAccountDisplayName(user.fid, user.display_name) || user.username,
     pfp_url: user.pfp_url,
     follower_count: 'follower_count' in user ? user.follower_count || 0 : 0,
     following_count: 'following_count' in user ? user.following_count || 0 : 0,
@@ -212,7 +213,7 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
         handleDirectUserSelect({
           fid: user.fid,
           username: user.username,
-          display_name: user.display_name || user.username,
+          display_name: officialAccountDisplayName(user.fid, user.display_name || userData?.display_name) || user.username,
           pfp_url: user.pfp_url || userData?.pfp_url || (user.isENS ? '/defaultens.png' : `https://avatar.vercel.sh/${user.username}`),
           follower_count: user.follower_count || 0,
           following_count: user.following_count || 0,
@@ -297,7 +298,7 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
   const renderAvatar = (user: { fid: number; username?: string; display_name?: string; pfp_url?: string; isENS?: boolean }, size = 56) => (
     <ProfileAvatar
       src={user.pfp_url || (user.isENS ? '/defaultens.png' : undefined)}
-      alt={user.display_name || user.username || 'User'}
+      alt={officialAccountDisplayName(user.fid, user.display_name) || user.username || 'User'}
       size={size}
       className="flex-shrink-0 ring-2 ring-purple-400/25"
       fallback={user.isENS ? '/defaultens.png' : '/default-avatar.png'}
@@ -344,7 +345,7 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
             type="button"
             onClick={() => openUser(user)}
             className="block rounded-full active:scale-95 touch-manipulation"
-            aria-label={`Open ${user.display_name || user.username}`}
+            aria-label={`Open ${officialAccountDisplayName(user.fid, user.display_name) || user.username}`}
           >
             {renderAvatar(user)}
           </button>
@@ -355,7 +356,7 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
           onClick={() => openUser(user)}
           className="min-w-0 flex-1 text-left active:scale-[0.99] touch-manipulation"
         >
-          <p className="text-white font-medium truncate">{user.display_name || user.username}</p>
+          <p className="text-white font-medium truncate">{officialAccountDisplayName(user.fid, user.display_name) || user.username}</p>
           <p className={`text-sm truncate ${user.isENS ? 'text-blue-300' : 'text-white/50'}`}>
             {user.isENS ? user.username : `@${user.username}`}
             {followerLabel ? ` · ${followerLabel} followers` : ''}
@@ -396,7 +397,7 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
                   </span>
                 )}
               </div>
-              <p className="mt-2 text-xs text-white truncate">{user.display_name || user.username}</p>
+              <p className="mt-2 text-xs text-white truncate">{officialAccountDisplayName(user.fid, user.display_name) || user.username}</p>
               <p className="text-[10px] text-white/40 truncate">
                 {getIsEns(user) ? user.username : `@${user.username}`}
               </p>
@@ -547,7 +548,7 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
                     type="button"
                     onClick={() => openUser(officialUser)}
                     className="block rounded-full active:scale-95 touch-manipulation"
-                    aria-label={`Open ${officialUser.display_name || officialUser.username}`}
+                    aria-label={`Open ${officialAccountDisplayName(officialUser.fid, officialUser.display_name) || officialUser.username}`}
                   >
                     {renderAvatar(officialUser, 72)}
                   </button>
@@ -559,7 +560,7 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
                   className="min-w-0 flex-1 text-left active:scale-[0.99] touch-manipulation"
                 >
                   <p className="text-[10px] uppercase tracking-[0.18em] text-purple-200/80">PODPLAYR official account</p>
-                  <p className="text-white font-semibold truncate">{officialUser.display_name || officialUser.username}</p>
+                  <p className="text-white font-semibold truncate">{officialAccountDisplayName(officialUser.fid, officialUser.display_name) || officialUser.username}</p>
                   <p className="text-sm text-white/50 truncate">
                     @{officialUser.username}
                     {officialUser.follower_count ? ` · ${formatCount(officialUser.follower_count)} followers` : ''}

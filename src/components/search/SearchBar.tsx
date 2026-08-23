@@ -6,7 +6,7 @@ import { UserFidContext } from '../../app/providers';
 import { trackENSUserSearch } from '../../lib/firebase';
 import { resolveEnsAddress, getEnsProfile } from '../../lib/ens';
 import { logger } from '../../utils/logger';
-import { isAcylMember, isOfficialAccount, isPodMember } from '../../constants/community';
+import { isAcylMember, isOfficialAccount, isPodMember, officialAccountDisplayName } from '../../constants/community';
 
 interface SearchBarProps {
   onSearch: (username: string) => void;
@@ -216,7 +216,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onSearch, isSearching, han
               <div className="w-10 h-10 rounded-full overflow-hidden flex-shrink-0 relative bg-purple-900/40">
                 <Image
                   src={suggestion.pfp_url || `https://avatar.vercel.sh/${suggestion.username}`}
-                  alt={suggestion.display_name || suggestion.username || 'User avatar'}
+                  alt={officialAccountDisplayName(suggestion.fid, suggestion.display_name) || suggestion.username || 'User avatar'}
                   className="object-cover"
                   fill
                   sizes="40px"
@@ -227,7 +227,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onSearch, isSearching, han
                 />
               </div>
               <div className="flex-1 min-w-0">
-                <div className="font-medium text-white truncate">{suggestion.display_name || suggestion.username}</div>
+                <div className="font-medium text-white truncate">{officialAccountDisplayName(suggestion.fid, suggestion.display_name) || suggestion.username}</div>
                 <div className="text-sm text-white/50 truncate">
                   {suggestion.isENS ? suggestion.username : `@${suggestion.username}`}
                 </div>

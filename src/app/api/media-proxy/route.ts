@@ -44,7 +44,7 @@ export async function GET(req: NextRequest) {
       headers: {
         Accept: req.headers.get('accept') || '*/*',
         ...(range ? { Range: range } : {}),
-        'User-Agent': 'PODPlayr-media-proxy/1.0',
+        'User-Agent': 'PODPLAYR-media-proxy/1.0',
       },
       // Avoid Next fetch cache poisoning large media
       cache: 'no-store',

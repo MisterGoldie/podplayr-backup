@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import Image from 'next/image';
 import type { FarcasterUser } from '../../types/user';
-import { isAcylMember, isOfficialAccount, isPodMember } from '../../constants/community';
+import { isAcylMember, isOfficialAccount, isPodMember, officialAccountDisplayName } from '../../constants/community';
 import { isENSUserObject } from '../../utils/ensUtils';
 import { getBioText } from '../../utils/format';
 
@@ -80,7 +80,7 @@ const UserInfoPanel: React.FC<UserInfoPanelProps> = ({
               <div className="relative w-14 h-14 rounded-full overflow-hidden flex-shrink-0 ring-2 ring-purple-400/30 bg-purple-900/40">
                 <Image
                   src={user.pfp_url || '/default-avatar.png'}
-                  alt={user.display_name || user.username || 'User'}
+                  alt={officialAccountDisplayName(user.fid, user.display_name) || user.username || 'User'}
                   fill
                   sizes="56px"
                   className="object-cover"
@@ -88,7 +88,7 @@ const UserInfoPanel: React.FC<UserInfoPanelProps> = ({
               </div>
               <div className="min-w-0">
                 <h2 className="text-white text-lg font-semibold leading-snug tracking-tight truncate">
-                  {user.display_name || user.username || 'User'}
+                  {officialAccountDisplayName(user.fid, user.display_name) || user.username || 'User'}
                 </h2>
                 {user.username && (
                   <p className={`text-sm truncate ${isEns ? 'text-blue-300' : 'text-white/50'}`}>

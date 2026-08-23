@@ -119,7 +119,7 @@ const NotificationHeader: React.FC<NotificationHeaderProps> = memo(({
         >
           <Image
             src={logo}
-            alt="PODPlayr"
+            alt="PODPLAYR"
             width={120}
             height={30}
             className="logo-image"

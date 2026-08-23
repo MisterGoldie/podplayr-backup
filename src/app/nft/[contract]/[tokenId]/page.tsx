@@ -19,7 +19,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     // Always use OpenGraph API - it has the robust image processing logic
     image: `${appUrl}/api/og?contract=${contract}&tokenId=${tokenId}`,
     title: nft.name || 'PODPLAYR',
-    description: nft.description || 'Listen to this NFT on PODPlayr',
+    description: nft.description || 'Listen to this NFT on PODPLAYR',
     buttons: [{
       label: '▶️ Play Now',
       action: {

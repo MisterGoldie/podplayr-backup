@@ -34,9 +34,9 @@ export async function GET(req: NextRequest) {
       `<!DOCTYPE html>
       <html>
         <head>
-          <title>${nftData.name || 'PODPlayr NFT'}</title>
-          <meta property="og:title" content="${nftData.name || 'PODPlayr NFT'}" />
-          <meta property="og:description" content="${nftData.description || 'Listen to this NFT on PODPlayr'}" />
+          <title>${nftData.name || 'PODPLAYR NFT'}</title>
+          <meta property="og:title" content="${nftData.name || 'PODPLAYR NFT'}" />
+          <meta property="og:description" content="${nftData.description || 'Listen to this NFT on PODPLAYR'}" />
           <meta property="fc:frame" content="vNext" />
           <meta property="fc:frame:image" content="${frameMetadata.image}" />
           <meta property="fc:frame:button:1" content="${frameMetadata.buttons[0].label}" />
@@ -44,8 +44,8 @@ export async function GET(req: NextRequest) {
           <meta property="fc:frame:post_url" content="${frameMetadata.postUrl}" />
           <meta property="og:image" content="${frameMetadata.image}" />
           <meta name="twitter:card" content="summary_large_image" />
-          <meta name="twitter:title" content="${nftData.name || 'PODPlayr NFT'}" />
-          <meta name="twitter:description" content="${nftData.description || 'Listen to this NFT on PODPlayr'}" />
+          <meta name="twitter:title" content="${nftData.name || 'PODPLAYR NFT'}" />
+          <meta name="twitter:description" content="${nftData.description || 'Listen to this NFT on PODPLAYR'}" />
           <meta name="twitter:image" content="${frameMetadata.image}" />
           <meta http-equiv="refresh" content="0;url=${appUrl}/?contract=${contract}&tokenId=${tokenId}" />
         </head>
