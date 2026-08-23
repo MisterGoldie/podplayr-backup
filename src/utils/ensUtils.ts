@@ -20,12 +20,12 @@ export const isENSUserObject = (user: any): boolean => {
  * Get cache key for ENS users (different from Farcaster users)
  */
 export const getENSCacheKey = (fid: number): string => {
-  return `podplayr_ens_cache_${Math.abs(fid)}`;
+  return `podplayr_ens_cache_v2_${Math.abs(fid)}`;
 };
 
 /**
  * Get cache key for regular Farcaster users
  */
 export const getFarcasterCacheKey = (fid: number): string => {
-  return `podplayr_nft_cache_${fid}`;
+  return `podplayr_nft_cache_v2_${fid}`;
 };

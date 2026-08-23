@@ -7,11 +7,11 @@ import { getMediaKey } from '../../utils/media';
 import { applyConfirmedPlayback, isPlayableMediaNFT } from '../../utils/isMediaNFT';
 import type { NFT, FarcasterUser } from '../../types/user';
 
-const NFT_CACHE_KEY = 'podplayr_nft_cache_';
+const NFT_CACHE_KEY = 'podplayr_nft_cache_v2_';
 const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
 
 // Use sessionStorage instead of module-level Map for persistence across component mounts
-const SESSION_CACHE_KEY = 'podplayr_user_data_session_cache';
+const SESSION_CACHE_KEY = 'podplayr_user_data_session_cache_v2';
 const SESSION_CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
 interface CachedUserData {

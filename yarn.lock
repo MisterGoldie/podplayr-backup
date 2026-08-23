@@ -4068,16 +4068,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@soundxyz/sdk@npm:^8.0.1":
-  version: 8.0.1
-  resolution: "@soundxyz/sdk@npm:8.0.1"
-  peerDependencies:
-    viem: ^2.17.11
-    zod: ^3.22.4
-  checksum: 10c0/455af1aab2c731457ee901b92b79c6828d673fcea6fe1a2681f27ef96634551842eb14ebcc49c3816baffe6e8e8e18f24890571454de91e195f6867b5ebf8fae
-  languageName: node
-  linkType: hard
-
 "@spruceid/siwe-parser@npm:^2.1.2":
   version: 2.1.2
   resolution: "@spruceid/siwe-parser@npm:2.1.2"
@@ -11141,7 +11131,6 @@ __metadata:
     "@firebase/firestore": "npm:^4.7.7"
     "@heroicons/react": "npm:^2.2.0"
     "@neynar/nodejs-sdk": "npm:^2.10.0"
-    "@soundxyz/sdk": "npm:^8.0.1"
     "@tanstack/react-query": "npm:^5.62.10"
     "@tanstack/react-virtual": "npm:^3.11.2"
     "@types/jsonwebtoken": "npm:^9.0.10"

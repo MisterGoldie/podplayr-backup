@@ -68,7 +68,7 @@ export const NFTCacheProvider: React.FC<NFTCacheProviderProps> = ({ children }) 
       
       // Store in localStorage for persistence across page refreshes
       try {
-        localStorage.setItem(`nft_cache_${fid}`, JSON.stringify({
+        localStorage.setItem(`nft_cache_v2_${fid}`, JSON.stringify({
           nfts,
           timestamp: Date.now(),
         }));
@@ -94,7 +94,7 @@ export const NFTCacheProvider: React.FC<NFTCacheProviderProps> = ({ children }) 
     // Clear localStorage cache
     if (cachedFid) {
       try {
-        localStorage.removeItem(`nft_cache_${cachedFid}`);
+        localStorage.removeItem(`nft_cache_v2_${cachedFid}`);
       } catch (e) {
         nftCacheLogger.warn('Failed to clear localStorage cache:', e);
       }
@@ -105,7 +105,7 @@ export const NFTCacheProvider: React.FC<NFTCacheProviderProps> = ({ children }) 
   useEffect(() => {
     const loadFromLocalStorage = (fid: number) => {
       try {
-        const cachedData = localStorage.getItem(`nft_cache_${fid}`);
+        const cachedData = localStorage.getItem(`nft_cache_v2_${fid}`);
         if (cachedData) {
           const { nfts, timestamp } = JSON.parse(cachedData);
           const now = Date.now();
@@ -119,7 +119,7 @@ export const NFTCacheProvider: React.FC<NFTCacheProviderProps> = ({ children }) 
             return true;
           } else {
             nftCacheLogger.info(`🕒 Cache expired for FID: ${fid}, will refresh`);
-            localStorage.removeItem(`nft_cache_${fid}`);
+            localStorage.removeItem(`nft_cache_v2_${fid}`);
           }
         }
         return false;
