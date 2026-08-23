@@ -6,9 +6,37 @@ import dynamic from 'next/dynamic';
 import { setupArweaveUrlInterceptor } from "../utils/networkErrorHandler";
 import { useMiniKit } from '@coinbase/onchainkit/minikit';
 
-const Demo = dynamic(() => import('../components/Demo').then(mod => mod.Demo), {
-  ssr: false
-});
+function hideFarcasterSplash() {
+  let cancelled = false;
+
+  void (async () => {
+    try {
+      const { sdk } = await import('@farcaster/miniapp-sdk');
+      if (!(await sdk.isInMiniApp())) return;
+      await sdk.context;
+      if (!cancelled) await sdk.actions.ready();
+    } catch (error) {
+      console.error('Error initializing Farcaster SDK:', error);
+    }
+  })();
+
+  return () => {
+    cancelled = true;
+  };
+}
+
+const Demo = dynamic(
+  () =>
+    import('../components/Demo').then((mod) => {
+      const LoadedDemo = mod.Demo;
+      function DemoWithSplashHidden() {
+        useEffect(() => hideFarcasterSplash(), []);
+        return <LoadedDemo />;
+      }
+      return DemoWithSplashHidden;
+    }),
+  { ssr: false }
+);
 
 const App: React.FC = () => {
   const { setFrameReady, isFrameReady } = useMiniKit();
@@ -19,48 +47,12 @@ const App: React.FC = () => {
     }
   }, [isFrameReady, setFrameReady]);
 
-  // Set up network handlers
   useEffect(() => {
-    // Set up Arweave URL interceptor in all environments
     setupArweaveUrlInterceptor();
-  }, []);
-
-  // CRITICAL: Initialize Farcaster mini-app SDK and call ready()
-  useEffect(() => {
-    const initializeFarcasterSDK = async () => {
-      try {
-        // Dynamically import the correct SDK
-        const { sdk } = await import('@farcaster/miniapp-sdk');
-        
-        
-        // Check if we're in a Farcaster mini-app environment
-        const isInMiniApp = await sdk.isInMiniApp();
-        
-        if (isInMiniApp) {
-          await sdk.context;
-          
-          // Wait for the app to be fully loaded
-          // This ensures all components are mounted and ready
-          setTimeout(async () => {
-            try {
-              // CRITICAL: Call ready() to hide splash screen and show content
-              await sdk.actions.ready();
-            } catch (readyError) {
-              console.error('❌ Error calling sdk.actions.ready():', readyError);
-            }
-          }, 1000); // Give the app 1 second to fully load
-        }
-      } catch (error) {
-        console.error('❌ Error initializing Farcaster SDK:', error);
-      }
-    };
-
-    initializeFarcasterSDK();
   }, []);
 
   return (
     <FirebaseProvider>
-      {/* Remove PlayerProvider from here since it's already in providers.tsx */}
       <main className="flex flex-col">
         <Demo />
       </main>
