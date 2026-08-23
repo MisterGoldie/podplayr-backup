@@ -546,7 +546,7 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
                   <p className="text-white font-semibold truncate">{officialAccountDisplayName(officialUser.fid, officialUser.display_name) || officialUser.username}</p>
                   <p className="text-sm text-white/50 truncate">
                     @{officialUser.username}
-                    {officialUser.follower_count ? ` · ${formatCount(officialUser.follower_count)} followers` : ''}
+                    {officialUser.fid ? ` · fid ${officialUser.fid}` : ''}
                   </p>
                   {getBioText(officialUser.profile?.bio) ? (
                     <p className="text-xs text-white/45 mt-1 line-clamp-2">{getBioText(officialUser.profile?.bio)}</p>
