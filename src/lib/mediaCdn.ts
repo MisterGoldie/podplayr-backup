@@ -146,6 +146,16 @@ const PLAYBACK_OVERRIDES: Record<string, { mobile: string; desktop?: string }> =
     mobile: muxHls('1QpmuU7j2bE02s3yk5Sp2XPoxSjuldroY5UshhZ00c8qw'),
     desktop: muxHls('1QpmuU7j2bE02s3yk5Sp2XPoxSjuldroY5UshhZ00c8qw'),
   },
+  // BLUE! #2 — SUPALOUDS / $LOUDER (IPFS CID the player uses)
+  QmXeipbB5iZbqqJshR7shzxenwCQQCXnbW3uQ2TcTRyhjZ: {
+    mobile: muxHls('JNhj00XWMFk2ooHAyzAW200NyCh9pnH02dHrgFkuZzdY6M'),
+    desktop: muxHls('JNhj00XWMFk2ooHAyzAW200NyCh9pnH02dHrgFkuZzdY6M'),
+  },
+  // BLUE! #2 — Alchemy nft2-cdn animation hash
+  '37f5d5d172be653a33b7390d53e91117_animation': {
+    mobile: muxHls('JNhj00XWMFk2ooHAyzAW200NyCh9pnH02dHrgFkuZzdY6M'),
+    desktop: muxHls('JNhj00XWMFk2ooHAyzAW200NyCh9pnH02dHrgFkuZzdY6M'),
+  },
 };
 
 /** Alchemy NFT CDN media filename, e.g. 7d1b91517fd57375c124c9f8b6a66a2c_animation */

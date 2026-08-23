@@ -880,6 +880,8 @@ export const processMediaUrl = (url: string, fallbackUrl: string = '/default-nft
 export const PLAYBACK_STALL_MS = 2000;
 /** Only abandon a URL that is not actually downloading (see failover guard). */
 export const FIRST_BYTE_FAILOVER_MS = 8000;
+/** HLS (Mux) needs time for hls.js import + MSE attach before the first frame. */
+export const HLS_FIRST_BYTE_FAILOVER_MS = 25000;
 /** Faster hop when the URL is clearly a bare IPFS directory (often unreplicated). */
 export const IPFS_DIR_FAILOVER_MS = 3000;
 export const MAX_PLAYBACK_CANDIDATES = 6;

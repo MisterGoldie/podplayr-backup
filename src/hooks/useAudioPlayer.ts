@@ -47,6 +47,7 @@ import {
   shouldProbeIpfsDirectory,
   PLAYBACK_STALL_MS,
   FIRST_BYTE_FAILOVER_MS,
+  HLS_FIRST_BYTE_FAILOVER_MS,
   IPFS_DIR_FAILOVER_MS,
   clearNftMediaUrlCache,
 } from '../utils/media';
@@ -701,7 +702,11 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
         shouldProbeIpfsDirectory(currentUrlForTimer) &&
         !knownPlayMime.startsWith('audio/') &&
         !knownPlayMime.startsWith('video/');
-      const failoverMs = isIpfsDirCandidate ? IPFS_DIR_FAILOVER_MS : FIRST_BYTE_FAILOVER_MS;
+      const failoverMs = isHlsUrl(nextUrl)
+        ? HLS_FIRST_BYTE_FAILOVER_MS
+        : isIpfsDirCandidate
+          ? IPFS_DIR_FAILOVER_MS
+          : FIRST_BYTE_FAILOVER_MS;
       playbackDebug('play:try-url', {
         name: nft.name,
         index,
@@ -725,6 +730,21 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
         // Directory CIDs often sit in NETWORK_LOADING forever then 404 — don't
         // wait 30s+; hop to the next audio/video candidate.
         const hungIpfsDir = isIpfsDirCandidate;
+        const hlsUrl = isHlsUrl(playbackUrls[index]);
+
+        // hls.js attach looks paused at readyState 0 until MANIFEST_PARSED.
+        // The outer timer is already 25s for HLS — hop only if still silent.
+        if (hlsUrl) {
+          playbackDebug('play:failover', {
+            name: nft.name,
+            from: playbackUrls[index],
+            reason: 'hls-no-first-frame',
+            hungIpfsDir,
+            media: mediaDebugSnapshot(media),
+          });
+          tryUrl(index + 1);
+          return;
+        }
 
         // Huge Arweave MP4s stay at readyState 0 for a long time while bytes
         // are in flight. networkState 2 = actually downloading — do not abort
@@ -733,14 +753,6 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
           !hungIpfsDir &&
           (media.networkState === HTMLMediaElement.NETWORK_LOADING || !media.paused)
         ) {
-          if (isHlsUrl(playbackUrls[index]) && isHlsAttached()) {
-            failoverTimerRef.current = setTimeout(() => {
-              if (playAttempt !== playAttemptRef.current || playbackStarted) return;
-              if (media.readyState > 0 || media.currentTime > 0) return;
-              tryUrl(index + 1);
-            }, 25000);
-            return;
-          }
           failoverTimerRef.current = setTimeout(() => {
             if (playAttempt !== playAttemptRef.current || playbackStarted) return;
             if (media.readyState > 0) return;
@@ -751,6 +763,7 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
         playbackDebug('play:failover', {
           name: nft.name,
           from: playbackUrls[index],
+          reason: hungIpfsDir ? 'ipfs-dir' : 'no-bytes',
           hungIpfsDir,
           media: mediaDebugSnapshot(media),
         });
@@ -774,6 +787,7 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
           error: attachErr instanceof Error ? attachErr.message : String(attachErr),
           media: mediaDebugSnapshot(media),
         });
+        tryUrl(index + 1);
       });
     };
 
