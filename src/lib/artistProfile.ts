@@ -60,15 +60,30 @@ export async function getArtistProfilePreviews(
 
   for (const fid of unique) {
     const cached = previewCache.get(fid);
-    if (cached?.pfpUrl) result.set(fid, cached);
+    if (cached?.pfpUrl || cached?.username) result.set(fid, cached);
     else missing.push(fid);
   }
 
-  const key = process.env.NEXT_PUBLIC_NEYNAR_API_KEY;
-  if (!key || missing.length === 0) return result;
+  if (missing.length === 0) return result;
 
-  for (let i = 0; i < missing.length; i += 50) {
-    const batch = missing.slice(i, i + 50);
+  const stillMissing: number[] = [];
+  await Promise.all(
+    missing.map(async (fid) => {
+      const fromFirebase = await previewFromFirebase(fid).catch(() => null);
+      if (fromFirebase?.pfpUrl || fromFirebase?.username) {
+        previewCache.set(fid, fromFirebase);
+        result.set(fid, fromFirebase);
+        return;
+      }
+      stillMissing.push(fid);
+    })
+  );
+
+  const key = process.env.NEXT_PUBLIC_NEYNAR_API_KEY;
+  if (!key || stillMissing.length === 0) return result;
+
+  for (let i = 0; i < stillMissing.length; i += 50) {
+    const batch = stillMissing.slice(i, i + 50);
     try {
       const res = await fetch(`https://api.neynar.com/v2/farcaster/user/bulk?fids=${batch.join(',')}`, {
         headers: { accept: 'application/json', api_key: key },

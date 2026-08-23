@@ -16,6 +16,8 @@ import {
 import { getMusicVideoArtist } from '../../data/musicVideoArtists';
 import { getArtistProfilePreview } from '../../lib/artistProfile';
 import { NFTImage } from '../media/NFTImage';
+import { useNftLikers, type NftLiker } from '../../hooks/useNftLikers';
+import ProfileAvatar from '../user/ProfileAvatar';
 
 interface InfoPanelProps {
   nft: NFT;
@@ -51,12 +53,78 @@ function isSimpleValue(value: unknown): value is string | number | boolean {
   return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean';
 }
 
+function likerLabel(liker: NftLiker): string {
+  if (liker.isCurrentUser) return 'you';
+  if (liker.username) return `@${liker.username}`;
+  if (liker.displayName) return liker.displayName;
+  return `fid ${liker.fid}`;
+}
+
+function LikedByRow({
+  likers,
+  likesCount,
+  onOpen,
+}: {
+  likers: NftLiker[];
+  likesCount: number;
+  onOpen?: (fid: number) => void;
+}) {
+  if (likers.length === 0) return null;
+
+  const showAllNames = likesCount > 0 && likesCount <= 3 && likers.length >= Math.min(likesCount, 3);
+  const named = showAllNames ? likers.slice(0, Math.min(3, likesCount || likers.length)) : likers.slice(0, 2);
+  const others = showAllNames ? 0 : Math.max(0, likesCount - named.length);
+
+  return (
+    <div className="mt-3 flex items-center gap-2.5 rounded-2xl bg-black/40 border border-purple-400/15 px-3 py-2.5">
+      <div className="flex -space-x-2 flex-shrink-0">
+        {likers.slice(0, 3).map((liker, index) => (
+          <button
+            key={liker.fid}
+            type="button"
+            onClick={() => onOpen?.(liker.fid)}
+            disabled={!onOpen}
+            className="relative rounded-full ring-2 ring-gray-900 disabled:opacity-80"
+            style={{ zIndex: 10 - index }}
+            aria-label={likerLabel(liker)}
+          >
+            <ProfileAvatar src={liker.pfpUrl} alt={likerLabel(liker)} size={22} />
+          </button>
+        ))}
+      </div>
+      <p className="text-xs text-gray-300 leading-snug min-w-0">
+        <span className="text-purple-300/80">Liked by </span>
+        {named.map((liker, index) => (
+          <span key={liker.fid}>
+            {index > 0 && (index === named.length - 1 && others === 0 ? ' and ' : ', ')}
+            <button
+              type="button"
+              className="font-medium text-white hover:text-purple-200 disabled:hover:text-white"
+              onClick={() => onOpen?.(liker.fid)}
+              disabled={!onOpen}
+            >
+              {likerLabel(liker)}
+            </button>
+          </span>
+        ))}
+        {others > 0 && (
+          <>
+            {named.length > 0 ? ' and ' : ''}
+            {others.toLocaleString()} other{others === 1 ? '' : 's'}
+          </>
+        )}
+      </p>
+    </div>
+  );
+}
+
 const InfoPanel: React.FC<InfoPanelProps> = ({ nft, onClose, isLiked = false, onOpenArtistProfile }) => {
   const { playCount, loading, realCountIncrease } = useNFTPlayCount(nft);
   const { likesCount, isLoading: likesLoading } = useNFTLikeState(nft, null, {
     watchIsLiked: false,
     liveCount: true,
   });
+  const { likers } = useNftLikers(nft, isLiked, likesCount);
   const { hasBeenInTopPlayed, loading: topPlayedLoading } = useNFTTopPlayed(nft);
   const [isClosing, setIsClosing] = useState(false);
   const [isPlayCountAnimating, setIsPlayCountAnimating] = useState(false);
@@ -298,6 +366,19 @@ const InfoPanel: React.FC<InfoPanelProps> = ({ nft, onClose, isLiked = false, on
               </div>
             )}
           </div>
+
+          <LikedByRow
+            likers={likers}
+            likesCount={likesCount}
+            onOpen={
+              onOpenArtistProfile
+                ? (fid) => {
+                    onOpenArtistProfile(fid);
+                    handleClose();
+                  }
+                : undefined
+            }
+          />
 
           <div className="mt-4 space-y-4">
             {description && (
