@@ -50,6 +50,7 @@ import {
   HLS_FIRST_BYTE_FAILOVER_MS,
   IPFS_DIR_FAILOVER_MS,
   clearNftMediaUrlCache,
+  isIpfsCorsHostileUrl,
 } from '../utils/media';
 import { resolveCdnPlaybackUrls } from '../lib/mediaCdn';
 import { attachPlaybackSource, detachHlsPlayback, isHlsAttached, isHlsUrl, pauseHlsBuffering, resumeHlsBuffering } from '../lib/hlsPlayback';
@@ -81,6 +82,7 @@ import {
   urlLooksLike3dModel,
   urlLooksLikeImage,
   getCachedMediaMime,
+  rememberMediaMime,
 } from '../utils/isMediaNFT';
 import { logger } from '../utils/logger';
 import { useToast } from './useToast';
@@ -326,12 +328,42 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       mime: nft.metadata?.mimeType || nft.metadata?.mime_type,
       mediaKey: nft.mediaKey,
     });
+
+    // Pause/resume must not wait on Alchemy or MIME probes.
+    if (currentlyPlaying === `${nft.contract}-${nft.tokenId}`) {
+      const clock = visualPlaybackRef.current || audioRef.current;
+      const atEnd = Boolean(
+        clock &&
+          (clock.ended ||
+            (Number.isFinite(clock.duration) &&
+              clock.duration > 0 &&
+              clock.currentTime >= clock.duration - 0.35))
+      );
+      if (!atEnd) {
+        audioLogger.info('Same NFT clicked, toggling play/pause');
+        handlePlayPause();
+        return;
+      }
+    }
+
     reviveNftMedia(nft, 'audio');
+
+    const mediaKeyForMemory = nft.mediaKey || getMediaKey(nft);
+    const rememberedPlaybackUrl = (() => {
+      const url = getRememberedMediaUrl(mediaKeyForMemory, 'audio');
+      if (!url || url.startsWith('blob:')) return null;
+      if (isIpfsCorsHostileUrl(url)) {
+        forgetMediaUrl(mediaKeyForMemory, 'audio');
+        return null;
+      }
+      return url;
+    })();
 
     // Likes / recently-played often store raw IPFS URLs. When public gateways
     // hang or 404, Alchemy still has cached CDN copies — refresh via /api/nft.
+    // Skip that round-trip when this file already played from a known-good URL.
     let playNft = nft;
-    if (nftNeedsChainMediaEnrich(nft)) {
+    if (nftNeedsChainMediaEnrich(nft) && !rememberedPlaybackUrl) {
       playNft = await enrichNftMediaFromChain(nft);
       playbackDebug('play:enrich', {
         name: nft.name,
@@ -354,6 +386,11 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
           collection: playNft.collection,
         });
       }
+    } else if (rememberedPlaybackUrl) {
+      playbackDebug('play:skip-enrich', {
+        name: nft.name,
+        remembered: rememberedPlaybackUrl,
+      });
     }
 
     // Extensionless CIDs can be audio (Late #7) or video (Community.eth).
@@ -376,12 +413,30 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     const knownMime = String(
       playNft.metadata?.mimeType || playNft.metadata?.mime_type || ''
     ).toLowerCase();
+    const cachedMime = (
+      getCachedMediaMime(probeUrl) ||
+      getCachedMediaMime(rememberedPlaybackUrl) ||
+      knownMime
+    ).toLowerCase();
     const skipMimeProbe =
+      Boolean(rememberedPlaybackUrl) ||
       /nft2-cdn\.alchemy\.com|nft-cdn\.alchemy\.com/i.test(probeUrl || '') ||
-      knownMime.startsWith('audio/') ||
-      knownMime.startsWith('video/');
+      cachedMime.startsWith('audio/') ||
+      cachedMime.startsWith('video/');
     if (mediaUrlNeedsMimeProbe(probeUrl) && !skipMimeProbe) {
       plan = await resolveNftPlaybackPlan(playNft);
+    } else if (
+      cachedMime.startsWith('video/') &&
+      plan.mode === 'audio-only' &&
+      (plan.audioUrl || probeUrl || rememberedPlaybackUrl)
+    ) {
+      const videoUrl = plan.audioUrl || probeUrl || rememberedPlaybackUrl;
+      plan = {
+        mode: 'video-with-audio',
+        audioUrl: videoUrl,
+        videoUrl,
+        muteVideo: false,
+      };
     }
     applyPlaybackPlanToNft(playNft, plan);
     applyPlaybackPlanToNft(nft, plan);
@@ -428,11 +483,10 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       return;
     }
 
-    const mediaKeyForMemory = nft.mediaKey || getMediaKey(nft);
     const cdnUrls = resolveCdnPlaybackUrls(rawAudioUrl, { mobile: isMobile });
     let playbackUrls = filterLivePlaybackUrls(
       rawAudioUrl,
-      prioritizeRememberedUrl(mediaKeyForMemory, 'audio', audioUrls)
+      audioUrls
         .map(canonicalizeArweaveGatewayUrl)
         .filter((url, index, list) => url && list.indexOf(url) === index)
     );
@@ -442,6 +496,12 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
         ...playbackUrls.filter((url) => !cdnUrls.includes(url)),
       ];
     }
+    // Remembered URL wins over Alchemy CDN reorder — second play should not
+    // walk every gateway again.
+    playbackUrls = filterLivePlaybackUrls(
+      rawAudioUrl,
+      prioritizeRememberedUrl(mediaKeyForMemory, 'audio', playbackUrls)
+    );
     playbackDebug('play:urls', {
       name: playNft.name,
       planMode: plan.mode,
@@ -449,28 +509,8 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       audioUrls,
       cdnUrls,
       playbackUrls,
-      remembered: getRememberedMediaUrl(mediaKeyForMemory, 'audio'),
+      remembered: rememberedPlaybackUrl,
     });
-
-
-
-    // If same NFT is clicked: pause/resume mid-track; restart when ended so a
-    // new play session can hit the 25% play-count threshold again.
-    if (currentlyPlaying === `${nft.contract}-${nft.tokenId}`) {
-      const clock = visualPlaybackRef.current || audioRef.current;
-      const atEnd = Boolean(
-        clock &&
-          (clock.ended ||
-            (Number.isFinite(clock.duration) &&
-              clock.duration > 0 &&
-              clock.currentTime >= clock.duration - 0.35))
-      );
-      if (!atEnd) {
-        audioLogger.info('Same NFT clicked, toggling play/pause');
-        handlePlayPause();
-        return;
-      }
-    }
 
     playAttemptRef.current += 1;
     const playAttempt = playAttemptRef.current;
@@ -665,6 +705,8 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       });
     };
 
+    let rememberedGateway = false;
+
     const tryUrl = (index: number) => {
       if (playAttempt !== playAttemptRef.current) {
         return;
@@ -682,6 +724,7 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       }
 
       urlIndex = index;
+      rememberedGateway = false;
       playbackStarted = false;
       clearStall();
       switchingUrl = true;
@@ -861,6 +904,21 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       }
     };
 
+    const rememberCurrentGateway = () => {
+      if (rememberedGateway) return;
+      const playingUrl = playbackUrls[urlIndex];
+      const toRemember = isHlsUrl(playingUrl) ? playingUrl : (media.currentSrc || media.src);
+      if (!toRemember || toRemember.startsWith('blob:')) return;
+      rememberedGateway = true;
+      rememberWorkingMediaUrl(mediaKey, 'audio', toRemember);
+      if (media instanceof HTMLVideoElement) {
+        const existingMime = getCachedMediaMime(toRemember);
+        if (!existingMime || existingMime.startsWith('audio/')) {
+          rememberMediaMime(toRemember, 'video/mp4');
+        }
+      }
+    };
+
     media.onplaying = () => {
       if (playAttempt !== playAttemptRef.current) return;
       playbackStarted = true;
@@ -872,24 +930,18 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
         media: mediaDebugSnapshot(media),
       });
       startCompanionVideo();
+      rememberCurrentGateway();
     };
 
     let firstProgressLogged = false;
-    let rememberedGateway = false;
     media.ontimeupdate = () => {
       if (playAttempt !== playAttemptRef.current) return;
       if (!firstProgressLogged && media.currentTime > 0) {
         firstProgressLogged = true;
       }
       setAudioProgress(media.currentTime);
-      // Only remember a gateway after it has actually streamed, not on the first frame.
-      if (!rememberedGateway && media.currentTime >= 5) {
-        rememberedGateway = true;
-        const playingUrl = playbackUrls[urlIndex];
-        const toRemember = isHlsUrl(playingUrl) ? playingUrl : (media.currentSrc || media.src);
-        if (toRemember && !toRemember.startsWith('blob:')) {
-          rememberWorkingMediaUrl(mediaKey, 'audio', toRemember);
-        }
+      if (media.currentTime > 0) {
+        rememberCurrentGateway();
       }
 
       const knownDuration = Number.isFinite(media.duration) && media.duration > 0;
