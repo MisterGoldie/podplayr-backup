@@ -15,8 +15,6 @@ import { useUserImages } from '../../contexts/UserImageContext';
 import FollowsModal from '../FollowsModal';
 import PrivacyPolicyModal from '../PrivacyPolicyModal';
 import { useNFTNotification } from '../../context/NFTNotificationContext';
-// Remove this import since we're not using the cache
-// import { useNFTCache } from '../../contexts/NFTCacheContext';
 import { UserProfileNFTGrid } from '../nft/UserProfileNFTGrid';
 import { getBioText } from '../../utils/format';
 import { UserFidContext } from '../../app/providers';
@@ -131,7 +129,6 @@ const ProfileView: React.FC<ProfileViewProps> = ({
   const loadingLikedNFTs = useRef(false);
   const loadingFollowCounts = useRef(false);
 
-  // Replace NFT cache with direct NFT state
   const [allUserNFTs, setAllUserNFTs] = useState<NFT[]>([]);
   
   // Apply permissive filtering to all NFTs
@@ -139,11 +136,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({
     return filterMediaNFTs(allUserNFTs);
   }, [allUserNFTs]);
 
-  // Remove NFT cache usage - we're not using it anymore
-  // const { userNFTs: cachedNFTs, isLoading: isCacheLoading, error: cacheError, refreshUserNFTs, lastUpdated } = useNFTCache();
-  
-  // Combined error state that shows either local error or cache error
-  const combinedError = error; // Remove cacheError since we're not using cache
+  const combinedError = error;
 
   // Add this function to handle follow status changes from the modal
   const handleFollowStatusChange = (newStatus: boolean, targetFid: number) => {
