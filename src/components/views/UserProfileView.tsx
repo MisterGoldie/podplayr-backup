@@ -13,7 +13,8 @@ import { logger } from '../../utils/logger';
 import { useUserProfileBackground } from '../../hooks/useUserProfileBackground';
 import UserInfoPanel from '../user/UserInfoPanel';
 import { isENSUserObject } from '../../utils/ensUtils';
-import { isAcylMember, isOfficialAccount, isPodMember, officialAccountDisplayName } from '../../constants/community';
+import { officialAccountDisplayName } from '../../constants/community';
+import { CommunityPills } from '../user/CommunityPills';
 import { getBioText } from '../../utils/format';
 import { ShareProfileButton } from '../ShareProfileButton';
 
@@ -440,25 +441,7 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
               )}
             </div>
             <div className="flex flex-wrap items-center gap-1.5 pb-2 min-w-0">
-              {isENSUserObject(user) && (
-                <span className="text-[10px] px-2 py-0.5 bg-blue-500/20 text-blue-300 rounded-full">ENS</span>
-              )}
-              {user?.fid && isPodMember(user.fid) && (
-                <span className="text-[10px] px-2 py-0.5 bg-purple-500/20 text-purple-300 rounded-full">thepod</span>
-              )}
-              {user?.fid && isOfficialAccount(user.fid) && (
-                <span className="text-[10px] px-2 py-0.5 bg-purple-800/40 text-purple-200 rounded-full">Official</span>
-              )}
-              {user?.fid && isAcylMember(user.fid) && (
-                <span
-                  className="text-[10px] px-2 py-0.5 rounded-full text-white/90"
-                  style={{
-                    background: 'linear-gradient(90deg, rgba(255,0,0,0.25) 0%, rgba(255,154,0,0.25) 40%, rgba(79,220,74,0.25) 100%)',
-                  }}
-                >
-                  ACYL
-                </span>
-              )}
+              <CommunityPills fid={user?.fid} isEns={isENSUserObject(user)} />
             </div>
           </div>
 

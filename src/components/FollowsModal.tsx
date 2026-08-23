@@ -9,6 +9,7 @@ import { useFollowNotification } from '../hooks/useFollowNotification';
 import { getArtistProfilePreviews } from '../lib/artistProfile';
 import ProfileAvatar from './user/ProfileAvatar';
 import { isOfficialAccount, officialAccountDisplayName } from '../constants/community';
+import { CommunityPills } from './user/CommunityPills';
 
 interface FollowsModalProps {
   isOpen: boolean;
@@ -273,6 +274,7 @@ const FollowsModal: React.FC<FollowsModalProps> = ({
                               {user.username ? (
                                 <p className="text-xs text-white/45 truncate">@{user.username}</p>
                               ) : null}
+                              <CommunityPills fid={user.fid} className="mt-1" />
                             </div>
                           </button>
 
@@ -299,12 +301,6 @@ const FollowsModal: React.FC<FollowsModalProps> = ({
                                 'Follow'
                               )}
                             </button>
-                          )}
-
-                          {isOfficial && (
-                            <span className="flex-shrink-0 text-[10px] px-2 py-0.5 bg-purple-800/40 text-purple-200 rounded-full">
-                              Official
-                            </span>
                           )}
                         </div>
                       </li>

@@ -23,6 +23,7 @@ import { SUGGESTED_MUSIC_VIDEOS } from '../../data/suggestedMusicVideos';
 import { getMediaKey } from '../../utils/media';
 import type { NFT } from '../../types/nft';
 import ProfileAvatar from '../user/ProfileAvatar';
+import { CommunityPills } from '../user/CommunityPills';
 
 type ExploreFilter = 'all' | 'farcaster' | 'ens';
 
@@ -269,30 +270,12 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
   const showDiscovery = searchResults.length === 0 && !isSearching;
 
   const renderBadges = (user: { fid: number; isENS?: boolean }) => (
-    <div className="flex flex-wrap items-center gap-1.5 mt-1">
-      {followedUsers[user.fid] && (
-        <span className="text-[10px] px-2 py-0.5 bg-green-500/20 text-green-400 rounded-full">Following</span>
-      )}
-      {user.isENS && (
-        <span className="text-[10px] px-2 py-0.5 bg-blue-500/20 text-blue-300 rounded-full">ENS</span>
-      )}
-      {isPodMember(user.fid) && (
-        <span className="text-[10px] px-2 py-0.5 bg-purple-500/20 text-purple-300 rounded-full">thepod</span>
-      )}
-      {isOfficialAccount(user.fid) && (
-        <span className="text-[10px] px-2 py-0.5 bg-purple-800/40 text-purple-200 rounded-full">Official</span>
-      )}
-      {isAcylMember(user.fid) && (
-        <span
-          className="text-[10px] px-2 py-0.5 rounded-full text-white/90"
-          style={{
-            background: 'linear-gradient(90deg, rgba(255,0,0,0.25) 0%, rgba(255,154,0,0.25) 40%, rgba(79,220,74,0.25) 100%)',
-          }}
-        >
-          ACYL
-        </span>
-      )}
-    </div>
+    <CommunityPills
+      fid={user.fid}
+      isEns={user.isENS}
+      isFollowing={Boolean(followedUsers[user.fid])}
+      className="mt-1"
+    />
   );
 
   const renderAvatar = (user: { fid: number; username?: string; display_name?: string; pfp_url?: string; isENS?: boolean }, size = 56) => (
@@ -573,7 +556,7 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
             )}
 
             {filter !== 'ens' && renderMusicVideosRail()}
-            {filter !== 'ens' && renderRail('thepod', podUsers)}
+            {filter !== 'ens' && renderRail('THEPOD', podUsers)}
             {filter !== 'ens' && renderRail('ACYL', acylUsers)}
             {effectiveUserFid > 0 && filter !== 'ens' && circleOverlap.length > 0 && renderRail('In your circle', circleOverlap)}
             {effectiveUserFid > 0 && renderRail('People you follow', filteredFollowing, filter === 'ens' ? undefined : 'Follow someone to see them here.')}

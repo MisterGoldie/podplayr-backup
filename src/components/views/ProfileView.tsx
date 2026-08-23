@@ -17,11 +17,11 @@ import { useNFTNotification } from '../../context/NFTNotificationContext';
 // Remove this import since we're not using the cache
 // import { useNFTCache } from '../../contexts/NFTCacheContext';
 import { UserProfileNFTGrid } from '../nft/UserProfileNFTGrid';
-import { isAcylMember, isOfficialAccount, isPodMember } from '../../constants/community';
 import { getBioText } from '../../utils/format';
 import { UserFidContext } from '../../app/providers';
 import { BaseAppSignIn } from '../auth/BaseAppSignIn';
 import { ShareProfileButton } from '../ShareProfileButton';
+import { CommunityPills } from '../user/CommunityPills';
 
 interface ProfileViewProps {
   farcasterContext: {
@@ -493,24 +493,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({
               )}
             </div>
             {userFid ? (
-              <div className="flex flex-wrap items-center gap-1.5 pb-2">
-                {isPodMember(userFid) && (
-                  <span className="text-[10px] px-2 py-0.5 bg-purple-500/20 text-purple-300 rounded-full">thepod</span>
-                )}
-                {isOfficialAccount(userFid) && (
-                  <span className="text-[10px] px-2 py-0.5 bg-purple-800/40 text-purple-200 rounded-full">Official</span>
-                )}
-                {isAcylMember(userFid) && (
-                  <span
-                    className="text-[10px] px-2 py-0.5 rounded-full text-white/90"
-                    style={{
-                      background: 'linear-gradient(90deg, rgba(255,0,0,0.25) 0%, rgba(255,154,0,0.25) 40%, rgba(79,220,74,0.25) 100%)',
-                    }}
-                  >
-                    ACYL
-                  </span>
-                )}
-              </div>
+              <CommunityPills fid={userFid} className="pb-2" />
             ) : null}
           </div>
 

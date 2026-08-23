@@ -3,7 +3,8 @@
 import React, { useEffect, useState } from 'react';
 import Image from 'next/image';
 import type { FarcasterUser } from '../../types/user';
-import { isAcylMember, isOfficialAccount, isPodMember, officialAccountDisplayName } from '../../constants/community';
+import { officialAccountDisplayName } from '../../constants/community';
+import { CommunityPills } from './CommunityPills';
 import { isENSUserObject } from '../../utils/ensUtils';
 import { getBioText } from '../../utils/format';
 
@@ -96,25 +97,7 @@ const UserInfoPanel: React.FC<UserInfoPanelProps> = ({
                   </p>
                 )}
                 <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                  {isEns && (
-                    <span className="text-[10px] px-2 py-0.5 bg-blue-500/20 text-blue-300 rounded-full">ENS</span>
-                  )}
-                  {user.fid > 0 && isPodMember(user.fid) && (
-                    <span className="text-[10px] px-2 py-0.5 bg-purple-500/20 text-purple-300 rounded-full">thepod</span>
-                  )}
-                  {user.fid > 0 && isOfficialAccount(user.fid) && (
-                    <span className="text-[10px] px-2 py-0.5 bg-purple-800/40 text-purple-200 rounded-full">Official</span>
-                  )}
-                  {user.fid > 0 && isAcylMember(user.fid) && (
-                    <span
-                      className="text-[10px] px-2 py-0.5 rounded-full text-white/90"
-                      style={{
-                        background: 'linear-gradient(90deg, rgba(255,0,0,0.25) 0%, rgba(255,154,0,0.25) 40%, rgba(79,220,74,0.25) 100%)',
-                      }}
-                    >
-                      ACYL
-                    </span>
-                  )}
+                  <CommunityPills fid={user.fid} isEns={isEns} />
                 </div>
               </div>
             </div>

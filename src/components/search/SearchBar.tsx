@@ -6,7 +6,8 @@ import { UserFidContext } from '../../app/providers';
 import { trackENSUserSearch } from '../../lib/firebase';
 import { resolveEnsAddress, getEnsProfile } from '../../lib/ens';
 import { logger } from '../../utils/logger';
-import { isAcylMember, isOfficialAccount, isPodMember, officialAccountDisplayName } from '../../constants/community';
+import { officialAccountDisplayName } from '../../constants/community';
+import { CommunityPills } from '../user/CommunityPills';
 
 interface SearchBarProps {
   onSearch: (username: string) => void;
@@ -232,25 +233,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onSearch, isSearching, han
                   {suggestion.isENS ? suggestion.username : `@${suggestion.username}`}
                 </div>
                 <div className="flex items-center gap-2 mt-1">
-                  {isPodMember(suggestion.fid) && (
-                    <span className="text-[10px] px-2 py-0.5 bg-purple-500/20 text-purple-300 rounded-full">
-                      thepod
-                    </span>
-                  )}
-                  {isOfficialAccount(suggestion.fid) && (
-                    <span className="text-[10px] px-2 py-0.5 bg-purple-800/40 text-purple-200 rounded-full">
-                      Official
-                    </span>
-                  )}
-                  {isAcylMember(suggestion.fid) && (
-                    <span className="text-[10px] px-2 py-0.5 rounded-full text-white/90"
-                      style={{
-                        background: 'linear-gradient(90deg, rgba(255,0,0,0.25) 0%, rgba(255,154,0,0.25) 40%, rgba(79,220,74,0.25) 100%)',
-                      }}
-                    >
-                      ACYL
-                    </span>
-                  )}
+                  <CommunityPills fid={suggestion.fid} />
                 </div>
               </div>
             </button>
