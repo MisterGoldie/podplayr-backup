@@ -71,8 +71,6 @@ const NFTGifImageInner: React.FC<NFTGifImageProps> = ({
 
     // Dedicated Pinata hosts often succeed for curated covers while the public
     // gateway hangs (and getNftMediaUrl rewrites mypinata → gateway.pinata).
-    const remembered = getRememberedMediaUrl(getMediaKey(nft), 'image');
-    if (remembered) push(remembered);
     for (const raw of [nft.image, nft.metadata?.image]) {
       if (raw && /\.mypinata\.cloud/i.test(raw)) push(raw);
     }
@@ -98,9 +96,6 @@ const NFTGifImageInner: React.FC<NFTGifImageProps> = ({
     const preferred = urls.filter((u) => shouldPreserveAnimation(u));
     const rest = urls.filter((u) => !shouldPreserveAnimation(u));
     const ordered = preferred.length ? [...preferred, ...rest] : urls;
-    if (remembered && ordered.includes(remembered)) {
-      return [remembered, ...ordered.filter((u) => u !== remembered)];
-    }
     return ordered.length ? ordered : ['/default-nft.png'];
   }, [nft.contract, nft.tokenId, nft.image, nft.metadata?.image, nft.name]);
 

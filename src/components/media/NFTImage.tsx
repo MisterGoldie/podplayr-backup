@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { processMediaUrl, IPFS_GATEWAYS, isAudioUrlUsedAsImage, getCleanIPFSUrl, processArweaveUrl, getMediaKey, buildArweaveImageFallbackUrls, buildIpfsFallbackUrls, buildHttpCdnImageFallbackUrls, extractIPFSPath, getNftMediaUrl, toIpfsGatewayUrl, clearNftMediaUrlCache, pickImageCandidates, shouldProbeIpfsDirectory, sanitizeMediaUrl, isIpfsCorsHostileUrl } from '../../utils/media';
+import { processMediaUrl, IPFS_GATEWAYS, isAudioUrlUsedAsImage, getCleanIPFSUrl, processArweaveUrl, getMediaKey, buildArweaveImageFallbackUrls, buildIpfsFallbackUrls, buildHttpCdnImageFallbackUrls, extractIPFSPath, getNftMediaUrl, toIpfsGatewayUrl, clearNftMediaUrlCache, pickImageCandidates, shouldProbeIpfsDirectory, sanitizeMediaUrl } from '../../utils/media';
 import { getCardThumbUrl, getCardThumbAlternates, shouldPreserveAnimation, nftHasAnimatedCover, isBrowserFriendlyCdnUrl, isArweaveMediaUrl, isIpfsMediaUrl, isVideoMediaUrl, isLikelyTokenVideoCoverUrl, getVideoCoverStillUrl } from '../../utils/imageOptimizer';
 import Image from 'next/image';
 import type { SyntheticEvent } from 'react';
@@ -344,12 +344,6 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       sanitizeMediaUrl(nft?.videoUrl) ||
       '';
     const isValidSrc = Boolean(derivedSrc);
-    const rememberedCover = nft ? getRememberedMediaUrl(getMediaKey(nft), 'image') : null;
-    const hasRememberedCover = Boolean(
-      rememberedCover &&
-      !rememberedCover.startsWith('blob:') &&
-      !isIpfsCorsHostileUrl(rememberedCover)
-    );
 
     // Resolve the URL we would display *before* resetting loading — if it already
     // decoded successfully, a re-resolve (e.g. metadataImage filling in) must NOT
@@ -449,10 +443,7 @@ export const NFTImage: React.FC<NFTImageProps> = ({
         clearNftMediaUrlCache(nft, 'image');
       }
 
-      if (hasRememberedCover && rememberedCover) {
-        processedUrlCache.current[cacheKey] = rememberedCover;
-        setImgSrc(toDisplaySrc(rememberedCover));
-      } else if (tokenVideoSrc) {
+      if (tokenVideoSrc) {
         processedUrlCache.current[cacheKey] = tokenVideoSrc;
         clearNftMediaUrlCache(nft, 'image');
         setImgSrc(toDisplaySrc(tokenVideoSrc));
@@ -536,7 +527,6 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       nft &&
       !alreadyLoaded &&
       !alchemyEnrichAttemptedRef.current &&
-      !hasRememberedCover &&
       (nftNeedsChainMediaEnrich(nft) || !isValidSrc)
     ) {
       alchemyEnrichAttemptedRef.current = true;
@@ -1429,22 +1419,10 @@ export const NFTImage: React.FC<NFTImageProps> = ({
     if (!loadedSrc || loadedSrc.includes('default-nft.png')) return;
     loadedOkSrcRef.current = loadedSrc;
     if (!nft) return;
-    const isThumbProxy = (url: string) =>
-      url.includes('wsrv.nl') || url.includes('images.weserv.nl') || url.includes('img-width=');
-    const mediaUrl =
-      originalUrlRef.current && !isThumbProxy(originalUrlRef.current)
-        ? originalUrlRef.current
-        : loadedSrc;
-    if (
-      !mediaUrl ||
-      mediaUrl.includes('default-nft.png') ||
-      mediaUrl.startsWith('blob:') ||
-      mediaUrl.startsWith('data:') ||
-      isThumbProxy(mediaUrl)
-    ) {
+    if (loadedSrc.includes('wsrv.nl') || loadedSrc.includes('images.weserv.nl') || loadedSrc.includes('img-width=')) {
       return;
     }
-    rememberWorkingMediaUrl(getMediaKey(nft), 'image', mediaUrl);
+    rememberWorkingMediaUrl(getMediaKey(nft), 'image', loadedSrc);
   };
 
   // SECURITY: Use proper URL validation for determining render method
@@ -1548,15 +1526,7 @@ export const NFTImage: React.FC<NFTImageProps> = ({
           if (vid.videoWidth > 0 || vid.readyState >= 2) {
             loadedOkSrcRef.current = finalSrc;
             if (nft) {
-              const isThumbProxy = (url: string) =>
-                url.includes('wsrv.nl') || url.includes('images.weserv.nl') || url.includes('img-width=');
-              const mediaUrl =
-                originalUrlRef.current && !isThumbProxy(originalUrlRef.current)
-                  ? originalUrlRef.current
-                  : finalSrc;
-              if (mediaUrl && !isThumbProxy(mediaUrl) && !mediaUrl.startsWith('blob:')) {
-                rememberWorkingMediaUrl(getMediaKey(nft), 'image', mediaUrl);
-              }
+              rememberWorkingMediaUrl(getMediaKey(nft), 'image', finalSrc);
             }
             return;
           }

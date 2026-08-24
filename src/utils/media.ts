@@ -1348,21 +1348,6 @@ export const getNftMediaUrl = (nft: UserNFT, mediaType: 'image' | 'audio'): stri
     !isAlchemyCdnMediaUrl(candidate) &&
     (!!extractIPFSPath(candidate) || /\/ipfs\//i.test(candidate));
 
-  const remembered = getRememberedMediaUrl(mediaKey, mediaType);
-  if (remembered) {
-    if (
-      !isPoisonedRaw(remembered) &&
-      !isPoisonedMypinata(remembered) &&
-      !isPoisonedHostileIpfs(remembered) &&
-      !isIpfsCorsHostileUrl(remembered)
-    ) {
-      if (!nftMediaUrlCache[cacheKey]) nftMediaUrlCache[cacheKey] = {};
-      nftMediaUrlCache[cacheKey][mediaType] = remembered;
-      return preferBrowserReachableMediaUrl(remembered);
-    }
-    forgetMediaUrl(mediaKey, mediaType);
-  }
-
   if (alchemyPreferred) {
     if (!nftMediaUrlCache[cacheKey]) nftMediaUrlCache[cacheKey] = {};
     nftMediaUrlCache[cacheKey][mediaType] = alchemyPreferred;
@@ -1380,6 +1365,24 @@ export const getNftMediaUrl = (nft: UserNFT, mediaType: 'image' | 'audio'): stri
       return preferBrowserReachableMediaUrl(cached);
     }
     delete nftMediaUrlCache[cacheKey][mediaType];
+    forgetMediaUrl(mediaKey, mediaType);
+  }
+
+  const remembered = getRememberedMediaUrl(mediaKey, mediaType);
+  if (remembered) {
+    // Single-tx Arweave images remembered as turbo /raw/ often hang; PODs
+    // (manifest/file) still need /raw/. Skip poisoned memory for plain txs.
+    // Dedicated mypinata hosts stall on large GIFs (Chili Sounds) — skip those too.
+    if (
+      !isPoisonedRaw(remembered) &&
+      !isPoisonedMypinata(remembered) &&
+      !isPoisonedHostileIpfs(remembered) &&
+      !isPoisonedStaleIpfs(remembered)
+    ) {
+      if (!nftMediaUrlCache[cacheKey]) nftMediaUrlCache[cacheKey] = {};
+      nftMediaUrlCache[cacheKey][mediaType] = remembered;
+      return preferBrowserReachableMediaUrl(remembered);
+    }
     forgetMediaUrl(mediaKey, mediaType);
   }
 
