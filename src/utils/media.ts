@@ -100,6 +100,14 @@ const looksLikeAudioFileUrl = (url: string): boolean =>
 
 const looksLikeVideoFileUrl = (url: string): boolean => VIDEO_FILE_EXT_RE.test(url);
 
+/** JPEG/PNG/etc or OpenSea i2c stills — never treat these as video covers. */
+export const looksLikeStillImageUrl = (url?: string | null): boolean => {
+  if (!url) return false;
+  if (/res\.cloudinary\.com\/alchemyapi\/video\/fetch/i.test(url)) return false;
+  if (IMAGE_FILE_EXT_RE.test(url)) return true;
+  return /i2c\.seadn\.io/i.test(url);
+};
+
 const normalizeMediaUrlKey = (url: string): string => {
   if (!url) return '';
   try {
@@ -249,8 +257,9 @@ export const pickImageCandidates = (nft: UserNFT | null | undefined): string[] =
       }
     }
   }
-  // Prefer token Alchemy / Nifty video over shared OpenSea collection art (i2c).
+  // Prefer a real still over the playback mp4 (PLATTER jpeg vs SeaDN video).
   const coverScore = (url: string): number => {
+    if (looksLikeStillImageUrl(url)) return 6;
     if (/niftyisland\.com/i.test(url) || looksLikeVideoFileUrl(url)) return 5;
     if (isAlchemyCdnMediaUrl(url)) return 4;
     if (/raw2?\.seadn\.io/i.test(url)) return 3;
@@ -1274,6 +1283,10 @@ export const getNftMediaUrl = (nft: UserNFT, mediaType: 'image' | 'audio'): stri
   const cacheKey = `${nft.contract}-${nft.tokenId}`;
   const mediaKey = getMediaKey(nft);
   const imageCandidates = mediaType === 'image' ? pickImageCandidates(nft) : [];
+  const stillPreferred =
+    mediaType === 'image'
+      ? [nft.image, nft.metadata?.image, ...imageCandidates].find((u) => looksLikeStillImageUrl(u))
+      : undefined;
   const alchemyPreferred =
     mediaType === 'image'
       ? [nft.image, ...imageCandidates].find((u) => isAlchemyCdnMediaUrl(u))
@@ -1281,10 +1294,10 @@ export const getNftMediaUrl = (nft: UserNFT, mediaType: 'image' | 'audio'): stri
           isAlchemyCdnMediaUrl(u)
         );
   // Prefer video cover from image fields only. Fall back to animation_url video
-  // only when there is no Alchemy still (otherwise Base House / Coinbase Pass
-  // cards flash the playback mp4 instead of the still).
+  // only when there is no still and no Alchemy still (otherwise PLATTER / Base
+  // House cards flash the playback mp4 instead of the jpeg).
   const imageTokenVideo =
-    mediaType === 'image'
+    mediaType === 'image' && !stillPreferred
       ? [nft.image, nft.metadata?.image].find(
           (u) =>
             !!u &&
@@ -1294,7 +1307,7 @@ export const getNftMediaUrl = (nft: UserNFT, mediaType: 'image' | 'audio'): stri
         )
       : undefined;
   const animTokenVideo =
-    mediaType === 'image' && !alchemyPreferred
+    mediaType === 'image' && !alchemyPreferred && !stillPreferred
       ? [nft.metadata?.animation_url, nft.animationUrl, nft.videoUrl].find(
           (u) =>
             !!u &&
@@ -1306,7 +1319,8 @@ export const getNftMediaUrl = (nft: UserNFT, mediaType: 'image' | 'audio'): stri
   const tokenVideoPreferred = imageTokenVideo || animTokenVideo;
   const rawSourceUrl =
     mediaType === 'image'
-      ? tokenVideoPreferred ||
+      ? stillPreferred ||
+        tokenVideoPreferred ||
         alchemyPreferred ||
         imageCandidates[0] ||
         nft.image ||
@@ -1348,7 +1362,14 @@ export const getNftMediaUrl = (nft: UserNFT, mediaType: 'image' | 'audio'): stri
     !isAlchemyCdnMediaUrl(candidate) &&
     (!!extractIPFSPath(candidate) || /\/ipfs\//i.test(candidate));
 
-  if (alchemyPreferred) {
+  const isPoisonedVideoCover = (candidate: string) =>
+    mediaType === 'image' &&
+    !!stillPreferred &&
+    (looksLikeVideoFileUrl(candidate) ||
+      /alchemyapi\/video\/fetch/i.test(candidate) ||
+      (/raw2?\.seadn\.io/i.test(candidate) && !IMAGE_FILE_EXT_RE.test(candidate)));
+
+  if (alchemyPreferred && !stillPreferred) {
     if (!nftMediaUrlCache[cacheKey]) nftMediaUrlCache[cacheKey] = {};
     nftMediaUrlCache[cacheKey][mediaType] = alchemyPreferred;
     return preferBrowserReachableMediaUrl(alchemyPreferred);
@@ -1360,7 +1381,8 @@ export const getNftMediaUrl = (nft: UserNFT, mediaType: 'image' | 'audio'): stri
       !isPoisonedRaw(cached) &&
       !isPoisonedMypinata(cached) &&
       !isPoisonedHostileIpfs(cached) &&
-      !isPoisonedStaleIpfs(cached)
+      !isPoisonedStaleIpfs(cached) &&
+      !isPoisonedVideoCover(cached)
     ) {
       return preferBrowserReachableMediaUrl(cached);
     }
@@ -1377,7 +1399,8 @@ export const getNftMediaUrl = (nft: UserNFT, mediaType: 'image' | 'audio'): stri
       !isPoisonedRaw(remembered) &&
       !isPoisonedMypinata(remembered) &&
       !isPoisonedHostileIpfs(remembered) &&
-      !isPoisonedStaleIpfs(remembered)
+      !isPoisonedStaleIpfs(remembered) &&
+      !isPoisonedVideoCover(remembered)
     ) {
       if (!nftMediaUrlCache[cacheKey]) nftMediaUrlCache[cacheKey] = {};
       nftMediaUrlCache[cacheKey][mediaType] = remembered;
