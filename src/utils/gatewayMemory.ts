@@ -1,7 +1,7 @@
 /**
- * Remembers which gateway URL actually worked for a given piece of NFT media,
- * so repeat plays/views skip straight past dead/slow gateways instead of
- * re-doing the same trial-and-error fallback cascade every time.
+ * Remembers which gateway URL actually worked for NFT images so repeat views
+ * skip dead/slow gateways. Audio/video playback does not use this — that
+ * 2nd-play skip kept racing Mux and Alchemy.
  *
  * Keyed by mediaKey (content identity) rather than contract/tokenId, so it
  * naturally applies across duplicate mints and reconstructed NFT objects.
@@ -50,6 +50,9 @@ const writeStore = (store: MemoryStore) => {
 
 /** Record that `url` successfully loaded for this piece of media. */
 export const rememberWorkingMediaUrl = (mediaKey: string, mediaType: MediaType, url: string): void => {
+  // Playback no longer remembers audio/video URLs. That skip-enrich path
+  // kept putting Turbo/Arweave in front of Mux on the next play.
+  if (mediaType !== 'image') return;
   if (!mediaKey || !url || url.startsWith('blob:')) return;
   const store = readStore();
   store[buildKey(mediaKey, mediaType)] = { url, ts: Date.now() };
@@ -58,6 +61,7 @@ export const rememberWorkingMediaUrl = (mediaKey: string, mediaType: MediaType, 
 
 /** Get the last known-good URL for this piece of media, if any. */
 export const getRememberedMediaUrl = (mediaKey: string, mediaType: MediaType): string | null => {
+  if (mediaType !== 'image') return null;
   if (!mediaKey) return null;
   const store = readStore();
   return store[buildKey(mediaKey, mediaType)]?.url ?? null;

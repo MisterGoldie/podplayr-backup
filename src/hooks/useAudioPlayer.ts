@@ -50,7 +50,6 @@ import {
   HLS_FIRST_BYTE_FAILOVER_MS,
   IPFS_DIR_FAILOVER_MS,
   clearNftMediaUrlCache,
-  isIpfsCorsHostileUrl,
 } from '../utils/media';
 import { resolveCdnPlaybackUrls } from '../lib/mediaCdn';
 import { attachPlaybackSource, detachHlsPlayback, isHlsAttached, isHlsUrl, pauseHlsBuffering, resumeHlsBuffering } from '../lib/hlsPlayback';
@@ -87,7 +86,6 @@ import {
 import { logger } from '../utils/logger';
 import { useToast } from './useToast';
 import { reviveNftMedia } from '../utils/deadNftRegistry';
-import { prioritizeRememberedUrl, rememberWorkingMediaUrl, forgetMediaUrl, getRememberedMediaUrl } from '../utils/gatewayMemory';
 import { enrichNftMediaFromChain, nftNeedsChainMediaEnrich } from '../lib/nft';
 import { mediaDebugSnapshot, playbackDebug } from '../utils/playbackDebug'; // TEMP — remove with playbackDebug.ts
 
@@ -348,22 +346,10 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
 
     reviveNftMedia(nft, 'audio');
 
-    const mediaKeyForMemory = nft.mediaKey || getMediaKey(nft);
-    const rememberedPlaybackUrl = (() => {
-      const url = getRememberedMediaUrl(mediaKeyForMemory, 'audio');
-      if (!url || url.startsWith('blob:')) return null;
-      if (isIpfsCorsHostileUrl(url)) {
-        forgetMediaUrl(mediaKeyForMemory, 'audio');
-        return null;
-      }
-      return url;
-    })();
-
     // Likes / recently-played often store raw IPFS URLs. When public gateways
     // hang or 404, Alchemy still has cached CDN copies — refresh via /api/nft.
-    // Skip that round-trip when this file already played from a known-good URL.
     let playNft = nft;
-    if (nftNeedsChainMediaEnrich(nft) && !rememberedPlaybackUrl) {
+    if (nftNeedsChainMediaEnrich(nft)) {
       playNft = await enrichNftMediaFromChain(nft);
       playbackDebug('play:enrich', {
         name: nft.name,
@@ -386,11 +372,6 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
           collection: playNft.collection,
         });
       }
-    } else if (rememberedPlaybackUrl) {
-      playbackDebug('play:skip-enrich', {
-        name: nft.name,
-        remembered: rememberedPlaybackUrl,
-      });
     }
 
     // Extensionless CIDs can be audio (Late #7) or video (Community.eth).
@@ -415,11 +396,9 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     ).toLowerCase();
     const cachedMime = (
       getCachedMediaMime(probeUrl) ||
-      getCachedMediaMime(rememberedPlaybackUrl) ||
       knownMime
     ).toLowerCase();
     const skipMimeProbe =
-      Boolean(rememberedPlaybackUrl) ||
       /nft2-cdn\.alchemy\.com|nft-cdn\.alchemy\.com/i.test(probeUrl || '') ||
       cachedMime.startsWith('audio/') ||
       cachedMime.startsWith('video/');
@@ -428,9 +407,9 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     } else if (
       cachedMime.startsWith('video/') &&
       plan.mode === 'audio-only' &&
-      (plan.audioUrl || probeUrl || rememberedPlaybackUrl)
+      (plan.audioUrl || probeUrl)
     ) {
-      const videoUrl = plan.audioUrl || probeUrl || rememberedPlaybackUrl;
+      const videoUrl = plan.audioUrl || probeUrl;
       plan = {
         mode: 'video-with-audio',
         audioUrl: videoUrl,
@@ -496,17 +475,6 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
         ...playbackUrls.filter((url) => !cdnUrls.includes(url)),
       ];
     }
-    // Remembered Arweave/IPFS is for 2nd-play failover, not for skipping Mux.
-    playbackUrls = filterLivePlaybackUrls(
-      rawAudioUrl,
-      prioritizeRememberedUrl(mediaKeyForMemory, 'audio', playbackUrls)
-    );
-    if (cdnUrls.length) {
-      playbackUrls = [
-        ...cdnUrls,
-        ...playbackUrls.filter((url) => !cdnUrls.includes(url)),
-      ];
-    }
     playbackDebug('play:urls', {
       name: playNft.name,
       planMode: plan.mode,
@@ -514,7 +482,6 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       audioUrls,
       cdnUrls,
       playbackUrls,
-      remembered: rememberedPlaybackUrl,
     });
 
     playAttemptRef.current += 1;
@@ -572,7 +539,6 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     });
     releaseOrphanPlaybackVideos(playbackVideoElementId(nft.contract, nft.tokenId));
 
-    const mediaKey = mediaKeyForMemory;
     recordRecentPlay(nft, fid).catch((error) => {
       audioLogger.error('Error recording recent play:', error);
     });
@@ -710,8 +676,6 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       });
     };
 
-    let rememberedGateway = false;
-
     const tryUrl = (index: number) => {
       if (playAttempt !== playAttemptRef.current) {
         return;
@@ -729,7 +693,6 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       }
 
       urlIndex = index;
-      rememberedGateway = false;
       playbackStarted = false;
       clearStall();
       switchingUrl = true;
@@ -864,10 +827,6 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
         rememberDeadGateway(rawAudioUrl, failedSrc);
       }
       playbackStarted = false;
-
-      if (failedSrc === getRememberedMediaUrl(mediaKey, 'audio')) {
-        forgetMediaUrl(mediaKey, 'audio');
-      }
       tryUrl(urlIndex + 1);
     };
 
@@ -903,24 +862,15 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
           return;
         }
         rememberDeadGateway(rawAudioUrl, failedSrc);
-        forgetMediaUrl(mediaKey, 'audio');
         playbackStarted = false;
         tryUrl(urlIndex + 1);
       }
     };
 
-    const rememberCurrentGateway = () => {
-      if (rememberedGateway) return;
+    const rememberPlayingMime = () => {
       const playingUrl = playbackUrls[urlIndex];
       const toRemember = isHlsUrl(playingUrl) ? playingUrl : (media.currentSrc || media.src);
       if (!toRemember || toRemember.startsWith('blob:')) return;
-      // Do not remember Turbo/Arweave when Mux is in the list — that is what
-      // made Topia Hour skip stream.mux.com on the next play.
-      if (cdnUrls.length && !cdnUrls.includes(toRemember) && !isHlsUrl(toRemember)) {
-        return;
-      }
-      rememberedGateway = true;
-      rememberWorkingMediaUrl(mediaKey, 'audio', toRemember);
       if (media instanceof HTMLVideoElement) {
         const existingMime = getCachedMediaMime(toRemember);
         if (!existingMime || existingMime.startsWith('audio/')) {
@@ -940,7 +890,7 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
         media: mediaDebugSnapshot(media),
       });
       startCompanionVideo();
-      rememberCurrentGateway();
+      rememberPlayingMime();
     };
 
     let firstProgressLogged = false;
@@ -951,7 +901,7 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       }
       setAudioProgress(media.currentTime);
       if (media.currentTime > 0) {
-        rememberCurrentGateway();
+        rememberPlayingMime();
       }
 
       const knownDuration = Number.isFinite(media.duration) && media.duration > 0;
