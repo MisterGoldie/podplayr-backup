@@ -496,12 +496,17 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
         ...playbackUrls.filter((url) => !cdnUrls.includes(url)),
       ];
     }
-    // Remembered URL wins over Alchemy CDN reorder — second play should not
-    // walk every gateway again.
+    // Remembered Arweave/IPFS is for 2nd-play failover, not for skipping Mux.
     playbackUrls = filterLivePlaybackUrls(
       rawAudioUrl,
       prioritizeRememberedUrl(mediaKeyForMemory, 'audio', playbackUrls)
     );
+    if (cdnUrls.length) {
+      playbackUrls = [
+        ...cdnUrls,
+        ...playbackUrls.filter((url) => !cdnUrls.includes(url)),
+      ];
+    }
     playbackDebug('play:urls', {
       name: playNft.name,
       planMode: plan.mode,
@@ -909,6 +914,11 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       const playingUrl = playbackUrls[urlIndex];
       const toRemember = isHlsUrl(playingUrl) ? playingUrl : (media.currentSrc || media.src);
       if (!toRemember || toRemember.startsWith('blob:')) return;
+      // Do not remember Turbo/Arweave when Mux is in the list — that is what
+      // made Topia Hour skip stream.mux.com on the next play.
+      if (cdnUrls.length && !cdnUrls.includes(toRemember) && !isHlsUrl(toRemember)) {
+        return;
+      }
       rememberedGateway = true;
       rememberWorkingMediaUrl(mediaKey, 'audio', toRemember);
       if (media instanceof HTMLVideoElement) {
