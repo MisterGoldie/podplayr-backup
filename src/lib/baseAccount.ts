@@ -1,4 +1,9 @@
 import { createBaseAccountSDK } from '@base-org/account/browser';
+import {
+  BUILDER_CODE_DATA_SUFFIX,
+  appendBuilderCode,
+  withBuilderCodeCapability,
+} from './builderCode';
 
 const BASE_CHAIN_ID = '0x2105';
 const WALLET_STORAGE_KEY = 'podplyr_wallet_address';
@@ -12,7 +17,33 @@ const getProvider = () => {
       appName: 'PODPLAYR',
       appLogoUrl: `${process.env.NEXT_PUBLIC_URL || ''}/splash.png`,
       appChainIds: [8453],
+      preference: {
+        attribution: { dataSuffix: BUILDER_CODE_DATA_SUFFIX },
+      },
     });
+    const provider = sdk.getProvider();
+    const originalRequest = provider.request.bind(provider);
+    provider.request = (async (args: { method: string; params?: unknown }) => {
+      const method = args?.method;
+      const params = args?.params;
+
+      if (method === 'wallet_sendCalls' && Array.isArray(params) && params[0]) {
+        return originalRequest({
+          ...args,
+          params: [withBuilderCodeCapability(params[0] as Record<string, unknown>)],
+        });
+      }
+
+      if (method === 'eth_sendTransaction' && Array.isArray(params) && params[0]) {
+        const tx = params[0] as { data?: string };
+        return originalRequest({
+          ...args,
+          params: [{ ...tx, data: appendBuilderCode(tx.data) }],
+        });
+      }
+
+      return originalRequest(args);
+    }) as typeof provider.request;
   }
   return sdk.getProvider();
 };
