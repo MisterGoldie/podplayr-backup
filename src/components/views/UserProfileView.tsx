@@ -8,6 +8,7 @@ import FollowsModal from '../FollowsModal';
 import FollowNotification from '../FollowNotification';
 import { useFollowNotification } from '../../hooks/useFollowNotification';
 import { filterPlayableMediaNFTs } from '../../utils/isMediaNFT';
+import { clearHiddenNfts, getHiddenNftCount, isNftHidden, subscribeToHiddenNfts } from '../../utils/hiddenNfts';
 import { VirtualizedNFTGrid } from '../nft/VirtualizedNFTGrid';
 import { logger } from '../../utils/logger';
 import { useUserProfileBackground } from '../../hooks/useUserProfileBackground';
@@ -102,14 +103,18 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
   const [isNFTsLoading, setIsNFTsLoading] = useState<boolean>(false);
   // Track if we've completed at least one full load cycle
   const [hasCompletedInitialLoad, setHasCompletedInitialLoad] = useState<boolean>(false);
+  const [hiddenRevision, setHiddenRevision] = useState(0);
+
+  useEffect(() => subscribeToHiddenNfts(() => setHiddenRevision((n) => n + 1)), []);
   
   // Filter NFTs to only show playable media (shared detector)
   const filteredNFTs = useMemo(() => {
     if (!nfts || nfts.length === 0) return [];
-    const filtered = filterPlayableMediaNFTs(nfts);
+    const filtered = filterPlayableMediaNFTs(nfts).filter((nft) => !isNftHidden(nft));
     nftLogger.info(`Showing ${filtered.length} media NFTs out of ${nfts.length} total NFTs on profile`);
     return filtered;
-  }, [nfts]);
+  }, [nfts, hiddenRevision]);
+  const hiddenCount = getHiddenNftCount();
   
   // Use a ref to track the current user FID for cancellation
   const currentLoadingFidRef = useRef<number | null>(null);
@@ -564,6 +569,17 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
               <p className="mt-4 text-purple-300 font-mono">Loading NFTs...</p>
             </div>
           )}
+          {hiddenCount > 0 ? (
+            <div className="text-center mt-4">
+              <button
+                type="button"
+                onClick={() => clearHiddenNfts()}
+                className="text-xs text-white/50 hover:text-white/80 underline touch-manipulation"
+              >
+                Restore {hiddenCount} hidden {hiddenCount === 1 ? 'NFT' : 'NFTs'}
+              </button>
+            </div>
+          ) : null}
         </div>
       </div>
     </>

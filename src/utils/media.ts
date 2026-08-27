@@ -13,6 +13,7 @@ import {
   preferBrowserReachableMediaUrl,
 } from './openSeaMedia';
 import { getMediaKey } from './nftIdentity';
+import { isDangerousResourceUrl } from './nftSafety';
 
 export {
   rewriteLegacyOpenSeaMediaUrl,
@@ -35,7 +36,9 @@ export const getCleanIPFSUrl = (url: string): string => {
 /** Metadata often has leading spaces / C0 controls (` ipfs://…`). Next/Image throws on those. */
 export const sanitizeMediaUrl = (url?: string | null): string => {
   if (!url || typeof url !== 'string') return '';
-  return url.replace(/^[\s\x00-\x1f\x7f]+|[\s\x00-\x1f\x7f]+$/g, '');
+  const cleaned = url.replace(/^[\s\x00-\x1f\x7f]+|[\s\x00-\x1f\x7f]+$/g, '');
+  if (!cleaned || isDangerousResourceUrl(cleaned)) return '';
+  return cleaned;
 };
 
 // Prefer gateways that currently resolve and serve NFT media reliably.
@@ -1088,6 +1091,7 @@ export function ensurePlaybackVideoElement(contract: string, tokenId: string): H
   video.preload = 'auto';
   video.muted = false;
   video.autoplay = false;
+  video.referrerPolicy = 'no-referrer';
   parkPlaybackVideo(video);
   document.body.appendChild(video);
   return video;

@@ -7,6 +7,7 @@ import {
   processMediaUrl,
 } from './media';
 import { isNftMediaDead } from './deadNftRegistry';
+import { isBlockedNftContract, isPhishingSpamNft, isUnsafePlaybackUrl } from './nftSafety';
 
 const AUDIO_EXT_RE = /\.(mp3|wav|m4a|aac|ogg|flac)(?:\?|#|$)/i;
 const VIDEO_EXT_RE = /\.(mp4|webm|mov|m4v)(?:\?|#|$)/i;
@@ -39,7 +40,10 @@ const collectUrls = (candidate: MediaCandidate): string[] => {
     meta?.properties?.animation_url,
   ];
 
-  return urls.filter((url): url is string => typeof url === 'string' && url.length > 0);
+  return urls.filter(
+    (url): url is string =>
+      typeof url === 'string' && url.length > 0 && !isUnsafePlaybackUrl(url)
+  );
 };
 
 const getMimeType = (candidate: MediaCandidate): string => {
@@ -156,6 +160,8 @@ export const hasPlayableVideo = (candidate: MediaCandidate | NFT): boolean =>
  */
 export const isPlayableMediaNFT = (candidate: MediaCandidate | NFT): boolean => {
   try {
+    if (isBlockedNftContract((candidate as NFT).contract)) return false;
+    if (isPhishingSpamNft(candidate as NFT)) return false;
     const mime = getMimeType(candidate);
     if (mimeLooksLike3d(mime) || mimeLooksLikeNonMedia(mime)) return false;
     const urls = collectUrls(candidate);
@@ -164,7 +170,12 @@ export const isPlayableMediaNFT = (candidate: MediaCandidate | NFT): boolean => 
     }
     const plan = getNftPlaybackPlan(candidate);
     const playUrl = plan.audioUrl || plan.videoUrl;
-    return Boolean(playUrl) && !urlLooksLike3dModel(playUrl) && !urlLooksLikeImage(playUrl);
+    return (
+      Boolean(playUrl) &&
+      !isUnsafePlaybackUrl(playUrl) &&
+      !urlLooksLike3dModel(playUrl) &&
+      !urlLooksLikeImage(playUrl)
+    );
   } catch {
     return false;
   }
@@ -195,6 +206,7 @@ export const pickRawMediaUrl = (metadata?: NFTMetadata | null): string => {
       (url): url is string =>
         typeof url === 'string' &&
         url.length > 0 &&
+        !isUnsafePlaybackUrl(url) &&
         !urlLooksLikeImage(url) &&
         !urlLooksLike3dModel(url)
     ) || ''
@@ -228,7 +240,7 @@ const firstUrl = (
   pred: (url: string) => boolean
 ): string | null => {
   for (const url of urls) {
-    if (typeof url === 'string' && url.length > 0 && pred(url)) return url;
+    if (typeof url === 'string' && url.length > 0 && !isUnsafePlaybackUrl(url) && pred(url)) return url;
   }
   return null;
 };
@@ -262,7 +274,7 @@ export const pickAnimationUrl = (candidate: MediaCandidate | NFT): string | null
     (typeof meta?.properties?.animation_url === 'string' && meta.properties.animation_url) ||
     (typeof typed.animationUrl === 'string' && typed.animationUrl) ||
     null;
-  return url && url.length > 0 ? url : null;
+  return url && url.length > 0 && !isUnsafePlaybackUrl(url) ? url : null;
 };
 
 /** Distinct video asset from metadata (never collapses into audio). */
@@ -279,6 +291,7 @@ export const pickVideoUrl = (candidate: MediaCandidate | NFT): string | null => 
   const dedicatedVideo = meta?.properties?.video;
   if (
     dedicatedVideo &&
+    !isUnsafePlaybackUrl(dedicatedVideo) &&
     !urlLooksLikeAudio(dedicatedVideo) &&
     !urlLooksLike3dModel(dedicatedVideo)
   ) {
@@ -360,6 +373,8 @@ export const getNftPlaybackPlan = (nft: MediaCandidate | NFT): NftPlaybackPlan =
 
   let videoUrl = pickVideoUrl(nft);
   let audioUrl = pickAudioUrl(nft);
+  if (isUnsafePlaybackUrl(videoUrl)) videoUrl = null;
+  if (isUnsafePlaybackUrl(audioUrl)) audioUrl = null;
   const animation = pickAnimationUrl(nft);
   const mime =
     getMimeType(nft) ||

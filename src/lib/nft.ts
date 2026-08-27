@@ -7,6 +7,7 @@ import {
   isPlayableMediaNFT,
   getNftPlaybackPlan,
 } from '../utils/isMediaNFT';
+import { isBlockedNftContract, isDangerousResourceUrl, isPhishingSpamNft } from '../utils/nftSafety';
 
 const PINATA_IPFS = 'https://gateway.pinata.cloud/ipfs/';
 
@@ -18,7 +19,7 @@ function processMediaUrlServer(
 ): string {
   if (!url || typeof url !== 'string') return '';
   url = url.replace(/^[\s\x00-\x1f\x7f]+|[\s\x00-\x1f\x7f]+$/g, '');
-  if (!url) return '';
+  if (!url || isDangerousResourceUrl(url)) return '';
   if (url.startsWith('ipfs://')) {
     return `${PINATA_IPFS}${url.slice(7).replace(/^ipfs\//, '')}`;
   }
@@ -649,13 +650,16 @@ export const fetchOwnedNftsFromAlchemy = async (address: string): Promise<NFT[]>
 
     
     // Fetch from both networks
+    // Do not pass excludeFilters[]=SPAM. Alchemy's spam heuristics false-positive
+    // independent music contracts (low marketplace volume, custom ERC, gift mints).
+    const ownedQuery = `owner=${address}&withMetadata=true&pageSize=100`;
     const [ethResponse, baseResponse] = await Promise.all([
       fetchAlchemyWithRetry(
-        `https://eth-mainnet.g.alchemy.com/v2/${alchemyKey}/getNFTs?owner=${address}&withMetadata=true&pageSize=100`
+        `https://eth-mainnet.g.alchemy.com/v2/${alchemyKey}/getNFTs?${ownedQuery}`
       ),
       fetchAlchemyWithRetry(
-        `https://base-mainnet.g.alchemy.com/v2/${alchemyKey}/getNFTs?owner=${address}&withMetadata=true&pageSize=100`
-      )
+        `https://base-mainnet.g.alchemy.com/v2/${alchemyKey}/getNFTs?${ownedQuery}`
+      ),
     ]);
 
     // Check responses
@@ -674,15 +678,19 @@ export const fetchOwnedNftsFromAlchemy = async (address: string): Promise<NFT[]>
     const ownedNfts = [...(ethData.ownedNfts || []), ...(baseData.ownedNfts || [])];
 
     interface AlchemyNFT {
+      spamInfo?: { isSpam?: boolean | string; classifications?: string[] };
       contract: {
         address: string;
         name?: string;
+        isSpam?: boolean | string;
+        spamClassifications?: string[];
         openSea?: {
           imageUrl?: string;
         };
       };
       contractMetadata?: {
         name?: string;
+        spamClassifications?: string[];
         openSea?: {
           imageUrl?: string;
         };
@@ -725,6 +733,8 @@ export const fetchOwnedNftsFromAlchemy = async (address: string): Promise<NFT[]>
     }
 
     const mapAlchemyNft = (nft: AlchemyNFT, network: 'ethereum' | 'base'): NFT | null => {
+        const contractAddress = nft.contract.address.toLowerCase();
+        if (isBlockedNftContract(contractAddress)) return null;
         const meta = nft.metadata || {};
         const fromMedia = (nft.media || []).find((m) => {
           const format = (m.format || '').toLowerCase();
@@ -777,7 +787,6 @@ export const fetchOwnedNftsFromAlchemy = async (address: string): Promise<NFT[]>
             '',
           image: visualCover || '',
         };
-        const contractAddress = nft.contract.address.toLowerCase();
         const rewrite = (url: string) =>
           rewriteLegacyOpenSeaMediaUrl(normalizeOwnedNftUrl(url), contractAddress, network);
 
@@ -830,6 +839,16 @@ export const fetchOwnedNftsFromAlchemy = async (address: string): Promise<NFT[]>
           isVideo,
           isAnimation: false,
           network,
+          // Keep Alchemy spam signals for client-side debug / future filtering.
+          spamInfo: nft.spamInfo || undefined,
+          isSpam: nft.spamInfo?.isSpam ?? nft.contract?.isSpam,
+          spamClassifications:
+            nft.spamInfo?.classifications ||
+            nft.contract?.spamClassifications ||
+            nft.contractMetadata?.spamClassifications ||
+            undefined,
+          contractIsSpam: nft.contract?.isSpam,
+          contractSpamClassifications: nft.contract?.spamClassifications,
           collection: {
             image: collectionImage,
             name: nft.contract.name || ''

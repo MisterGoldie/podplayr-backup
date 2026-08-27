@@ -11,6 +11,7 @@ import { optimizeImage } from '../../utils/imageOptimizer';
 import { getMediaKey } from '../../utils/media';
 import { sameLikedTrack } from '../../utils/likeDedupe';
 import { filterPlayableMediaNFTs, applyConfirmedPlayback, isPlayableMediaNFT } from '../../utils/isMediaNFT';
+import { clearHiddenNfts, getHiddenNftCount, isNftHidden, subscribeToHiddenNfts } from '../../utils/hiddenNfts';
 import { useUserImages } from '../../contexts/UserImageContext';
 import FollowsModal from '../FollowsModal';
 import PrivacyPolicyModal from '../PrivacyPolicyModal';
@@ -130,11 +131,15 @@ const ProfileView: React.FC<ProfileViewProps> = ({
   const loadingFollowCounts = useRef(false);
 
   const [allUserNFTs, setAllUserNFTs] = useState<NFT[]>([]);
+  const [hiddenRevision, setHiddenRevision] = useState(0);
+
+  useEffect(() => subscribeToHiddenNfts(() => setHiddenRevision((n) => n + 1)), []);
   
-  // Apply permissive filtering to all NFTs
   const filteredNFTs = useMemo(() => {
-    return filterMediaNFTs(allUserNFTs);
-  }, [allUserNFTs]);
+    return filterMediaNFTs(allUserNFTs).filter((nft) => !isNftHidden(nft));
+  }, [allUserNFTs, hiddenRevision]);
+
+  const hiddenCount = hiddenRevision >= 0 ? getHiddenNftCount() : 0;
 
   const combinedError = error;
 
@@ -589,6 +594,17 @@ const ProfileView: React.FC<ProfileViewProps> = ({
               <p className="text-gray-400">No media NFTs found in your connected wallets</p>
             </div>
           )}
+          {hiddenCount > 0 ? (
+            <div className="text-center mt-4">
+              <button
+                type="button"
+                onClick={() => clearHiddenNfts()}
+                className="text-xs text-white/50 hover:text-white/80 underline touch-manipulation"
+              >
+                Restore {hiddenCount} hidden {hiddenCount === 1 ? 'NFT' : 'NFTs'}
+              </button>
+            </div>
+          ) : null}
         </div>
         {/* Copyright text - positioned higher on the page */}
         <div className="text-center mt-8 mb-20 text-white/60 text-sm">

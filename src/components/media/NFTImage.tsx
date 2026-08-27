@@ -1538,6 +1538,7 @@ export const NFTImage: React.FC<NFTImageProps> = ({
         preload="metadata"
         loop
         autoPlay={false}
+        referrerPolicy="no-referrer"
         onError={handleError as unknown as (e: SyntheticEvent<HTMLVideoElement>) => void}
         onLoadedData={(e) => {
           const vid = e.currentTarget;
