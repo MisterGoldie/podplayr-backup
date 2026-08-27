@@ -8,7 +8,7 @@ import { logger } from '../../utils/logger';
 import { findFeaturedNft } from '../sections/FeaturedSection';
 import { triggerHaptic } from '../../utils/haptics';
 import { formatTime, safeProgressPercent, getDisplayTimes, processMediaUrl } from '../../utils/media';
-import { getResizedImageUrl, getVideoCoverStillUrl, nftHasAnimatedCover } from '../../utils/imageOptimizer';
+import { getResizedImageUrl, getVideoCoverStillUrl, nftHasAnimatedCover, alchemyCoverIsPlaybackVideo, isVideoMediaUrl, isLikelyTokenVideoCoverUrl } from '../../utils/imageOptimizer';
 import { getNftPlaybackPlan } from '../../utils/isMediaNFT';
 import { PlayerArrowHint, usePlayerArrowHint } from './PlayerArrowHint';
 
@@ -358,12 +358,11 @@ export const MinimizedPlayer: React.FC<MinimizedPlayerProps> = ({
   const minimizedThumbSrc = React.useMemo(() => {
     const cover = nft.image || nft.metadata?.image || playbackPlan.videoUrl || '';
     if (isAnimatedCover) return cover;
-    const isVideoNft =
-      nft.isVideo ||
-      playbackPlan.mode === 'video-with-audio' ||
-      playbackPlan.mode === 'video-plus-audio' ||
-      Boolean(playbackPlan.videoUrl);
-    if (!isVideoNft) return cover;
+    const needsVideoStill =
+      alchemyCoverIsPlaybackVideo(nft) ||
+      isVideoMediaUrl(cover) ||
+      isLikelyTokenVideoCoverUrl(cover);
+    if (!needsVideoStill) return cover;
     const alchemyPeer = [
       nft.audio,
       nft.metadata?.animation_url,

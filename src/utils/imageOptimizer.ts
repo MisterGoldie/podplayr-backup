@@ -175,6 +175,56 @@ function isAlreadyResized(url: string): boolean {
   );
 }
 
+/** Network + hash for an Alchemy CDN asset, including Cloudinary wrappers. */
+export function parseAlchemyCdnRef(
+  url: string
+): { cdnUrl: string; network: string; hash: string } | null {
+  if (!url) return null;
+  const nftCdn = url.match(/https?:\/\/nft2?-cdn\.alchemy\.com\/([^/?#]+)\/([^/?#]+)/i);
+  if (nftCdn) {
+    return { cdnUrl: nftCdn[0], network: nftCdn[1], hash: nftCdn[2] };
+  }
+  const thumb = url.match(/\/thumbnailv2\/([^/?#]+)\/([^/?#]+)/i);
+  if (thumb) {
+    return {
+      cdnUrl: `https://nft-cdn.alchemy.com/${thumb[1]}/${thumb[2]}`,
+      network: thumb[1],
+      hash: thumb[2],
+    };
+  }
+  return null;
+}
+
+export function alchemyVideoFetchStillUrl(cdnUrl: string, size = 360): string {
+  return `https://res.cloudinary.com/alchemyapi/video/fetch/w_${size},h_${size},c_fill,q_70,f_png,so_0/${cdnUrl}`;
+}
+
+/**
+ * True when the token cover hash is the same Alchemy file as playback.
+ * Chapter 14 / Coinage: that hash is video/mp4 — thumbnailv2 400s, video/fetch works.
+ * Isolation: cover is a PNG hash, playback is IPFS/Mux — hashes differ, use thumbnailv2.
+ */
+export function alchemyCoverIsPlaybackVideo(nft?: {
+  image?: string | null;
+  audio?: string | null;
+  videoUrl?: string | null;
+  animationUrl?: string | null;
+  metadata?: { image?: string | null; animation_url?: string | null } | null;
+} | null): boolean {
+  if (!nft) return false;
+  const cover =
+    parseAlchemyCdnRef(nft.image || '') || parseAlchemyCdnRef(nft.metadata?.image || '');
+  if (!cover) return false;
+  return [nft.audio, nft.videoUrl, nft.animationUrl, nft.metadata?.animation_url].some((u) => {
+    const play = parseAlchemyCdnRef(u || '');
+    return (
+      !!play &&
+      play.hash.toLowerCase() === cover.hash.toLowerCase() &&
+      play.network.toLowerCase() === cover.network.toLowerCase()
+    );
+  });
+}
+
 /**
  * Alchemy-hosted card thumbs (no third-party proxy).
  * Prefer thumbnailv2 / sized video stills — wsrv cold-starts and fails on video blobs.
@@ -232,6 +282,9 @@ export function getCardThumbAlternates(
     alchemyCdnPeer?: string | null;
     /** Playback mp4 / SeaDN video when the still image is a different URL. */
     videoCoverUrl?: string | null;
+    /** Cover hash is the playback mp4 — lead with video/fetch, skip thumbnailv2 hang hops. */
+    preferVideoStill?: boolean;
+    skipThumbnailV2?: boolean;
   }
 ): string[] {
   url = sanitizeMediaUrl(url);
@@ -248,24 +301,30 @@ export function getCardThumbAlternates(
   }
 
   const isVideoFetch = /res\.cloudinary\.com\/alchemyapi\/video\/fetch/i.test(url);
-  const includeVideoStill = opts?.includeVideoStill ?? isVideoFetch;
+  const alchemyRef =
+    parseAlchemyCdnRef(url) || parseAlchemyCdnRef(opts?.alchemyCdnPeer || '');
+  const includeVideoStill = opts?.includeVideoStill ?? (isVideoFetch || !!alchemyRef);
+  const preferVideoStill = opts?.preferVideoStill || isVideoFetch;
   // Only SeaDN / mp4 / nifty — NOT “has an Alchemy peer” (every Alchemy image has that).
   const knownVideoCover =
     isLikelyTokenVideoCoverUrl(url) || isVideoMediaUrl(url);
 
-  // Known video covers: video/fetch first (thumbnailv2 400s on video hashes).
-  // Normal Alchemy stills: thumbnailv2 first — video/fetch 400 spam otherwise.
-  if (knownVideoCover) {
+  // Video hashes: video/fetch first (thumbnailv2 400s). PNG hashes: thumbnailv2
+  // first, then video/fetch after a hard 400 (Chapter 14 / Coinage).
+  if (preferVideoStill || knownVideoCover) {
+    if (alchemyRef) push(alchemyVideoFetchStillUrl(alchemyRef.cdnUrl, size));
     push(getVideoCoverStillUrl(opts?.alchemyCdnPeer || '', size, { assumeVideo: true }));
-    push(getVideoCoverStillUrl(url, size));
+    push(getVideoCoverStillUrl(url, size, { assumeVideo: preferVideoStill }));
   }
   if (opts?.videoCoverUrl && opts.videoCoverUrl !== url) {
     push(getVideoCoverStillUrl(opts.videoCoverUrl, size));
   }
 
-  push(getAlchemyNativeCardThumb(url, size));
-  if (opts?.alchemyCdnPeer) {
-    push(getAlchemyNativeCardThumb(opts.alchemyCdnPeer, size));
+  if (!opts?.skipThumbnailV2) {
+    push(getAlchemyNativeCardThumb(url, size));
+    if (opts?.alchemyCdnPeer) {
+      push(getAlchemyNativeCardThumb(opts.alchemyCdnPeer, size));
+    }
   }
 
   let underlying = url;
@@ -277,14 +336,13 @@ export function getCardThumbAlternates(
   if (fromVideo?.[0]) underlying = fromVideo[0];
 
   const cdnFull =
+    alchemyRef?.cdnUrl ||
     (opts?.alchemyCdnPeer &&
       opts.alchemyCdnPeer.match(/https?:\/\/nft2?-cdn\.alchemy\.com\/[^/?#]+\/[^/?#]+/i)?.[0]) ||
     underlying.match(/https?:\/\/nft2?-cdn\.alchemy\.com\/[^/?#]+\/[^/?#]+/i)?.[0];
-  // After thumbnailv2 fails on a video hash (Neybors etc.), try video/fetch once.
+  // After thumbnailv2 400s on a video hash, always offer video/fetch.
   if (includeVideoStill && cdnFull) {
-    push(
-      `https://res.cloudinary.com/alchemyapi/video/fetch/w_${size},h_${size},c_fill,q_70,f_png,so_0/${cdnFull}`
-    );
+    push(alchemyVideoFetchStillUrl(cdnFull, size));
   }
 
   if (knownVideoCover && isLikelyTokenVideoCoverUrl(url)) {
@@ -567,7 +625,11 @@ export function getVideoCoverStillUrl(
  * Known video covers → video/fetch still (never raw <video> on cards — blank on iOS).
  * Other remotes → wsrv. Never return raw 8k–14k CDN originals.
  */
-export function getCardThumbUrl(url: string, size = 360): string {
+export function getCardThumbUrl(
+  url: string,
+  size = 360,
+  opts?: { preferVideoStill?: boolean }
+): string {
   url = sanitizeMediaUrl(url);
   if (
     !url ||
@@ -585,9 +647,15 @@ export function getCardThumbUrl(url: string, size = 360): string {
     return getOptimizedImageUrl(url);
   }
 
-  // Only force video still for known video covers — not every Alchemy CDN hash.
-  if (isLikelyTokenVideoCoverUrl(url) || isVideoMediaUrl(url)) {
-    const videoStill = getVideoCoverStillUrl(url, size);
+  // Video file URLs, or Alchemy hashes that *are* the playback mp4.
+  if (
+    opts?.preferVideoStill ||
+    isLikelyTokenVideoCoverUrl(url) ||
+    isVideoMediaUrl(url)
+  ) {
+    const videoStill = getVideoCoverStillUrl(url, size, {
+      assumeVideo: opts?.preferVideoStill,
+    });
     if (videoStill) return videoStill;
   }
 

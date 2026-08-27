@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { processMediaUrl, IPFS_GATEWAYS, isAudioUrlUsedAsImage, getCleanIPFSUrl, processArweaveUrl, getMediaKey, buildArweaveImageFallbackUrls, buildIpfsFallbackUrls, buildHttpCdnImageFallbackUrls, extractIPFSPath, getNftMediaUrl, toIpfsGatewayUrl, clearNftMediaUrlCache, pickImageCandidates, shouldProbeIpfsDirectory, sanitizeMediaUrl, looksLikeStillImageUrl } from '../../utils/media';
-import { getCardThumbUrl, getCardThumbAlternates, shouldPreserveAnimation, nftHasAnimatedCover, isBrowserFriendlyCdnUrl, isArweaveMediaUrl, isIpfsMediaUrl, isVideoMediaUrl, isLikelyTokenVideoCoverUrl, getVideoCoverStillUrl } from '../../utils/imageOptimizer';
+import { getCardThumbUrl, getCardThumbAlternates, shouldPreserveAnimation, nftHasAnimatedCover, isBrowserFriendlyCdnUrl, isArweaveMediaUrl, isIpfsMediaUrl, isVideoMediaUrl, isLikelyTokenVideoCoverUrl, getVideoCoverStillUrl, alchemyCoverIsPlaybackVideo, parseAlchemyCdnRef } from '../../utils/imageOptimizer';
 import Image from 'next/image';
 import type { SyntheticEvent } from 'react';
 import type { NFT } from '../../types/user';
@@ -282,19 +282,14 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       return url;
     }
     // Card thumbs: never start with raw <video> (iOS blank first frame).
-    // Alchemy peer for video NFTs is usually the mp4 hash — use video/fetch still,
-    // NOT thumbnailv2 (400 on video hashes, Coinage Subscriber).
-    const nftIsVideo =
-      !!nft &&
-      (nft.isVideo ||
-        nft.playbackMode === 'video-with-audio' ||
-        nft.playbackMode === 'video-plus-audio' ||
-        (!!nft.videoUrl && !/\.(mp3|wav|m4a|aac|ogg|flac)(?:\?|#|$)/i.test(nft.videoUrl)));
+    // Same Alchemy hash for cover + playback = mp4 (Chapter 14) → video/fetch.
+    // Separate PNG hash (Isolation) → thumbnailv2. nftIsVideo alone is wrong
+    // for both: video/fetch 400s on PNGs, thumbnailv2 400s on mp4 hashes.
     if (
       useCardThumb &&
       (isVideoMediaUrl(url) ||
         isLikelyTokenVideoCoverUrl(url) ||
-        (nftIsVideo && /nft2?-cdn\.alchemy\.com/i.test(url)))
+        alchemyCoverIsPlaybackVideo(nft))
     ) {
       const size = Math.max(width * 2, 360);
       const alchemyPeer = [
@@ -307,8 +302,8 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       ].find((u) => !!u && /nft2?-cdn\.alchemy\.com/i.test(u)) as string | undefined;
       const still =
         getVideoCoverStillUrl(alchemyPeer || '', size, { assumeVideo: true }) ||
-        getVideoCoverStillUrl(url, size, { assumeVideo: nftIsVideo }) ||
-        getCardThumbUrl(url, size);
+        getVideoCoverStillUrl(url, size, { assumeVideo: true }) ||
+        getCardThumbUrl(url, size, { preferVideoStill: true });
       return still;
     }
     // Detail / non-card: play MP4 covers natively (Nifty Island, etc.).
@@ -849,7 +844,8 @@ export const NFTImage: React.FC<NFTImageProps> = ({
           /video\/fetch/i.test(imgSrc) ||
           /video\/fetch/i.test(originalUrlRef.current) ||
           isLikelyTokenVideoCoverUrl(originalUrlRef.current) ||
-          isVideoMediaUrl(originalUrlRef.current);
+          isVideoMediaUrl(originalUrlRef.current) ||
+          alchemyCoverIsPlaybackVideo(nft);
         const alchemyCdnPeer = [
           nft?.audio,
           nft?.metadata?.animation_url,
@@ -860,6 +856,9 @@ export const NFTImage: React.FC<NFTImageProps> = ({
         ].find((u) => !!u && /nft2?-cdn\.alchemy\.com/i.test(u)) as string | undefined;
         const alt = getCardThumbAlternates(originalUrlRef.current, size, {
           includeVideoStill: hungIsVideo,
+          preferVideoStill: hungIsVideo,
+          // thumbnailv2 400s on the same mp4 hash — don't "recover" by hopping to it.
+          skipThumbnailV2: hungIsVideo,
           alchemyCdnPeer,
         }).find(
           (u) => u !== imgSrc && !attemptedFallbacks.current[`${u}-hang`]
@@ -935,11 +934,11 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       return;
     }
     
-    // Skip if we've already tried this fallback strategy
+    // Skip if we've already tried this fallback strategy.
+    // Duplicate onError (React Strict Mode / unmount) must NOT jump to
+    // default-nft.png — that aborts video/fetch after a thumbnailv2 400.
     const fallbackKey = `${failedSrc}-${retryCount}`;
     if (attemptedFallbacks.current[fallbackKey]) {
-      if (loadedOkSrcRef.current) return;
-      setImgSrc(fallbackSrc);
       return;
     }
     
@@ -998,14 +997,18 @@ export const NFTImage: React.FC<NFTImageProps> = ({
         (u) => !!u && (isVideoMediaUrl(u) || isLikelyTokenVideoCoverUrl(u))
       ) as string | undefined;
       const orig = originalUrlRef.current || failedSrc;
+      const thumbFailed = /thumbnailv2/i.test(failedSrc);
+      const videoFetchFailed = /video\/fetch/i.test(failedSrc);
+      const coverIsPlaybackVideo = alchemyCoverIsPlaybackVideo(nft);
+      const parsedPeer =
+        parseAlchemyCdnRef(alchemyCdnPeer || '')?.cdnUrl ||
+        parseAlchemyCdnRef(orig)?.cdnUrl ||
+        parseAlchemyCdnRef(failedSrc)?.cdnUrl;
       const nextAlt = getCardThumbAlternates(orig, size, {
-        includeVideoStill:
-          isLikelyTokenVideoCoverUrl(orig) ||
-          isVideoMediaUrl(orig) ||
-          Boolean(videoCoverUrl) ||
-          /video\/fetch/i.test(failedSrc) ||
-          /nft2?-cdn\.alchemy\.com/i.test(orig),
-        alchemyCdnPeer,
+        includeVideoStill: true,
+        preferVideoStill: coverIsPlaybackVideo || thumbFailed,
+        skipThumbnailV2: videoFetchFailed || coverIsPlaybackVideo,
+        alchemyCdnPeer: parsedPeer || alchemyCdnPeer,
         videoCoverUrl,
       }).find(
         (u) => u !== failedSrc && !attemptedFallbacks.current[`${u}-card`]
@@ -1019,7 +1022,9 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       }
       const nativeVideo =
         (orig && (isLikelyTokenVideoCoverUrl(orig) || isVideoMediaUrl(orig)) && orig) ||
-        videoCoverUrl;
+        videoCoverUrl ||
+        ((coverIsPlaybackVideo || thumbFailed) && parsedPeer) ||
+        '';
       if (nativeVideo && !attemptedFallbacks.current[`${nativeVideo}-native-video`]) {
         attemptedFallbacks.current[`${nativeVideo}-native-video`] = true;
         setIsVideo(true);
