@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { processMediaUrl, IPFS_GATEWAYS, isAudioUrlUsedAsImage, getCleanIPFSUrl, processArweaveUrl, getMediaKey, getNftIdentityKey, buildArweaveImageFallbackUrls, buildIpfsFallbackUrls, buildHttpCdnImageFallbackUrls, extractIPFSPath, getNftMediaUrl, toIpfsGatewayUrl, clearNftMediaUrlCache, pickImageCandidates, shouldProbeIpfsDirectory, sanitizeMediaUrl, looksLikeStillImageUrl, isCollectionOpenSeaStillUrl, isFragileSeaDnPosterUrl, nftHasSeaDnVideoAnimation } from '../../utils/media';
+import { processMediaUrl, IPFS_GATEWAYS, isAudioUrlUsedAsImage, getCleanIPFSUrl, processArweaveUrl, getMediaKey, getNftIdentityKey, buildArweaveImageFallbackUrls, buildIpfsFallbackUrls, buildHttpCdnImageFallbackUrls, extractIPFSPath, getNftMediaUrl, toIpfsGatewayUrl, clearNftMediaUrlCache, pickImageCandidates, shouldProbeIpfsDirectory, sanitizeMediaUrl, looksLikeStillImageUrl, isCollectionOpenSeaStillUrl, isFragileSeaDnPosterUrl, nftHasSeaDnVideoAnimation, rememberNftDisplayCover, getRememberedNftDisplayCover } from '../../utils/media';
 import { getCardThumbUrl, getCardThumbAlternates, shouldPreserveAnimation, nftHasAnimatedCover, isBrowserFriendlyCdnUrl, isArweaveMediaUrl, isIpfsMediaUrl, isVideoMediaUrl, isLikelyTokenVideoCoverUrl, getVideoCoverStillUrl, alchemyCoverIsPlaybackVideo, parseAlchemyCdnRef } from '../../utils/imageOptimizer';
 import { imageDebug, imageDebugUrlKind, logNftCoverDebug } from '../../utils/imageDebug';
 import Image from 'next/image';
@@ -409,7 +409,10 @@ export const NFTImage: React.FC<NFTImageProps> = ({
     // decoded successfully, a re-resolve (e.g. metadataImage filling in) must NOT
     // set imgLoading=true. Same src won't re-fire onLoad → false arweave hang hops.
     let nextDisplayUrl = '';
-    if (isValidSrc && nft) {
+    const rememberedDisplay = nft ? getRememberedNftDisplayCover(nft) : '';
+    if (rememberedDisplay) {
+      nextDisplayUrl = rememberedDisplay;
+    } else if (isValidSrc && nft) {
       nextDisplayUrl = toDisplaySrc(getNftMediaUrl({ ...nft, image: derivedSrc || nft.image }, 'image'));
     } else if (isValidSrc) {
       nextDisplayUrl = toDisplaySrc(processMediaUrl(derivedSrc, fallbackSrc, 'image'));
@@ -424,6 +427,7 @@ export const NFTImage: React.FC<NFTImageProps> = ({
 
     const deferToEnrich =
       nft &&
+      !rememberedDisplay &&
       !alreadyLoaded &&
       !alchemyEnrichAttemptedRef.current &&
       nftNeedsChainMediaEnrich(nft) &&
@@ -454,6 +458,7 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       // Check if we've already processed this URL
       const cacheKey = nft ? `${nft.contract}-${nft.tokenId}` : derivedSrc;
       const cached = processedUrlCache.current[cacheKey];
+      const rememberedHit = nft ? getRememberedNftDisplayCover(nft) : '';
       const effectiveSrc = derivedSrc;
       const isFragileUrl = (url?: string | null) => {
         const u = sanitizeMediaUrl(url);
@@ -537,7 +542,18 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       let resolveBranch = 'none';
       let resolvedForLog = '';
 
-      if (stillSrc) {
+      if (rememberedHit) {
+        resolveBranch = 'rememberedDisplay';
+        originalUrlRef.current = rememberedHit;
+        loadedOkSrcRef.current = rememberedHit;
+        setIsVideo(
+          isVideoMediaUrl(rememberedHit) &&
+            !/res\.cloudinary\.com\/alchemyapi\/video\/fetch/i.test(rememberedHit)
+        );
+        resolvedForLog = rememberedHit;
+        setImgSrc(rememberedHit);
+        setImgLoading(false);
+      } else if (stillSrc) {
         resolveBranch = 'stillSrc';
         processedUrlCache.current[cacheKey] = stillSrc;
         clearNftMediaUrlCache(nft, 'image');
@@ -1799,15 +1815,14 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       useCardThumb,
     });
     if (!nft) return;
+    if (isCollectionOpenSeaStillUrl(loadedSrc, nft.collection?.image)) {
+      return;
+    }
+    rememberNftDisplayCover(nft, loadedSrc);
     if (
       loadedSrc.includes('wsrv.nl') ||
       loadedSrc.includes('images.weserv.nl') ||
-      loadedSrc.includes('img-width=') ||
-      /alchemyapi\/video\/fetch/i.test(loadedSrc) ||
-      isVideoMediaUrl(loadedSrc) ||
-      // Never remember shared collection art as this token's cover — mediaKey
-      // is often the same audio asset across an entire daily series.
-      isCollectionOpenSeaStillUrl(loadedSrc, nft.collection?.image)
+      loadedSrc.includes('img-width=')
     ) {
       return;
     }

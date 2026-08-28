@@ -7,9 +7,8 @@ import { useNFTLikeState } from '~/hooks/useNFTLikeState';
 import { useNFTLike } from '~/hooks/useNFTLike';
 import { NFTImage } from '../media/NFTImage';
 import { NFTGifImage } from '../media/NFTGifImage';
-import { shouldPreserveAnimation } from '../../utils/imageOptimizer';
 import { withFeaturedHydration } from '~/data/featuredNfts';
-import { sanitizeMediaUrl } from '~/utils/media';
+import { getNftCardCover } from '../../utils/nftCardCover';
 import { logNftCardSpamDebug } from '~/utils/nftSpamDebug';
 import { logNftCoverDebug } from '~/utils/imageDebug';
 
@@ -77,31 +76,7 @@ const NFTCardInner: React.FC<NFTCardProps> = ({
     () => withFeaturedHydration(nft),
     [nft, nft.contract, nft.tokenId, nft.name, nft.image, nft.audio, nft.metadata?.image, nft.metadata?.animation_url]
   );
-  const tokenImageUrl =
-    sanitizeMediaUrl(displayNft.image) ||
-    sanitizeMediaUrl(displayNft.metadata?.image) ||
-    sanitizeMediaUrl(displayNft.metadata?.image_url) ||
-    '';
-  const alchemyVisual = [
-    displayNft.metadata?.animation_url,
-    displayNft.videoUrl,
-    displayNft.audio,
-    displayNft.image,
-    displayNft.metadata?.image,
-  ].find((u) => u && /nft2?-cdn\.alchemy\.com|res\.cloudinary\.com\/alchemyapi/i.test(u));
-  const rawImageUrl =
-    tokenImageUrl ||
-    sanitizeMediaUrl(displayNft.metadata?.display_image_url) ||
-    (alchemyVisual ? sanitizeMediaUrl(alchemyVisual) : '') ||
-    sanitizeMediaUrl(displayNft.metadata?.animation_url) ||
-    sanitizeMediaUrl(displayNft.videoUrl) ||
-    sanitizeMediaUrl(displayNft.collection?.image) ||
-    sanitizeMediaUrl(displayNft.audio) ||
-    '';
-  const useGifCover =
-    Boolean(tokenImageUrl) &&
-    shouldPreserveAnimation(tokenImageUrl) &&
-    !alchemyVisual;
+  const { rawImageUrl, useGifCover } = getNftCardCover(displayNft);
   const [hasEntered, setHasEntered] = useState(false);
   const enterStyleRef = useRef(
     animationDelay ? { animationDelay: `${animationDelay}s` } : undefined

@@ -1,16 +1,14 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { NFTImage } from '../media/NFTImage';
 import { NFTGifImage } from '../media/NFTGifImage';
 import { PlaybackButton } from '../buttons/PlaybackButton';
 import type { NFT } from '../../types/user';
 import InfoPanel from './InfoPanel';
 import { logger } from '../../utils/logger';
-import { findFeaturedNft } from '../sections/FeaturedSection';
+import { withFeaturedHydration } from '~/data/featuredNfts';
+import { getNftCardCover } from '../../utils/nftCardCover';
 import { triggerHaptic } from '../../utils/haptics';
-import { formatTime, safeProgressPercent, getDisplayTimes, processMediaUrl } from '../../utils/media';
-import { getResizedImageUrl, getVideoCoverStillUrl, shouldPreserveAnimation, alchemyCoverIsPlaybackVideo, isVideoMediaUrl, isLikelyTokenVideoCoverUrl } from '../../utils/imageOptimizer';
-import { getNftPlaybackPlan } from '../../utils/isMediaNFT';
-import { sanitizeMediaUrl } from '../../utils/media';
+import { formatTime, safeProgressPercent, getDisplayTimes } from '../../utils/media';
 import { PlayerArrowHint, usePlayerArrowHint } from './PlayerArrowHint';
 
 // Create a dedicated logger for the MinimizedPlayer
@@ -329,88 +327,11 @@ export const MinimizedPlayer: React.FC<MinimizedPlayerProps> = ({
     }
   }, [isPlaying, nft]);
 
-  const featuredNft = React.useMemo(() => findFeaturedNft(nft), [nft]);
-
-  // Memoize the image URL function to prevent unnecessary recalculations
-  const getFeaturedNFTImage = useCallback((currentNft: NFT): string => {
-    if (featuredNft && featuredNft.image) {
-      return featuredNft.image;
-    }
-    
-    const raw = featuredNft?.image || currentNft.image || currentNft.metadata?.image || '';
-    return processMediaUrl(raw, '/default-nft.png', 'image');
-  }, [featuredNft]);
-
-  const playbackPlan = React.useMemo(() => getNftPlaybackPlan(nft), [nft]);
-
-  const alchemyVisual = React.useMemo(
-    () =>
-      [
-        nft.metadata?.animation_url,
-        nft.videoUrl,
-        nft.audio,
-        nft.image,
-        nft.metadata?.image,
-        playbackPlan.videoUrl,
-      ].find(
-        (u) =>
-          u &&
-          /nft2?-cdn\.alchemy\.com|res\.cloudinary\.com\/alchemyapi/i.test(String(u))
-      ),
-    [nft, playbackPlan.videoUrl]
+  const displayNft = React.useMemo(
+    () => withFeaturedHydration(nft),
+    [nft, nft.contract, nft.tokenId, nft.name, nft.image, nft.audio, nft.metadata?.image, nft.metadata?.animation_url]
   );
-
-  const tokenImageUrl = React.useMemo(
-    () =>
-      sanitizeMediaUrl(nft.image) ||
-      sanitizeMediaUrl(nft.metadata?.image) ||
-      sanitizeMediaUrl(nft.metadata?.image_url) ||
-      '',
-    [nft.image, nft.metadata?.image, nft.metadata?.image_url]
-  );
-
-  // Token-level GIF only — not shared collection art when Alchemy cover exists.
-  const isAnimatedCover = React.useMemo(
-    () =>
-      Boolean(tokenImageUrl) &&
-      shouldPreserveAnimation(tokenImageUrl) &&
-      !alchemyVisual,
-    [tokenImageUrl, alchemyVisual]
-  );
-
-  const gifCoverNft = React.useMemo(() => {
-    if (!isAnimatedCover) return nft;
-    return nft;
-  }, [nft, isAnimatedCover]);
-
-  const minimizedThumbSrc = React.useMemo(() => {
-    const cover =
-      tokenImageUrl ||
-      (alchemyVisual ? String(alchemyVisual) : '') ||
-      sanitizeMediaUrl(nft.metadata?.animation_url) ||
-      sanitizeMediaUrl(nft.videoUrl) ||
-      playbackPlan.videoUrl ||
-      '';
-    if (isAnimatedCover) return cover;
-    const needsVideoStill =
-      alchemyCoverIsPlaybackVideo(nft) ||
-      isVideoMediaUrl(cover) ||
-      isLikelyTokenVideoCoverUrl(cover) ||
-      Boolean(alchemyVisual);
-    if (!needsVideoStill) return cover;
-    const alchemyPeer = [
-      nft.audio,
-      nft.metadata?.animation_url,
-      nft.animationUrl,
-      playbackPlan.videoUrl,
-      nft.videoUrl,
-      nft.image,
-      nft.metadata?.image,
-      alchemyVisual,
-    ].find((u) => !!u && /nft2?-cdn\.alchemy\.com/i.test(String(u)));
-    const peer = alchemyPeer || playbackPlan.videoUrl || cover;
-    return getVideoCoverStillUrl(peer, 96, { assumeVideo: true }) || cover;
-  }, [nft, playbackPlan, isAnimatedCover, tokenImageUrl, alchemyVisual]);
+  const { rawImageUrl, useGifCover } = getNftCardCover(displayNft);
 
   return (
     <>
@@ -460,40 +381,25 @@ export const MinimizedPlayer: React.FC<MinimizedPlayerProps> = ({
             {/* NFT Image and Info */}
             <div className="flex items-center gap-3 flex-1 min-w-0">
               <div className="relative w-12 h-12 flex-shrink-0 rounded-xl overflow-hidden bg-purple-900/20 ring-1 ring-white/10">
-                {isAnimatedCover ? (
+                {useGifCover ? (
                   <NFTGifImage
-                    nft={gifCoverNft}
+                    nft={displayNft}
                     className="w-full h-full object-cover"
-                    width={48}
-                    height={48}
+                    width={180}
+                    height={180}
                     priority
-                  />
-                ) : featuredNft ? (
-                  <img
-                    src={getResizedImageUrl(getFeaturedNFTImage(nft), 96)}
-                    alt={nft.name}
-                    className="w-full h-full object-cover"
-                    width={48}
-                    height={48}
-                    decoding="async"
-                    onError={(e) => {
-                      playerLogger.error('Featured NFT image failed to load:', {
-                        nft: nft.name,
-                        src: (e.target as HTMLImageElement).src
-                      });
-                    }}
                   />
                 ) : (
                   <NFTImage
-                    src={minimizedThumbSrc}
+                    nft={displayNft}
+                    src={rawImageUrl}
                     alt={nft.name}
                     className="w-full h-full object-cover"
-                    width={48}
-                    height={48}
+                    width={180}
+                    height={180}
                     sizes="48px"
-                    quality={50}
-                    priority={true}
-                    nft={nft}
+                    quality={60}
+                    priority
                     key={`thumb-regular-${nft.contract}-${nft.tokenId}`}
                   />
                 )}

@@ -51,6 +51,7 @@ export interface NFTMetadata {
   description?: string;
   image?: string;
   image_url?: string;
+  display_image_url?: string;
   animation_url?: string;
   animation_url_alternative?: string;
   audio?: string;

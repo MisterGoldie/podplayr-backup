@@ -1292,6 +1292,18 @@ export const generateNewMediaKey = (): string => {
 const IMAGE_FALLBACK = '/default-nft.png';
 const AUDIO_FALLBACK = '/default-audio.mp3';
 const nftMediaUrlCache: Record<string, Record<string, string>> = {};
+/** Display URL that already decoded (incl. video/fetch hops). In-memory — localStorage is often blocked. */
+const nftDisplayCoverCache: Record<string, string> = {};
+
+export const rememberNftDisplayCover = (nft: UserNFT | null | undefined, url: string): void => {
+  if (!nft?.contract || !nft?.tokenId || !url || url.includes('default-nft.png')) return;
+  nftDisplayCoverCache[`${nft.contract}-${nft.tokenId}`] = url;
+};
+
+export const getRememberedNftDisplayCover = (nft: UserNFT | null | undefined): string => {
+  if (!nft?.contract || !nft?.tokenId) return '';
+  return nftDisplayCoverCache[`${nft.contract}-${nft.tokenId}`] || '';
+};
 
 /** Drop cached image/audio URLs so the next resolve re-runs processMediaUrl. */
 export const clearNftMediaUrlCache = (
@@ -1305,6 +1317,7 @@ export const clearNftMediaUrlCache = (
   const cacheKey = `${nft.contract}-${nft.tokenId}`;
   if (!mediaType) {
     delete nftMediaUrlCache[cacheKey];
+    delete nftDisplayCoverCache[cacheKey];
     return;
   }
   if (nftMediaUrlCache[cacheKey]) {

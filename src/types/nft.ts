@@ -2,6 +2,8 @@ export interface NFTMetadata {
   name?: string;
   description?: string;
   image?: string;
+  image_url?: string;
+  display_image_url?: string;
   animation_url?: string;
   mimeType?: string;
   mime_type?: string;
