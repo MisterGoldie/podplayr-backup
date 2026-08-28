@@ -126,6 +126,11 @@ const PLAYBACK_OVERRIDES: Record<string, { mobile: string; desktop?: string }> =
     mobile: muxHls('B00glZFc67CoWhE4KHC00cFRKnEt5D7yR2yhl013gvwnT8'),
     desktop: muxHls('B00glZFc67CoWhE4KHC00cFRKnEt5D7yR2yhl013gvwnT8'),
   },
+  // NFT Podcast with Logik (Julian Gilliam) — Mux-only until Manifold mint
+  '8VjskmcBC3w6R01xpsgLHUKb31wjrhKch23uZBjmJuOQ': {
+    mobile: muxHls('8VjskmcBC3w6R01xpsgLHUKb31wjrhKch23uZBjmJuOQ'),
+    desktop: muxHls('8VjskmcBC3w6R01xpsgLHUKb31wjrhKch23uZBjmJuOQ'),
+  },
   // GUD by LOGIK — profile NFT (IPFS CID the player uses)
   bafybeif3tgmh7gerytonss7234qguvbjgrpz54ydgz753fyxekml52dppe: {
     mobile: muxHls('XEKtpfguXO0000noJMdbo55uNa7ueFtHMqvSl2oSzVME4'),
@@ -185,13 +190,18 @@ function extractOpenSeaMediaId(url: string): string | null {
   }
 }
 
+function extractMuxPlaybackId(url: string): string | null {
+  const match = url.match(/stream\.mux\.com\/([A-Za-z0-9]+)/i);
+  return match?.[1] || null;
+}
+
 export function mediaAssetIdFromUrl(url: string): string | null {
   if (!url) return null;
   const ar = parseArweaveMediaPath(url);
   if (ar.fileTxId) return ar.fileTxId;
   const cid = extractIPFSHash(url);
   if (cid) return cid;
-  return extractAlchemyMediaId(url) || extractOpenSeaMediaId(url);
+  return extractMuxPlaybackId(url) || extractAlchemyMediaId(url) || extractOpenSeaMediaId(url);
 }
 
 function isUsableUrl(url?: string): url is string {
@@ -231,7 +241,13 @@ export function isOrphanMuxPlaybackUrl(url?: string | null): boolean {
  */
 /** @deprecated Use `isBrokenAlchemyAnimationCache` in nft.ts (needs contentType/size). */
 export function isBrokenAlchemyAnimationCdnUrl(url?: string | null): boolean {
-  return !!url && /\.m3u8(?:\?|#|$)/i.test(url);
+  if (!url) return false;
+  // Intentional Mux HLS is playable. Only Alchemy's failed ingest stubs are junk.
+  if (isMuxPlaybackUrl(url)) return false;
+  return (
+    /nft2?-cdn\.alchemy\.com|nft-cdn\.alchemy\.com/i.test(url) &&
+    /\.m3u8(?:\?|#|$)/i.test(url)
+  );
 }
 
 /** Playback URL that must never win over a real Arweave/IPFS/mp4 origin. */

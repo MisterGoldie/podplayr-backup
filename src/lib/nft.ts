@@ -79,7 +79,7 @@ function isUsableOriginPlaybackUrl(url?: string | null): url is string {
   if (!u) return false;
   // Never play orphan stream.mux.com HLS (only PLAYBACK_OVERRIDES may).
   if (isPollutedPlaybackUrl(u)) return false;
-  if (/\.m3u8(?:\?|#|$)/i.test(u)) return false;
+  if (/\.m3u8(?:\?|#|$)/i.test(u) && !/stream\.mux\.com/i.test(u)) return false;
   return true;
 }
 
@@ -435,33 +435,74 @@ async function fetchJsonMetadataFromUri(uri: string): Promise<Partial<NFTMetadat
   }
 }
 
+/** Alchemy only accepts a 20-byte address + uint256 token id. */
+export function isOnChainNftIdentity(
+  contract?: string | null,
+  tokenId?: string | number | null
+): boolean {
+  const c = (contract || '').trim();
+  if (!/^0x[a-fA-F0-9]{40}$/.test(c)) return false;
+  const t = String(tokenId ?? '').trim();
+  if (!t || /0x0x/i.test(t)) return false;
+  if (/^\d+$/.test(t)) return true;
+  if (/^0x[0-9a-fA-F]+$/.test(t)) {
+    try {
+      BigInt(t);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  if (/^[0-9a-fA-F]+$/.test(t)) {
+    try {
+      BigInt(`0x${t}`);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
+function alchemyTokenIdCandidates(tokenId: string): string[] {
+  const t = tokenId.trim();
+  const out: string[] = [];
+  const push = (value: string) => {
+    if (value && !out.includes(value)) out.push(value);
+  };
+  if (/^\d+$/.test(t)) {
+    push(t);
+    return out;
+  }
+  if (/^0x[0-9a-fA-F]+$/.test(t)) {
+    try {
+      push(BigInt(t).toString());
+    } catch {
+      // skip
+    }
+    push(t);
+    return out;
+  }
+  if (/^[0-9a-fA-F]+$/.test(t)) {
+    try {
+      push(BigInt(`0x${t}`).toString());
+    } catch {
+      // skip
+    }
+    push(`0x${t}`);
+  }
+  return out;
+}
+
 export const getNFTMetadata = async (contract: string, tokenId: string, network: 'base' | 'ethereum' = 'ethereum'): Promise<NFT> => {
   try {
+    if (!isOnChainNftIdentity(contract, tokenId)) {
+      throw new Error('Invalid NFT identity');
+    }
     const client = network === 'base' ? baseAlchemy : ethAlchemy;
-    
-    // Handle different tokenId formats - try multiple formats like the OpenGraph API does
-    const tokenIdFormats = [];
-    
-    // If tokenId contains hex characters, try converting to decimal
-    if (/[a-fA-F]/.test(tokenId)) {
-      const hexWithPrefix = tokenId.startsWith('0x') ? tokenId : `0x${tokenId}`;
-      try {
-        const decimalValue = BigInt(hexWithPrefix).toString();
-        tokenIdFormats.push(decimalValue);
-      } catch {
-        // keep original tokenId formats
-      }
-      
-      // Also try with 0x prefix if not already present
-      if (!tokenId.startsWith('0x')) {
-        tokenIdFormats.push(`0x${tokenId}`);
-      }
-    } else {
-      // For non-hex tokenIds, try as-is and with/without 0x prefix
-      tokenIdFormats.push(
-        tokenId,
-        tokenId.startsWith('0x') ? tokenId.slice(2) : tokenId,
-      );
+    const tokenIdFormats = alchemyTokenIdCandidates(tokenId);
+    if (tokenIdFormats.length === 0) {
+      throw new Error('Invalid NFT identity');
     }
     
     let metadata;
@@ -763,7 +804,7 @@ const isArweaveMediaUrl = (url?: string | null): boolean => {
 /** True when cover/playback still depend on fragile public IPFS gateways
  *  or video-as-image URLs that need Alchemy's static thumbnail cache. */
 export const nftNeedsChainMediaEnrich = (nft: NFT | null | undefined): boolean => {
-  if (!nft?.contract || !nft?.tokenId) return false;
+  if (!nft || !isOnChainNftIdentity(nft.contract, nft.tokenId)) return false;
 
   const playbackFields = [
     nft.audio,
@@ -862,7 +903,7 @@ function pickBestApiPlaybackUrl(data: NFT): string {
 export const enrichNftMediaFromChain = async (nft: NFT): Promise<NFT> => {
   // Callers decide when enrich is needed. Cover-only by default; also replace
   // weak playback (orphan Mux / mezzanine 403s / broken HLS) with Arweave origin.
-  if (!nft?.contract || !nft?.tokenId) return nft;
+  if (!isOnChainNftIdentity(nft.contract, nft.tokenId)) return nft;
   try {
     const network = nft.network === 'base' ? 'base' : 'ethereum';
     const res = await fetch(

@@ -72,6 +72,8 @@ const urlLooksLikeVideo = (url: string): boolean => {
   const lower = url.toLowerCase();
   return (
     VIDEO_EXT_RE.test(lower) ||
+    /\.m3u8(?:\?|#|$)/i.test(lower) ||
+    /stream\.mux\.com/i.test(lower) ||
     lower.includes('video/') ||
     /^ar:\/\/[^/]+\/[^/]+\.(mp4|webm|mov|m4v)$/i.test(url)
   );

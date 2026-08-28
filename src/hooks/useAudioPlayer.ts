@@ -86,7 +86,7 @@ import {
 import { logger } from '../utils/logger';
 import { useToast } from './useToast';
 import { reviveNftMedia } from '../utils/deadNftRegistry';
-import { enrichNftMediaFromChain, isIpfsPlaybackUrl, nftNeedsChainMediaEnrich } from '../lib/nft';
+import { enrichNftMediaFromChain, isIpfsPlaybackUrl, isOnChainNftIdentity, nftNeedsChainMediaEnrich } from '../lib/nft';
 import { withFeaturedPlayback } from '../data/featuredNfts';
 import { mediaDebugSnapshot, playbackDebug } from '../utils/playbackDebug'; // TEMP — remove with playbackDebug.ts
 
@@ -371,7 +371,10 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       nft.animationUrl,
       nft.metadata?.animation_url,
     ].some((u) => isIpfsPlaybackUrl(u));
-    if (needsPlaybackRecovery || needsIpfsPlaybackRefresh || nftNeedsChainMediaEnrich(nft)) {
+    if (
+      isOnChainNftIdentity(nft.contract, nft.tokenId) &&
+      (needsPlaybackRecovery || needsIpfsPlaybackRefresh || nftNeedsChainMediaEnrich(nft))
+    ) {
       playNft = await enrichNftMediaFromChain(nft);
       const recoveredUrl = [
         playNft.audio,

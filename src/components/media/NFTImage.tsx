@@ -7,7 +7,7 @@ import type { SyntheticEvent } from 'react';
 import type { NFT } from '../../types/user';
 import { markNftMediaDead } from '../../utils/deadNftRegistry';
 import { rememberWorkingMediaUrl, forgetMediaUrl, getRememberedMediaUrl } from '../../utils/gatewayMemory';
-import { enrichNftMediaFromChain, nftNeedsChainMediaEnrich } from '../../lib/nft';
+import { enrichNftMediaFromChain, isOnChainNftIdentity, nftNeedsChainMediaEnrich } from '../../lib/nft';
 
 /** Alchemy CDN hashes with no extension that decoded as video (Food / Conflicted). */
 const alchemyCdnAsVideoCover = new Set<string>();
@@ -702,7 +702,8 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       nft &&
       !alreadyLoaded &&
       !alchemyEnrichAttemptedRef.current &&
-      (nftNeedsChainMediaEnrich(nft) || !isValidSrc)
+      (nftNeedsChainMediaEnrich(nft) ||
+        (!isValidSrc && isOnChainNftIdentity(nft.contract, nft.tokenId)))
     ) {
       alchemyEnrichAttemptedRef.current = true;
       alchemyEnrichInFlightRef.current = true;

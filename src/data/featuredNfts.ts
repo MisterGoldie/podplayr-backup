@@ -144,6 +144,23 @@ export function withFeaturedHydration<T extends NFT>(nft: T): T {
 
 export const FEATURED_NFTS: NFT[] = [
   {
+    name: 'NFT Podcast with Logik (Julian Gilliam)',
+    image:
+      'https://image.mux.com/8VjskmcBC3w6R01xpsgLHUKb31wjrhKch23uZBjmJuOQ/thumbnail.jpg?time=10',
+    contract: 'pending',
+    tokenId: 'logik-ep1',
+    network: 'base',
+    audio: 'https://stream.mux.com/8VjskmcBC3w6R01xpsgLHUKb31wjrhKch23uZBjmJuOQ.m3u8',
+    isVideo: true,
+    playbackMode: 'video-with-audio',
+    metadata: {
+      animation_url: 'https://stream.mux.com/8VjskmcBC3w6R01xpsgLHUKb31wjrhKch23uZBjmJuOQ.m3u8',
+      mimeType: 'video/mp4',
+      description: 'NFT Podcast with Logik (Julian Gilliam) — episode 1',
+      attributes: [{ trait_type: 'Guest', value: 'Julian Gilliam' }],
+    },
+  },
+  {
     name: 'I Found It',
     image: 'https://arweave.net/Wvad7CgtidFMH3mOBjRHOeV5_bKvvAR9zZH2BhQSl7M',
     contract: '0x27430c3ef4b04f7d223df7f280ae8fc0b3a407b7',

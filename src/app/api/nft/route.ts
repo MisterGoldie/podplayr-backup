@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getNFTMetadata } from '../../../lib/nft';
+import { getNFTMetadata, isOnChainNftIdentity } from '../../../lib/nft';
 
 export async function GET(request: NextRequest) {
   try {
@@ -15,7 +15,13 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    
+    if (!isOnChainNftIdentity(contract, tokenId)) {
+      return NextResponse.json(
+        { error: 'Invalid contract or tokenId' },
+        { status: 400 }
+      );
+    }
+
     const nftData = await getNFTMetadata(contract, tokenId, network);
     
     const playbackRefresh = request.nextUrl.searchParams.get('playback') === '1';
