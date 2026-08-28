@@ -82,6 +82,7 @@ export interface NFTMetadata {
   };
   content?: {
     mime?: string;
+    uri?: string;
   };
   animation_details?: {
     format?: string;

@@ -8,6 +8,7 @@ import FollowsModal from '../FollowsModal';
 import FollowNotification from '../FollowNotification';
 import { useFollowNotification } from '../../hooks/useFollowNotification';
 import { filterPlayableMediaNFTs } from '../../utils/isMediaNFT';
+import { withFeaturedPlayback } from '../../data/featuredNfts';
 import { clearHiddenNfts, getHiddenNftCount, isNftHidden, subscribeToHiddenNfts } from '../../utils/hiddenNfts';
 import { VirtualizedNFTGrid } from '../nft/VirtualizedNFTGrid';
 import { logger } from '../../utils/logger';
@@ -110,7 +111,8 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
   // Filter NFTs to only show playable media (shared detector)
   const filteredNFTs = useMemo(() => {
     if (!nfts || nfts.length === 0) return [];
-    const filtered = filterPlayableMediaNFTs(nfts).filter((nft) => !isNftHidden(nft));
+    const hydrated = nfts.map((n) => withFeaturedPlayback(n));
+    const filtered = filterPlayableMediaNFTs(hydrated).filter((nft) => !isNftHidden(nft));
     nftLogger.info(`Showing ${filtered.length} media NFTs out of ${nfts.length} total NFTs on profile`);
     return filtered;
   }, [nfts, hiddenRevision]);

@@ -8,10 +8,10 @@ import { useNFTLike } from '~/hooks/useNFTLike';
 import { NFTImage } from '../media/NFTImage';
 import { NFTGifImage } from '../media/NFTGifImage';
 import { shouldPreserveAnimation } from '../../utils/imageOptimizer';
-import { withFeaturedCover } from '~/data/featuredNfts';
+import { withFeaturedHydration } from '~/data/featuredNfts';
 import { sanitizeMediaUrl } from '~/utils/media';
-import { hideNft } from '~/utils/hiddenNfts';
 import { logNftCardSpamDebug } from '~/utils/nftSpamDebug';
+import { logNftCoverDebug } from '~/utils/imageDebug';
 
 interface NFTCardProps {
   nft: NFT;
@@ -27,8 +27,6 @@ interface NFTCardProps {
   smallCard?: boolean;
   /** Extra "In Library" marker for liked NFTs on another user's profile. */
   showLibraryBadge?: boolean;
-  /** Hide spam / junk tokens from this viewer's collection grids. */
-  allowHide?: boolean;
 }
 
 const NFTCardInner: React.FC<NFTCardProps> = ({ 
@@ -40,7 +38,6 @@ const NFTCardInner: React.FC<NFTCardProps> = ({
   animationDelay = 0,
   smallCard,
   showLibraryBadge = false,
-  allowHide = false,
 }) => {
   const { fid } = useFarcasterContext();
   // Use userFid prop if available, otherwise fall back to context fid
@@ -76,17 +73,17 @@ const NFTCardInner: React.FC<NFTCardProps> = ({
     onLikeToggle: dispatchLikeToggle,
   });
 
-  const coverNft = useMemo(
-    () => withFeaturedCover(nft),
-    [nft, nft.contract, nft.tokenId, nft.image, nft.audio, nft.metadata?.image, nft.metadata?.animation_url]
+  const displayNft = useMemo(
+    () => withFeaturedHydration(nft),
+    [nft, nft.contract, nft.tokenId, nft.name, nft.image, nft.audio, nft.metadata?.image, nft.metadata?.animation_url]
   );
   const rawImageUrl =
-    sanitizeMediaUrl(coverNft.image) ||
-    sanitizeMediaUrl(coverNft.metadata?.image) ||
-    sanitizeMediaUrl(coverNft.collection?.image) ||
-    sanitizeMediaUrl(coverNft.metadata?.animation_url) ||
-    sanitizeMediaUrl(coverNft.videoUrl) ||
-    sanitizeMediaUrl(coverNft.audio) ||
+    sanitizeMediaUrl(displayNft.image) ||
+    sanitizeMediaUrl(displayNft.metadata?.image) ||
+    sanitizeMediaUrl(displayNft.collection?.image) ||
+    sanitizeMediaUrl(displayNft.metadata?.animation_url) ||
+    sanitizeMediaUrl(displayNft.videoUrl) ||
+    sanitizeMediaUrl(displayNft.audio) ||
     '';
   const [hasEntered, setHasEntered] = useState(false);
   const enterStyleRef = useRef(
@@ -103,13 +100,8 @@ const NFTCardInner: React.FC<NFTCardProps> = ({
 
   const handlePlay = () => {
     logNftCardSpamDebug(nft, 'click');
-    onPlayRef.current?.(nft);
-  };
-
-  const handleHide = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    logNftCardSpamDebug(nft, 'hide');
-    hideNft(nft);
+    logNftCoverDebug(nft, 'click');
+    onPlayRef.current?.(displayNft);
   };
 
   const handleLikeClick = (e: React.MouseEvent) => {
@@ -140,7 +132,7 @@ const NFTCardInner: React.FC<NFTCardProps> = ({
         >
           {shouldPreserveAnimation(rawImageUrl) ? (
             <NFTGifImage
-              nft={coverNft}
+              nft={displayNft}
               className="w-full h-full object-cover"
               width={smallCard ? 160 : 180}
               height={smallCard ? 160 : 180}
@@ -148,7 +140,7 @@ const NFTCardInner: React.FC<NFTCardProps> = ({
             />
           ) : (
             <NFTImage
-              nft={coverNft}
+              nft={displayNft}
               src={rawImageUrl}
               alt={nft.name}
               className="w-full h-full object-cover"
@@ -160,19 +152,6 @@ const NFTCardInner: React.FC<NFTCardProps> = ({
             />
           )}
           
-          {allowHide && (
-            <button
-              type="button"
-              onClick={handleHide}
-              className={`absolute top-2 left-2 ${smallCard ? 'w-8 h-8' : 'w-10 h-10'} flex items-center justify-center text-white/80 z-10 bg-black/45 rounded-full border border-white/15 active:scale-95 touch-manipulation`}
-              aria-label="Hide from collection"
-              title="Hide from collection"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className={smallCard ? 'h-3.5 w-3.5' : 'h-4 w-4'} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          )}
           {effectiveFid && (
             <button 
               onClick={handleLikeClick}
@@ -218,7 +197,6 @@ function areNftCardsEqual(prev: NFTCardProps, next: NFTCardProps) {
     prev.userFid === next.userFid &&
     prev.smallCard === next.smallCard &&
     prev.showLibraryBadge === next.showLibraryBadge &&
-    prev.allowHide === next.allowHide &&
     prev.animationDelay === next.animationDelay &&
     (prev.isNFTLiked?.() ?? false) === (next.isNFTLiked?.() ?? false)
   );

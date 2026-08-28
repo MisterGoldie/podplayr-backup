@@ -69,7 +69,6 @@ export const VirtualizedNFTGrid: React.FC<VirtualizedNFTGridProps> = ({
               isNFTLiked={() => checkDirectlyLiked(nft)}
               animationDelay={staggerDelay}
               showLibraryBadge={showLibraryBadge}
-              allowHide
             />
           </ErrorBoundary>
         );

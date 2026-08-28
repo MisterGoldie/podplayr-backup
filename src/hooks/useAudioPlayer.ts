@@ -51,7 +51,7 @@ import {
   IPFS_DIR_FAILOVER_MS,
   clearNftMediaUrlCache,
 } from '../utils/media';
-import { resolveCdnPlaybackUrls } from '../lib/mediaCdn';
+import { resolveCdnPlaybackUrls, isOrphanMuxPlaybackUrl, isMuxPlaybackUrl, isPollutedPlaybackUrl, isWeakPlaybackUrl, isMezzanineMuxUrl } from '../lib/mediaCdn';
 import { attachPlaybackSource, detachHlsPlayback, isHlsAttached, isHlsUrl, pauseHlsBuffering, resumeHlsBuffering } from '../lib/hlsPlayback';
 import { restorePageScroll } from '../utils/pageScroll';
 
@@ -86,7 +86,8 @@ import {
 import { logger } from '../utils/logger';
 import { useToast } from './useToast';
 import { reviveNftMedia } from '../utils/deadNftRegistry';
-import { enrichNftMediaFromChain, nftNeedsChainMediaEnrich } from '../lib/nft';
+import { enrichNftMediaFromChain, isIpfsPlaybackUrl, nftNeedsChainMediaEnrich } from '../lib/nft';
+import { withFeaturedPlayback } from '../data/featuredNfts';
 import { mediaDebugSnapshot, playbackDebug } from '../utils/playbackDebug'; // TEMP — remove with playbackDebug.ts
 
 // Create a dedicated logger for this module
@@ -312,6 +313,13 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       setQueueType('single');
     }
     audioLogger.info('handlePlayAudio called with NFT:', nft);
+
+    // Reminted featured episodes (other contract / Pinata metadata) → curated Arweave + Mux.
+    const featuredHydrated = withFeaturedPlayback(nft);
+    if (featuredHydrated !== nft) {
+      Object.assign(nft, featuredHydrated);
+    }
+
     playbackDebug('play:start', {
       name: nft.name,
       contract: nft.contract,
@@ -348,12 +356,32 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
 
     // Likes / recently-played often store raw IPFS URLs. When public gateways
     // hang or 404, Alchemy still has cached CDN copies — refresh via /api/nft.
+    // Also force enrich when playback is orphan Mux / broken Alchemy HLS so we
+    // recover the real Arweave/IPFS origin before building the URL list.
     let playNft = nft;
-    if (nftNeedsChainMediaEnrich(nft)) {
+    const needsPlaybackRecovery = [
+      nft.audio,
+      nft.videoUrl,
+      nft.animationUrl,
+      nft.metadata?.animation_url,
+    ].some((u) => isWeakPlaybackUrl(u));
+    const needsIpfsPlaybackRefresh = [
+      nft.audio,
+      nft.videoUrl,
+      nft.animationUrl,
+      nft.metadata?.animation_url,
+    ].some((u) => isIpfsPlaybackUrl(u));
+    if (needsPlaybackRecovery || needsIpfsPlaybackRefresh || nftNeedsChainMediaEnrich(nft)) {
       playNft = await enrichNftMediaFromChain(nft);
+      const recoveredUrl = [
+        playNft.audio,
+        playNft.videoUrl,
+        playNft.metadata?.animation_url,
+      ].find((u) => u && !isWeakPlaybackUrl(u) && !isPollutedPlaybackUrl(u));
       playbackDebug('play:enrich', {
         name: nft.name,
         changed: playNft !== nft,
+        recovered: Boolean(recoveredUrl),
         audio: playNft.audio,
         videoUrl: playNft.videoUrl,
         mime: playNft.metadata?.mimeType || playNft.metadata?.mime_type,
@@ -365,11 +393,26 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
           image: playNft.image,
           audio: playNft.audio,
           videoUrl: playNft.videoUrl,
+          animationUrl: playNft.animationUrl,
           playbackMode: playNft.playbackMode,
           isVideo: playNft.isVideo,
           hasValidAudio: playNft.hasValidAudio,
           metadata: playNft.metadata,
           collection: playNft.collection,
+        });
+      } else if (
+        needsIpfsPlaybackRefresh &&
+        playNft.audio &&
+        playNft.audio !== nft.audio
+      ) {
+        Object.assign(nft, {
+          audio: playNft.audio,
+          videoUrl: playNft.videoUrl,
+          animationUrl: playNft.animationUrl,
+          playbackMode: playNft.playbackMode,
+          isVideo: playNft.isVideo,
+          hasValidAudio: playNft.hasValidAudio,
+          metadata: playNft.metadata,
         });
       }
     }
@@ -431,30 +474,105 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       name: playNft.name,
     });
 
-    // Sound source: dedicated audio, or the video file's audio track
-    const rawAudioUrl = [
+    // Sound source: dedicated audio, or the video file's audio track.
+    // Skip orphan Mux / broken Alchemy HLS — only intentional PLAYBACK_OVERRIDES
+    // may use stream.mux.com; daily Arweave journals must play the origin.
+    const playbackCandidates = [
       plan.audioUrl,
       playNft.audio,
       plan.videoUrl,
       playNft.videoUrl,
       playNft.metadata?.animation_url,
-    ].find((url): url is string => Boolean(url) && !urlLooksLike3dModel(url));
+      playNft.animationUrl,
+    ].filter(
+      (url): url is string =>
+        Boolean(url) && !urlLooksLike3dModel(url) && !urlLooksLikeImage(url)
+    );
+    const originCandidates = playbackCandidates.filter((url) => !isPollutedPlaybackUrl(url));
+    const strongOrigins = originCandidates.filter((url) => !isWeakPlaybackUrl(url));
+    const orphanMux = playbackCandidates.find((url) => isOrphanMuxPlaybackUrl(url));
+    const weakMezzanine = playbackCandidates.find((url) => isMezzanineMuxUrl(url));
+    let rawAudioUrl = strongOrigins[0] || '';
 
+    // Only polluted/weak URLs left (expired mezzanine, dead orphan Mux) — fail cleanly.
     if (!rawAudioUrl) {
-      audioLogger.error('No audio URL found for NFT');
-      playbackDebug('play:no-raw-url', { name: playNft.name, plan });
+      audioLogger.error('No usable origin audio URL for NFT', {
+        name: playNft.name,
+        candidates: playbackCandidates,
+      });
+      playbackDebug('play:no-raw-url', {
+        name: playNft.name,
+        plan,
+        playbackCandidates,
+        strippedOrphanMux: orphanMux || null,
+        expiredMezzanine: weakMezzanine || null,
+      });
+      const expiredMux =
+        weakMezzanine ||
+        playbackCandidates.some((url) => isMezzanineMuxUrl(url) || isOrphanMuxPlaybackUrl(url));
+      showErrorToast(
+        expiredMux
+          ? `"${playNft.name || 'This NFT'}" video link expired — only Arweave-hosted days still play.`
+          : `"${playNft.name || 'This NFT'}" isn't playable right now.`
+      );
       return;
+    }
+
+    if ((orphanMux || weakMezzanine) && strongOrigins[0]) {
+      playbackDebug('play:strip-weak-playback', {
+        name: playNft.name,
+        orphanMux: orphanMux || null,
+        mezzanine: weakMezzanine || null,
+        origin: strongOrigins[0],
+      });
+      // Scrub polluted/weak fields so the next click / Firebase write isn't mux.
+      const scrub = (url?: string) =>
+        url && isWeakPlaybackUrl(url) ? strongOrigins[0] : url;
+      playNft.audio = scrub(playNft.audio) || strongOrigins[0];
+      nft.audio = scrub(nft.audio) || strongOrigins[0];
+      playNft.videoUrl = scrub(playNft.videoUrl) || strongOrigins[0];
+      nft.videoUrl = scrub(nft.videoUrl) || strongOrigins[0];
+      if (playNft.metadata) {
+        playNft.metadata.animation_url =
+          scrub(playNft.metadata.animation_url) || strongOrigins[0];
+      }
+      if (nft.metadata) {
+        nft.metadata.animation_url =
+          scrub(nft.metadata.animation_url) || strongOrigins[0];
+      }
+      rawAudioUrl = strongOrigins[0];
     }
     
     const audioUrls = buildFastPlaybackUrls(rawAudioUrl, {
       contract: playNft.contract,
       network: playNft.network,
     });
-    // Always try Alchemy CDN first when enrich provided one.
-    if (playNft.videoUrl && /alchemy\.com/i.test(playNft.videoUrl)) {
+    // Always try Alchemy CDN first when enrich provided a *real* video cache
+    // (not a broken …_animation HLS stub).
+    if (
+      playNft.videoUrl &&
+      /alchemy\.com/i.test(playNft.videoUrl) &&
+      !isMuxPlaybackUrl(playNft.videoUrl) &&
+      !isPollutedPlaybackUrl(playNft.videoUrl)
+    ) {
       audioUrls.unshift(playNft.videoUrl);
-    } else if (playNft.audio && /alchemy\.com/i.test(playNft.audio)) {
+    } else if (
+      playNft.audio &&
+      /alchemy\.com/i.test(playNft.audio) &&
+      !isMuxPlaybackUrl(playNft.audio) &&
+      !isPollutedPlaybackUrl(playNft.audio)
+    ) {
       audioUrls.unshift(playNft.audio);
+    }
+    // Extra origin gateways when raw was scrubbed from mux.
+    for (const origin of originCandidates) {
+      if (origin === rawAudioUrl || isMuxPlaybackUrl(origin)) continue;
+      for (const u of buildFastPlaybackUrls(origin, {
+        contract: playNft.contract,
+        network: playNft.network,
+      })) {
+        if (!audioUrls.includes(u)) audioUrls.push(u);
+      }
     }
     if (audioUrls.length === 0) {
       audioLogger.error('Failed to generate any valid audio URLs', { raw: rawAudioUrl });
@@ -462,12 +580,17 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       return;
     }
 
-    const cdnUrls = resolveCdnPlaybackUrls(rawAudioUrl, { mobile: isMobile });
+    // Mux only via intentional overrides for the *origin* asset — never because
+    // a polluted nft.audio already was stream.mux.com.
+    const cdnUrls = originCandidates.flatMap((origin) =>
+      resolveCdnPlaybackUrls(origin, { mobile: isMobile })
+    ).filter((url, index, list) => list.indexOf(url) === index);
     let playbackUrls = filterLivePlaybackUrls(
       rawAudioUrl,
       audioUrls
         .map(canonicalizeArweaveGatewayUrl)
         .filter((url, index, list) => url && list.indexOf(url) === index)
+        .filter((url) => !isPollutedPlaybackUrl(url))
     );
     if (cdnUrls.length) {
       playbackUrls = [
@@ -482,6 +605,7 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       audioUrls,
       cdnUrls,
       playbackUrls,
+      strippedOrphanMux: orphanMux || null,
     });
 
     playAttemptRef.current += 1;

@@ -1732,9 +1732,9 @@ export const subscribeToRecentPlays = (fid: number, callback: (nfts: NFT[]) => v
       return bMs - aMs;
     });
 
-    // Track NFTs by mediaKey to prevent duplicates
-    const nftByMediaKey = new Map<string, NFT>();
-    const processedMediaKeys = new Set<string>();
+    // One row per mint — mediaKey can differ across plays after URL enrichment.
+    const nftByIdentity = new Map<string, NFT>();
+    const processedIdentityKeys = new Set<string>();
     
     // Process each play history entry
     for (const playDoc of sortedDocs) {
@@ -1745,18 +1745,19 @@ export const subscribeToRecentPlays = (fid: number, callback: (nfts: NFT[]) => v
         addedToRecentlyPlayed: true,
         addedToRecentlyPlayedAt: playedAt || Date.now(),
       };
+      const identityKey = getNftIdentityKey(nft);
+      if (!identityKey || processedIdentityKeys.has(identityKey)) continue;
+
+      processedIdentityKeys.add(identityKey);
       const mediaKey = nft.mediaKey || playData.mediaKey;
-      if (!mediaKey || processedMediaKeys.has(mediaKey)) continue;
+      if (mediaKey) nft.mediaKey = mediaKey;
+      nftByIdentity.set(identityKey, nft);
 
-      processedMediaKeys.add(mediaKey);
-      nft.mediaKey = mediaKey;
-      nftByMediaKey.set(mediaKey, nft);
-
-      if (nftByMediaKey.size >= 8) break;
+      if (nftByIdentity.size >= 8) break;
     }
     
     // Convert to array
-    const recentNFTs = Array.from(nftByMediaKey.values());
+    const recentNFTs = Array.from(nftByIdentity.values());
     
     firebaseLogger.info(`Recent plays: ${recentNFTs.length} NFTs`);
     callback(recentNFTs);

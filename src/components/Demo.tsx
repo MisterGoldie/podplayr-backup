@@ -22,6 +22,7 @@ import { UserDataLoader } from './data/UserDataLoader';
 import { logger } from '../utils/logger';
 import { isNftMediaDead, subscribeToDeadNftUpdates } from '../utils/deadNftRegistry';
 import { applyConfirmedPlayback, isPlayableMediaNFT } from '../utils/isMediaNFT';
+import { withFeaturedPlayback } from '../data/featuredNfts';
 import { UserImageProvider } from '../contexts/UserImageContext';
 import { BaseAppSignIn } from './auth/BaseAppSignIn';
 import { parseProfileFid } from '../lib/miniapp';
@@ -259,7 +260,7 @@ const DemoBase: React.FC = () => {
   }, [currentPlayingNFT, releaseVideoResources]);
 
   const handleNFTsLoaded = useCallback((nfts: NFT[]) => {
-    const unique = deduplicateNFTsByMediaKey(nfts);
+    const unique = deduplicateNFTsByMediaKey(nfts.map((n) => withFeaturedPlayback(n)));
     setUserNFTs(unique);
     setUserNftsLoading(false);
     applyConfirmedPlayback(unique, setUserNFTs);

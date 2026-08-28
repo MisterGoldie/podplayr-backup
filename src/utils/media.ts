@@ -103,12 +103,24 @@ const looksLikeAudioFileUrl = (url: string): boolean =>
 
 const looksLikeVideoFileUrl = (url: string): boolean => VIDEO_FILE_EXT_RE.test(url);
 
-/** JPEG/PNG/etc or OpenSea i2c stills — never treat these as video covers. */
+/** JPEG/PNG/etc or OpenSea i2c stills — never treat these as video covers.
+ *  Collection-level i2c is handled separately — callers must not prefer it
+ *  over a per-token Alchemy CDN hash. */
 export const looksLikeStillImageUrl = (url?: string | null): boolean => {
   if (!url) return false;
   if (/res\.cloudinary\.com\/alchemyapi\/video\/fetch/i.test(url)) return false;
   if (IMAGE_FILE_EXT_RE.test(url)) return true;
   return /i2c\.seadn\.io/i.test(url);
+};
+
+/** True when URL is the shared collection OpenSea still (not a token cover). */
+export const isCollectionOpenSeaStillUrl = (
+  url?: string | null,
+  collectionImage?: string | null
+): boolean => {
+  if (!url || !collectionImage) return false;
+  if (!/i2c\.seadn\.io/i.test(url)) return false;
+  return normalizeMediaUrlKey(url) === normalizeMediaUrlKey(collectionImage);
 };
 
 const normalizeMediaUrlKey = (url: string): string => {
@@ -1287,9 +1299,16 @@ export const getNftMediaUrl = (nft: UserNFT, mediaType: 'image' | 'audio'): stri
   const cacheKey = `${nft.contract}-${nft.tokenId}`;
   const mediaKey = getMediaKey(nft);
   const imageCandidates = mediaType === 'image' ? pickImageCandidates(nft) : [];
+  // Token stills only — never treat collection i2c as the preferred cover when
+  // the token has its own Alchemy CDN hash (daily journals share one collection PNG).
+  const collectionImage = nft.collection?.image || '';
   const stillPreferred =
     mediaType === 'image'
-      ? [nft.image, nft.metadata?.image, ...imageCandidates].find((u) => looksLikeStillImageUrl(u))
+      ? [nft.image, nft.metadata?.image, ...imageCandidates].find(
+          (u) =>
+            looksLikeStillImageUrl(u) &&
+            !isCollectionOpenSeaStillUrl(u, collectionImage)
+        )
       : undefined;
   const alchemyPreferred =
     mediaType === 'image'
@@ -1321,12 +1340,14 @@ export const getNftMediaUrl = (nft: UserNFT, mediaType: 'image' | 'audio'): stri
         )
       : undefined;
   const tokenVideoPreferred = imageTokenVideo || animTokenVideo;
+  // Token jpeg stills win (PLATTER). Alchemy CDN beats collection i2c (excluded
+  // from stillPreferred above). Never fall through to shared collection art first.
   const rawSourceUrl =
     mediaType === 'image'
       ? stillPreferred ||
-        tokenVideoPreferred ||
         alchemyPreferred ||
-        imageCandidates[0] ||
+        tokenVideoPreferred ||
+        imageCandidates.find((u) => !isCollectionOpenSeaStillUrl(u, collectionImage)) ||
         nft.image ||
         nft.metadata?.image ||
         ''
@@ -1373,6 +1394,12 @@ export const getNftMediaUrl = (nft: UserNFT, mediaType: 'image' | 'audio'): stri
       /alchemyapi\/video\/fetch/i.test(candidate) ||
       (/raw2?\.seadn\.io/i.test(candidate) && !IMAGE_FILE_EXT_RE.test(candidate)));
 
+  // Remembered/cached collection art must not override a per-token Alchemy cover.
+  const isPoisonedCollectionStill = (candidate: string) =>
+    mediaType === 'image' &&
+    !!alchemyPreferred &&
+    isCollectionOpenSeaStillUrl(candidate, collectionImage);
+
   if (alchemyPreferred && !stillPreferred) {
     if (!nftMediaUrlCache[cacheKey]) nftMediaUrlCache[cacheKey] = {};
     nftMediaUrlCache[cacheKey][mediaType] = alchemyPreferred;
@@ -1386,7 +1413,8 @@ export const getNftMediaUrl = (nft: UserNFT, mediaType: 'image' | 'audio'): stri
       !isPoisonedMypinata(cached) &&
       !isPoisonedHostileIpfs(cached) &&
       !isPoisonedStaleIpfs(cached) &&
-      !isPoisonedVideoCover(cached)
+      !isPoisonedVideoCover(cached) &&
+      !isPoisonedCollectionStill(cached)
     ) {
       return preferBrowserReachableMediaUrl(cached);
     }
@@ -1404,7 +1432,8 @@ export const getNftMediaUrl = (nft: UserNFT, mediaType: 'image' | 'audio'): stri
       !isPoisonedMypinata(remembered) &&
       !isPoisonedHostileIpfs(remembered) &&
       !isPoisonedStaleIpfs(remembered) &&
-      !isPoisonedVideoCover(remembered)
+      !isPoisonedVideoCover(remembered) &&
+      !isPoisonedCollectionStill(remembered)
     ) {
       if (!nftMediaUrlCache[cacheKey]) nftMediaUrlCache[cacheKey] = {};
       nftMediaUrlCache[cacheKey][mediaType] = remembered;

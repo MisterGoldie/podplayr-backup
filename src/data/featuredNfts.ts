@@ -5,9 +5,42 @@ function playbackAssetUrl(nft: Pick<NFT, 'audio' | 'metadata'>): string {
   return (nft.audio || nft.metadata?.animation_url || '').split('?')[0];
 }
 
-/** Same token, or same audio/video file (liked mint vs curated featured copy). */
+/** Match featured episode titles across remints (EP1 suffix, trailing spaces, etc.). */
+export function normalizeFeaturedTitle(name?: string): string {
+  return (name || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+function findFeaturedByTitle(name?: string): NFT | undefined {
+  const title = normalizeFeaturedTitle(name);
+  if (title.length < 8) return undefined;
+
+  const stripYear = (t: string) => t.replace(/(?:19|20)\d{2}$/, '');
+
+  const exact = FEATURED_NFTS.find((f) => normalizeFeaturedTitle(f.name) === title);
+  if (exact) return exact;
+
+  const titleCore = stripYear(title);
+  const byCore = FEATURED_NFTS.find((f) => stripYear(normalizeFeaturedTitle(f.name)) === titleCore);
+  if (byCore && titleCore.length >= 8) return byCore;
+
+  return FEATURED_NFTS.find((f) => {
+    const featuredTitle = normalizeFeaturedTitle(f.name);
+    if (!featuredTitle) return false;
+    const featuredCore = stripYear(featuredTitle);
+    const longer = Math.max(title.length, featuredTitle.length, titleCore.length, featuredCore.length);
+    if (longer < 10) return false;
+    return (
+      title.startsWith(featuredTitle) ||
+      featuredTitle.startsWith(title) ||
+      titleCore.startsWith(featuredCore) ||
+      featuredCore.startsWith(titleCore)
+    );
+  });
+}
+
+/** Same token, same media file, or same featured episode title (remint on another contract). */
 export function findFeaturedNft(
-  nft: Pick<NFT, 'contract' | 'tokenId' | 'audio' | 'metadata'>
+  nft: Pick<NFT, 'contract' | 'tokenId' | 'audio' | 'metadata' | 'name'>
 ): NFT | undefined {
   const contract = nft.contract?.toLowerCase();
   const tokenId = normalizeNftTokenId(nft.tokenId);
@@ -18,12 +51,15 @@ export function findFeaturedNft(
   );
   if (byId) return byId;
   const play = playbackAssetUrl(nft);
-  if (!play) return undefined;
-  return FEATURED_NFTS.find((featured) => playbackAssetUrl(featured) === play);
+  if (play) {
+    const byMedia = FEATURED_NFTS.find((featured) => playbackAssetUrl(featured) === play);
+    if (byMedia) return byMedia;
+  }
+  return findFeaturedByTitle(nft.name);
 }
 
 /** Display the curated Featured cover when this is the same track under another mint. */
-export function withFeaturedCover<T extends Pick<NFT, 'contract' | 'tokenId' | 'audio' | 'metadata' | 'image'>>(
+export function withFeaturedCover<T extends Pick<NFT, 'contract' | 'tokenId' | 'audio' | 'metadata' | 'image' | 'name'>>(
   nft: T
 ): T {
   const featured = findFeaturedNft(nft);
@@ -33,6 +69,57 @@ export function withFeaturedCover<T extends Pick<NFT, 'contract' | 'tokenId' | '
     image: featured.image,
     metadata: { ...(nft.metadata || {}), image: featured.image },
   };
+}
+
+/**
+ * Hydrate playback from a curated Featured entry when this wallet mint is the
+ * same episode on another contract (e.g. ACYL remints with Pinata metadata).
+ */
+export function withFeaturedPlayback<T extends NFT>(nft: T): T {
+  const featured = findFeaturedNft(nft);
+  if (!featured) return nft;
+
+  const playUrl =
+    featured.audio ||
+    featured.videoUrl ||
+    featured.metadata?.animation_url ||
+    featured.animationUrl ||
+    '';
+  if (!playUrl) return withFeaturedCover(nft) as T;
+
+  const withCover = withFeaturedCover(nft);
+  return {
+    ...withCover,
+    audio: featured.audio || playUrl,
+    videoUrl: featured.videoUrl || playUrl,
+    animationUrl: featured.animationUrl || featured.metadata?.animation_url || playUrl,
+    isVideo: featured.isVideo ?? true,
+    playbackMode: featured.playbackMode || 'video-with-audio',
+    hasValidAudio: true,
+    metadata: {
+      ...(withCover.metadata || {}),
+      animation_url: featured.metadata?.animation_url || playUrl,
+      mimeType:
+        featured.metadata?.mimeType ||
+        featured.metadata?.mime_type ||
+        withCover.metadata?.mimeType ||
+        'video/mp4',
+      mime_type:
+        featured.metadata?.mime_type ||
+        featured.metadata?.mimeType ||
+        withCover.metadata?.mime_type ||
+        'video/mp4',
+      description:
+        withCover.metadata?.description ||
+        featured.metadata?.description ||
+        featured.description,
+    },
+  };
+}
+
+/** Curated cover + Arweave/Mux playback for reminted featured episodes. */
+export function withFeaturedHydration<T extends NFT>(nft: T): T {
+  return withFeaturedPlayback(nft);
 }
 
 export const FEATURED_NFTS: NFT[] = [

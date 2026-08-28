@@ -6,7 +6,7 @@ import { NFTCard } from '../nft/NFTCard';
 import { getMediaKey } from '~/utils/media';
 import { FEATURED_NFTS } from '~/data/featuredNfts';
 
-export { FEATURED_NFTS, findFeaturedNft, withFeaturedCover } from '~/data/featuredNfts';
+export { FEATURED_NFTS, findFeaturedNft, withFeaturedCover, withFeaturedPlayback, withFeaturedHydration } from '~/data/featuredNfts';
 
 interface FeaturedSectionProps {
   onPlayNFT: (nft: NFT, context?: { queue?: NFT[], queueType?: string }) => Promise<void>;

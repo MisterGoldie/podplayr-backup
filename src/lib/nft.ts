@@ -8,6 +8,7 @@ import {
   getNftPlaybackPlan,
 } from '../utils/isMediaNFT';
 import { isBlockedNftContract, isDangerousResourceUrl, isPhishingSpamNft } from '../utils/nftSafety';
+import { isPollutedPlaybackUrl, isMezzanineMuxUrl, isWeakPlaybackUrl } from './mediaCdn';
 
 const PINATA_IPFS = 'https://gateway.pinata.cloud/ipfs/';
 
@@ -45,12 +46,130 @@ function ownedNftMediaKey(contract: string, tokenId: string): string {
 const AUDIO_OR_VIDEO_EXT_RE = /\.(mp3|wav|m4a|aac|ogg|flac|mp4|webm|mov|m4v)(?:\?|#|$)/i;
 const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|svg|avif)(?:\?|#|$)/i;
 
+/**
+ * Alchemy sometimes "caches" Arweave/IPFS videos as a tiny broken HLS playlist
+ * (contentType application/x-mpegURL, partialUpload, ~128 bytes) OR as a
+ * stream.mux.com URL that is NOT one of our PLAYBACK_OVERRIDES. Prefer the
+ * real mp4 / ar:// origin instead — never emit orphan Mux from the mapper.
+ */
+function isBrokenAlchemyAnimationCache(
+  animation?: { cachedUrl?: string; originalUrl?: string; contentType?: string; size?: number } | null
+): boolean {
+  if (!animation?.cachedUrl) return false;
+  const type = (animation.contentType || '').toLowerCase();
+  if (type.includes('mpegurl') || type === 'application/x-mpegurl') return true;
+  if (/\.m3u8(?:\?|#|$)/i.test(animation.cachedUrl)) return true;
+  if (isPollutedPlaybackUrl(animation.cachedUrl)) return true;
+  // Partial HLS stubs are tiny; real mp4 caches are much larger.
+  if (
+    typeof animation.size === 'number' &&
+    animation.size > 0 &&
+    animation.size < 2048 &&
+    /_animation(?:\?|#|$)/i.test(animation.cachedUrl)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function isUsableOriginPlaybackUrl(url?: string | null): url is string {
+  if (!url || typeof url !== 'string') return false;
+  const u = url.trim();
+  if (!u) return false;
+  // Never play orphan stream.mux.com HLS (only PLAYBACK_OVERRIDES may).
+  if (isPollutedPlaybackUrl(u)) return false;
+  if (/\.m3u8(?:\?|#|$)/i.test(u)) return false;
+  return true;
+}
+
+export function isIpfsPlaybackUrl(url?: string | null): boolean {
+  if (!url || typeof url !== 'string') return false;
+  return (
+    url.startsWith('ipfs://') ||
+    /\/ipfs\//i.test(url) ||
+    /\.ipfs\./i.test(url)
+  );
+}
+
+function isAlchemyCdnPlaybackUrl(url?: string | null): boolean {
+  return !!url && /nft2?-cdn\.alchemy\.com/i.test(url);
+}
+
+/** Alchemy `_animation` caches are video/mp4 even when contentType is missing. */
+function alchemyAnimationLooksLikeVideo(
+  animation?: { cachedUrl?: string; originalUrl?: string; contentType?: string; size?: number } | null
+): boolean {
+  const type = (animation?.contentType || '').toLowerCase();
+  if (type.startsWith('video/')) return true;
+  const cached = (animation?.cachedUrl || '').trim();
+  if (!cached || isBrokenAlchemyAnimationCache(animation)) return false;
+  if (/nft2?-cdn\.alchemy\.com\/[^?\s]+_animation(?:\?|#|$)/i.test(cached)) return true;
+  if (typeof animation?.size === 'number' && animation.size > 2048 && /_animation/i.test(cached)) {
+    return true;
+  }
+  return false;
+}
+
+/** Best playback URL from Alchemy animation fields + on-chain metadata. */
+function pickAlchemyAnimationPlaybackUrl(
+  animation?: { cachedUrl?: string; originalUrl?: string; contentType?: string; size?: number } | null,
+  metaAnimationUrl?: string | null,
+  extraOrigins: Array<string | null | undefined> = []
+): string {
+  const origins = [
+    metaAnimationUrl,
+    animation?.originalUrl,
+    ...extraOrigins,
+  ]
+    .map((u) => (typeof u === 'string' ? u.trim() : ''))
+    .filter(isUsableOriginPlaybackUrl);
+
+  // Prefer durable on-chain Arweave when present.
+  const arOrigin = origins.find(
+    (u) => u.startsWith('ar://') || /arweave\.net\//i.test(u)
+  );
+  if (arOrigin) return arOrigin;
+
+  const cached = (animation?.cachedUrl || '').trim();
+  const type = (animation?.contentType || '').toLowerCase();
+  const cachedIsVideo = alchemyAnimationLooksLikeVideo(animation);
+
+  // Real Alchemy CDN video bytes beat IPFS gateways (CORS/429 in mini-apps) and
+  // signed mezzanine URLs (signatures expire → 403).
+  if (
+    !isBrokenAlchemyAnimationCache(animation) &&
+    isUsableOriginPlaybackUrl(cached) &&
+    cachedIsVideo &&
+    !isWeakPlaybackUrl(cached)
+  ) {
+    return cached;
+  }
+
+  // Strong https only — skip IPFS; public gateways fail from browser origins.
+  const httpsOrigin = origins.find(
+    (u) =>
+      /^https?:\/\//i.test(u) &&
+      !isWeakPlaybackUrl(u) &&
+      !isIpfsPlaybackUrl(u)
+  );
+  if (httpsOrigin) return httpsOrigin;
+
+  if (isBrokenAlchemyAnimationCache(animation) || !isUsableOriginPlaybackUrl(cached)) {
+    return '';
+  }
+  if (cachedIsVideo && !isWeakPlaybackUrl(cached)) {
+    return cached;
+  }
+  return '';
+}
+
 type AlchemyImageFields = {
   cachedUrl?: string;
   originalUrl?: string;
   thumbnailUrl?: string;
   pngUrl?: string;
   contentType?: string;
+  size?: number;
 };
 
 /** True when a URL is usable as a still/animated cover (not audio/video bytes). */
@@ -241,6 +360,80 @@ const baseAlchemy = new Alchemy({
   network: Network.BASE_MAINNET
 });
 
+/** Decode ABI-encoded string from eth_call result. */
+function decodeEthCallString(result: string): string {
+  const hex = result.startsWith('0x') ? result.slice(2) : result;
+  if (hex.length < 128) return '';
+  const len = parseInt(hex.slice(64, 128), 16);
+  if (!Number.isFinite(len) || len <= 0 || len > 2048) return '';
+  const dataHex = hex.slice(128, 128 + len * 2);
+  if (dataHex.length < len * 2) return '';
+  const bytes = Buffer.from(dataHex, 'hex');
+  return bytes.toString('utf8').replace(/\0/g, '').trim();
+}
+
+/**
+ * Read ERC-1155 `uri(uint256)` or ERC-721 `tokenURI(uint256)` when Alchemy's
+ * animation cache has been rewritten to orphan Mux / broken HLS.
+ */
+async function readContractTokenMetadataUri(
+  contract: string,
+  tokenId: string,
+  network: 'base' | 'ethereum'
+): Promise<string> {
+  const key = process.env.NEXT_PUBLIC_ALCHEMY_API_KEY;
+  if (!key) return '';
+  const rpc =
+    network === 'base'
+      ? `https://base-mainnet.g.alchemy.com/v2/${key}`
+      : `https://eth-mainnet.g.alchemy.com/v2/${key}`;
+  let idHex: string;
+  try {
+    idHex = BigInt(tokenId.startsWith('0x') ? tokenId : tokenId).toString(16).padStart(64, '0');
+  } catch {
+    return '';
+  }
+  // ERC-1155 uri(uint256) first — stay-in-tune journals are 1155.
+  for (const selector of ['0x0e89341c', '0xc87b56dd'] as const) {
+    try {
+      const res = await fetch(rpc, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'eth_call',
+          params: [{ to: contract, data: `${selector}${idHex}` }, 'latest'],
+        }),
+      });
+      if (!res.ok) continue;
+      const json = (await res.json()) as { result?: string };
+      if (!json.result || json.result === '0x') continue;
+      const uri = decodeEthCallString(json.result);
+      if (uri) return uri;
+    } catch {
+      // try next selector
+    }
+  }
+  return '';
+}
+
+async function fetchJsonMetadataFromUri(uri: string): Promise<Partial<NFTMetadata> | null> {
+  const url = processMediaUrlServer(uri, '', 'metadata');
+  if (!url || isDangerousResourceUrl(url)) return null;
+  try {
+    const res = await fetch(url, {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as Partial<NFTMetadata>;
+    return data && typeof data === 'object' ? data : null;
+  } catch {
+    return null;
+  }
+}
+
 export const getNFTMetadata = async (contract: string, tokenId: string, network: 'base' | 'ethereum' = 'ethereum'): Promise<NFT> => {
   try {
     const client = network === 'base' ? baseAlchemy : ethAlchemy;
@@ -302,54 +495,163 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
         files: rawMeta.properties?.files,
         collectionImage: collectionOpenSeaImage,
         videoFallbacks: [
-          alchemyImage.animation?.cachedUrl,
           alchemyImage.animation?.originalUrl,
           rawMeta.animation_url,
+          // Only use cachedUrl when it isn't a broken HLS stub.
+          isBrokenAlchemyAnimationCache(alchemyImage.animation)
+            ? undefined
+            : alchemyImage.animation?.cachedUrl,
           rawMeta.image,
           alchemyImage.image?.cachedUrl,
         ],
       });
     const alchemyImageCached = alchemyVisualCover;
-    const alchemyAnimCached = alchemyImage.animation?.cachedUrl || '';
+    const brokenAnimCache = isBrokenAlchemyAnimationCache(alchemyImage.animation);
+    const alchemyAnimCached = brokenAnimCache
+      ? ''
+      : alchemyImage.animation?.cachedUrl || '';
     const alchemyAnimOriginal = alchemyImage.animation?.originalUrl || '';
-    const alchemyAnimType = (alchemyImage.animation?.contentType || '').toLowerCase();
+    const alchemyAnimTypeRaw = (alchemyImage.animation?.contentType || '').toLowerCase();
+    // Broken HLS stubs report x-mpegURL — treat Arweave/mp4 origins as video/mp4.
+    const contentMime = String(
+      rawMeta.content?.mime ||
+        rawMeta.mimeType ||
+        rawMeta.mime_type ||
+        ''
+    ).toLowerCase();
+    const alchemyAnimType = brokenAnimCache
+      ? (
+          contentMime.startsWith('video/') ||
+          /\.(mp4|webm|mov|m4v)(?:\?|#|$)/i.test(alchemyAnimOriginal) ||
+          /\.(mp4|webm|mov|m4v)(?:\?|#|$)/i.test(rawMeta.animation_url || '') ||
+          (rawMeta.animation_url || '').startsWith('ar://') ||
+          (rawMeta.content?.uri || '').startsWith('ar://')
+            ? 'video/mp4'
+            : contentMime
+        )
+      : alchemyAnimTypeRaw;
 
-    const alchemyAnimation = alchemyAnimCached || alchemyAnimOriginal || alchemyImageAsAudio || '';
+    const contentUri = rawMeta.content?.uri || '';
+    const fileVideo =
+      (rawMeta.properties?.files || []).find((f) => {
+        const t = (f?.type || f?.mimeType || '').toLowerCase();
+        const u = f?.uri || f?.url || '';
+        return t.startsWith('video/') || /\.(mp4|webm|mov|m4v)(?:\?|#|$)/i.test(u);
+      });
+    const fileVideoUri = fileVideo?.uri || fileVideo?.url || '';
+
+    let alchemyAnimation =
+      pickAlchemyAnimationPlaybackUrl(alchemyImage.animation, rawMeta.animation_url, [
+        contentUri,
+        fileVideoUri,
+        rawMeta.properties?.video,
+        rawMeta.properties?.animation_url,
+      ]) ||
+      (isUsableOriginPlaybackUrl(alchemyImageAsAudio) ? alchemyImageAsAudio : '') ||
+      '';
+
+    // Prefer on-chain Arweave when Alchemy only has Mux mezzanine / empty.
+    // stay-in-tune journals are ERC-1155; uri(tokenId) → Arweave JSON.
+    let effectiveMeta: NFTMetadata = rawMeta;
+    const needsChainOrigin =
+      !alchemyAnimation ||
+      isMezzanineMuxUrl(alchemyAnimation) ||
+      isPollutedPlaybackUrl(alchemyAnimation);
+    if (needsChainOrigin) {
+      const tokenMetaUri = await readContractTokenMetadataUri(
+        contract,
+        metadata.tokenId?.toString?.() || tokenId,
+        network
+      );
+      const chainMeta = tokenMetaUri ? await fetchJsonMetadataFromUri(tokenMetaUri) : null;
+      if (chainMeta) {
+        const chainPlayback =
+          pickAlchemyAnimationPlaybackUrl(null, chainMeta.animation_url, [
+            chainMeta.content?.uri,
+            chainMeta.properties?.video,
+            chainMeta.properties?.animation_url,
+          ]) || '';
+        // Upgrade only when chain publishes a durable origin (ar://), not expired mezzanine.
+        if (
+          chainPlayback &&
+          !isWeakPlaybackUrl(chainPlayback) &&
+          (chainPlayback.startsWith('ar://') ||
+            /arweave\.net\//i.test(chainPlayback) ||
+            !alchemyAnimation ||
+            isPollutedPlaybackUrl(alchemyAnimation))
+        ) {
+          effectiveMeta = { ...rawMeta, ...chainMeta };
+          alchemyAnimation = chainPlayback;
+        } else if (chainMeta) {
+          effectiveMeta = { ...rawMeta, ...chainMeta };
+        }
+      }
+    }
+
+    const recoveredMime = String(
+      effectiveMeta.content?.mime ||
+        effectiveMeta.mimeType ||
+        effectiveMeta.mime_type ||
+        contentMime ||
+        ''
+    ).toLowerCase();
+    const resolvedAnimType =
+      alchemyAnimationLooksLikeVideo(alchemyImage.animation) ||
+      (alchemyAnimation &&
+        (alchemyAnimation.startsWith('ar://') ||
+          /arweave\.net\//i.test(alchemyAnimation) ||
+          recoveredMime.startsWith('video/')))
+        ? recoveredMime.startsWith('video/')
+          ? recoveredMime
+          : 'video/mp4'
+        : alchemyAnimType;
+
     const mergedMeta: NFTMetadata = {
-      ...rawMeta,
-      // Prefer Alchemy CDN for playback; keep original IPFS as secondary via image fields.
+      ...effectiveMeta,
+      // Prefer durable playback origin; keep raw on-chain URL for profile classification.
       animation_url:
-        alchemyAnimCached ||
-        rawMeta.animation_url ||
-        alchemyAnimOriginal ||
-        alchemyImageAsAudio ||
+        alchemyAnimation ||
+        contentUri ||
+        effectiveMeta.animation_url ||
         '',
       // Never stick audio bytes in metadata.image — covers must be visual.
-      image: alchemyImageCached || (looksLikeVisualCoverUrl(rawMeta.image) ? rawMeta.image : '') || '',
+      image:
+        alchemyImageCached ||
+        (looksLikeVisualCoverUrl(effectiveMeta.image) ? effectiveMeta.image : '') ||
+        '',
       image_url:
-        (looksLikeVisualCoverUrl(rawMeta.image_url) ? rawMeta.image_url : '') ||
+        (looksLikeVisualCoverUrl(effectiveMeta.image_url) ? effectiveMeta.image_url : '') ||
         alchemyImageCached ||
         '',
     };
     const plan = getNftPlaybackPlan({
       metadata: mergedMeta,
       // Hint video when Alchemy already classified the animation as mp4/webm
-      isVideo: alchemyAnimType.startsWith('video/') || undefined,
-      videoUrl: alchemyAnimType.startsWith('video/') ? alchemyAnimCached || alchemyAnimation : undefined,
+      isVideo:
+        resolvedAnimType.startsWith('video/') || recoveredMime.startsWith('video/')
+          ? true
+          : undefined,
+      videoUrl:
+        resolvedAnimType.startsWith('video/') || recoveredMime.startsWith('video/')
+          ? alchemyAnimCached || alchemyAnimation || contentUri
+          : undefined,
     });
-    const soundRaw = plan.audioUrl || plan.videoUrl || alchemyAnimation || '';
+    const soundRaw = [plan.audioUrl, plan.videoUrl, alchemyAnimation].find(isUsableOriginPlaybackUrl) || '';
     const audioUrl = processMediaUrlServer(
       rewriteLegacyOpenSeaMediaUrl(soundRaw, contract, network),
       '',
       'audio'
     );
-    const videoUrl =
-      alchemyAnimType.startsWith('video/') && alchemyAnimCached
+    const videoRaw =
+      (resolvedAnimType.startsWith('video/') && alchemyAnimCached
         ? alchemyAnimCached
-        : plan.videoUrl
-          ? processMediaUrlServer(rewriteLegacyOpenSeaMediaUrl(plan.videoUrl, contract, network), '', 'audio')
-          : '';
-    const imageFromFiles = (rawMeta.properties?.files || []).find(
+        : '') ||
+      (plan.videoUrl && isUsableOriginPlaybackUrl(plan.videoUrl) ? plan.videoUrl : '') ||
+      (resolvedAnimType.startsWith('video/') && alchemyAnimation ? alchemyAnimation : '');
+    const videoUrl = videoRaw
+      ? processMediaUrlServer(rewriteLegacyOpenSeaMediaUrl(videoRaw, contract, network), '', 'audio')
+      : '';
+    const imageFromFiles = (effectiveMeta.properties?.files || []).find(
       (f: { uri?: string; url?: string; type?: string; mimeType?: string }) => {
         const u = (f?.uri || f?.url || '').toLowerCase();
         const t = (f?.type || f?.mimeType || '').toLowerCase();
@@ -360,14 +662,12 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
       rewriteLegacyOpenSeaMediaUrl(
         alchemyImageCached ||
           collectionOpenSeaImage ||
-          (looksLikeVisualCoverUrl(rawMeta.image) ? rawMeta.image : '') ||
-          (looksLikeVisualCoverUrl(rawMeta.image_url) ? rawMeta.image_url : '') ||
-          rawMeta.properties?.image ||
-          rawMeta.properties?.visual?.url ||
+          (looksLikeVisualCoverUrl(effectiveMeta.image) ? effectiveMeta.image : '') ||
+          (looksLikeVisualCoverUrl(effectiveMeta.image_url) ? effectiveMeta.image_url : '') ||
+          effectiveMeta.properties?.image ||
+          effectiveMeta.properties?.visual?.url ||
           imageFromFiles?.uri ||
           imageFromFiles?.url ||
-          alchemyAnimCached ||
-          rawMeta.animation_url ||
           '',
         contract,
         network
@@ -381,22 +681,34 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
     const formattedTokenId = metadata.tokenId.toString().replace(/^0x/, '');
 
     // Alchemy CDN URLs often lack .mp4 — trust Alchemy contentType over URL sniffing.
-    const isAlchemyVideo = alchemyAnimType.startsWith('video/');
-    const resolvedVideo =
-      videoUrl || (isAlchemyVideo ? alchemyAnimCached : '') || undefined;
+    // Never use broken HLS / orphan Mux as the video source.
+    const isAlchemyVideo =
+      resolvedAnimType.startsWith('video/') ||
+      recoveredMime.startsWith('video/') ||
+      plan.mode !== 'audio-only';
+    const resolvedVideoCandidate =
+      videoUrl ||
+      (isAlchemyVideo ? alchemyAnimCached || processMediaUrlServer(alchemyAnimation, '', 'audio') : '') ||
+      '';
+    const resolvedVideo = isUsableOriginPlaybackUrl(resolvedVideoCandidate) &&
+      !isWeakPlaybackUrl(resolvedVideoCandidate)
+      ? resolvedVideoCandidate
+      : isUsableOriginPlaybackUrl(audioUrl) && !isWeakPlaybackUrl(audioUrl)
+        ? audioUrl
+        : undefined;
     const playbackMode = isAlchemyVideo ? 'video-with-audio' : plan.mode;
 
     const nft: NFT = {
       contract: contractAddress,
       tokenId: formattedTokenId,
-      name: rawMeta.name || `NFT #${formattedTokenId}`,
-      description: metadata.description || rawMeta.description || '',
+      name: effectiveMeta.name || rawMeta.name || `NFT #${formattedTokenId}`,
+      description: metadata.description || effectiveMeta.description || rawMeta.description || '',
       image: imageUrl || '',
-      audio: resolvedVideo || audioUrl || '',
+      audio: resolvedVideo || (isUsableOriginPlaybackUrl(audioUrl) ? audioUrl : '') || '',
       videoUrl: resolvedVideo,
       playbackMode,
       hasValidAudio:
-        Boolean(resolvedVideo || audioUrl) ||
+        Boolean(resolvedVideo || (isUsableOriginPlaybackUrl(audioUrl) && audioUrl)) ||
         hasPlayableAudio({ audio: audioUrl, metadata: mergedMeta }),
       isVideo: isAlchemyVideo || plan.mode !== 'audio-only',
       network,
@@ -411,10 +723,16 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
         // Prefer durable cover; don't re-inject unreplicated IPFS over OpenSea/collection.
         image: alchemyImageCached || imageUrl || '',
         image_url: alchemyImageCached || imageUrl || '',
-        animation_url: mergedMeta.animation_url || resolvedVideo || plan.videoUrl || '',
+        animation_url:
+          (isUsableOriginPlaybackUrl(mergedMeta.animation_url)
+            ? mergedMeta.animation_url
+            : '') ||
+          resolvedVideo ||
+          (isUsableOriginPlaybackUrl(plan.videoUrl) ? plan.videoUrl : '') ||
+          '',
         audio: mergedMeta.audio || (plan.mode === 'video-plus-audio' ? plan.audioUrl : mergedMeta.audio) || undefined,
-        mimeType: alchemyAnimType || mergedMeta.mimeType,
-        mime_type: alchemyAnimType || mergedMeta.mime_type,
+        mimeType: resolvedAnimType || mergedMeta.mimeType,
+        mime_type: resolvedAnimType || mergedMeta.mime_type,
       }
     };
 
@@ -436,6 +754,19 @@ const isAlchemyCdnUrl = (url?: string | null): boolean =>
  *  or video-as-image URLs that need Alchemy's static thumbnail cache. */
 export const nftNeedsChainMediaEnrich = (nft: NFT | null | undefined): boolean => {
   if (!nft?.contract || !nft?.tokenId) return false;
+
+  const playbackFields = [
+    nft.audio,
+    nft.videoUrl,
+    nft.animationUrl,
+    nft.metadata?.animation_url,
+  ].filter(Boolean) as string[];
+
+  // Polluted Mux / broken Alchemy HLS / signed mezzanine → always re-fetch origin.
+  if (playbackFields.some((u) => isWeakPlaybackUrl(u))) return true;
+
+  // Good Alchemy cover but Pinata/IPFS playback (Relic / Daniel Arsham, etc.).
+  if (playbackFields.some((u) => isIpfsPlaybackUrl(u))) return true;
 
   // Solid visual cover already — nothing to enrich for the card thumb.
   // Exception: Alchemy CDN alone is not enough when we also have a SeaDN /
@@ -494,8 +825,8 @@ export const nftNeedsChainMediaEnrich = (nft: NFT | null | undefined): boolean =
  * fall back to Alchemy's cached CDN (image + animation). Safe in mini-apps.
  */
 export const enrichNftMediaFromChain = async (nft: NFT): Promise<NFT> => {
-  // Callers decide when enrich is needed. Never replace playback URLs — only
-  // improve card cover (image / collection.image).
+  // Callers decide when enrich is needed. Cover-only by default; also replace
+  // weak playback (orphan Mux / mezzanine 403s / broken HLS) with Arweave origin.
   if (!nft?.contract || !nft?.tokenId) return nft;
   try {
     const network = nft.network === 'base' ? 'base' : 'ethereum';
@@ -513,9 +844,40 @@ export const enrichNftMediaFromChain = async (nft: NFT): Promise<NFT> => {
     const incomingAnim =
       data.metadata?.animation_url || data.videoUrl || data.audio || '';
 
-    // Keep whatever the client already uses for playback unless enrich adds a
-    // clearly better same-kind URL. Never swap Arweave audio for a cover video.
-    const keepPlaybackAnim = existingAnim || incomingAnim || '';
+    const existingWeak =
+      isWeakPlaybackUrl(existingAnim) ||
+      !existingAnim ||
+      isIpfsPlaybackUrl(existingAnim);
+    const incomingStrong =
+      !!incomingAnim &&
+      !isWeakPlaybackUrl(incomingAnim) &&
+      !isPollutedPlaybackUrl(incomingAnim);
+    const incomingOk =
+      !!incomingAnim &&
+      !isPollutedPlaybackUrl(incomingAnim) &&
+      !isWeakPlaybackUrl(incomingAnim);
+
+    // Prefer durable ar:// / https origins over signed mezzanine / orphan Mux.
+    const keepPlaybackAnim =
+      isAlchemyCdnPlaybackUrl(incomingAnim) && isIpfsPlaybackUrl(existingAnim)
+        ? incomingAnim
+        : existingWeak && incomingStrong
+          ? incomingAnim
+          : existingAnim && !isWeakPlaybackUrl(existingAnim) && !isIpfsPlaybackUrl(existingAnim)
+            ? existingAnim
+            : incomingStrong
+              ? incomingAnim
+              : incomingOk
+                ? incomingAnim
+                : [incomingAnim, existingAnim].find(
+                    (u) => u && !isPollutedPlaybackUrl(u)
+                  ) || '';
+
+    const replacePlayback =
+      Boolean(keepPlaybackAnim) &&
+      keepPlaybackAnim !== existingAnim &&
+      (existingWeak ||
+        (isAlchemyCdnPlaybackUrl(keepPlaybackAnim) && isIpfsPlaybackUrl(existingAnim)));
 
     // Cover only: prefer a real still from Alchemy; token video cover only when
     // there is no usable still (Nifty Island / Food). Never prefer collection
@@ -577,17 +939,36 @@ export const enrichNftMediaFromChain = async (nft: NFT): Promise<NFT> => {
       resolvedImage = alchemyStill;
     }
 
+    const pickPlaybackField = (existing?: string, incoming?: string) => {
+      if (replacePlayback && keepPlaybackAnim) return keepPlaybackAnim;
+      if (isAlchemyCdnPlaybackUrl(incoming) && isIpfsPlaybackUrl(existing)) {
+        return incoming as string;
+      }
+      // Prefer durable origin over signed mezzanine even when not replacePlayback.
+      if (existing && isWeakPlaybackUrl(existing) && incoming && !isWeakPlaybackUrl(incoming)) {
+        return incoming;
+      }
+      if (existing && !isWeakPlaybackUrl(existing)) return existing;
+      if (incoming && !isPollutedPlaybackUrl(incoming)) return incoming;
+      if (existing && !isPollutedPlaybackUrl(existing)) return existing;
+      // Never fall through to orphan Mux / broken HLS.
+      return '';
+    };
+
     return {
       ...nft,
       name: data.name || nft.name,
       image: resolvedImage,
-      // Preserve playback fields from the live NFT object.
-      audio: nft.audio || data.audio || '',
-      videoUrl: nft.videoUrl || data.videoUrl || '',
-      animationUrl: nft.animationUrl || data.animationUrl || '',
-      playbackMode: nft.playbackMode || data.playbackMode,
-      isVideo: nft.isVideo ?? data.isVideo,
-      hasValidAudio: nft.hasValidAudio ?? data.hasValidAudio,
+      audio: pickPlaybackField(nft.audio, data.audio),
+      videoUrl: pickPlaybackField(nft.videoUrl, data.videoUrl) || undefined,
+      animationUrl: pickPlaybackField(nft.animationUrl, data.animationUrl) || undefined,
+      playbackMode: replacePlayback
+        ? data.playbackMode || nft.playbackMode
+        : nft.playbackMode || data.playbackMode,
+      isVideo: replacePlayback ? (data.isVideo ?? nft.isVideo) : (nft.isVideo ?? data.isVideo),
+      hasValidAudio: replacePlayback
+        ? (data.hasValidAudio ?? nft.hasValidAudio)
+        : (nft.hasValidAudio ?? data.hasValidAudio),
       collection: {
         ...nft.collection,
         name: data.collection?.name || nft.collection?.name || '',
@@ -595,10 +976,18 @@ export const enrichNftMediaFromChain = async (nft: NFT): Promise<NFT> => {
       },
       metadata: {
         ...nft.metadata,
+        ...data.metadata,
         image: resolvedImage || nft.metadata?.image,
         image_url: nft.metadata?.image_url || data.metadata?.image_url || resolvedImage,
-        // Never let enrich replace a working playback URL with cover media.
         animation_url: keepPlaybackAnim,
+        mimeType:
+          replacePlayback
+            ? data.metadata?.mimeType || data.metadata?.mime_type || nft.metadata?.mimeType
+            : nft.metadata?.mimeType || data.metadata?.mimeType,
+        mime_type:
+          replacePlayback
+            ? data.metadata?.mime_type || data.metadata?.mimeType || nft.metadata?.mime_type
+            : nft.metadata?.mime_type || data.metadata?.mime_type,
       },
     };
   } catch (error) {
@@ -703,7 +1092,7 @@ export const fetchOwnedNftsFromAlchemy = async (address: string): Promise<NFT[]>
       description?: string;
       media?: Array<{ gateway?: string; raw?: string; format?: string }>;
       image?: AlchemyImageFields;
-      animation?: { cachedUrl?: string; originalUrl?: string; contentType?: string };
+      animation?: { cachedUrl?: string; originalUrl?: string; contentType?: string; size?: number };
       metadata?: {
         name?: string;
         description?: string;
@@ -751,12 +1140,13 @@ export const fetchOwnedNftsFromAlchemy = async (address: string): Promise<NFT[]>
               /seadn\.io|openseauserdata|i2c\.seadn|niftyisland|nft2?-cdn\.alchemy|cloudinary/i.test(u)
           );
         const animationFromAlchemy =
-          nft.animation?.cachedUrl ||
-          meta.animation_url ||
-          nft.animation?.originalUrl ||
-          fromMedia?.gateway ||
-          fromMedia?.raw ||
-          '';
+          pickAlchemyAnimationPlaybackUrl(nft.animation, meta.animation_url, [
+            (meta as NFTMetadata).content?.uri,
+            meta.properties?.video,
+            meta.properties?.animation_url,
+            fromMedia?.gateway,
+            fromMedia?.raw,
+          ]) || '';
         const collectionImage =
           nft.contract.openSea?.imageUrl ||
           nft.contractMetadata?.openSea?.imageUrl ||
@@ -769,9 +1159,12 @@ export const fetchOwnedNftsFromAlchemy = async (address: string): Promise<NFT[]>
           files: meta.properties?.files,
           collectionImage,
           videoFallbacks: [
+            // Prefer original/meta mp4 — never feed broken HLS stubs into cover/video fallbacks.
+            nft.animation?.originalUrl,
+            meta.animation_url,
+            (meta as NFTMetadata).content?.uri,
             animationFromAlchemy,
             durableMedia,
-            meta.animation_url,
             meta.image,
             fromMedia?.gateway,
             fromMedia?.raw,
@@ -782,8 +1175,12 @@ export const fetchOwnedNftsFromAlchemy = async (address: string): Promise<NFT[]>
           ...meta,
           animation_url:
             animationFromAlchemy ||
-            meta.animation_url ||
-            audioFromImage ||
+            (typeof (meta as NFTMetadata).content?.uri === 'string'
+              ? (meta as NFTMetadata).content!.uri
+              : '') ||
+            (typeof meta.animation_url === 'string' ? meta.animation_url : '') ||
+            (isUsableOriginPlaybackUrl(meta.animation_url) ? meta.animation_url : '') ||
+            (isUsableOriginPlaybackUrl(audioFromImage) ? audioFromImage : '') ||
             '',
           image: visualCover || '',
         };
@@ -823,7 +1220,18 @@ export const fetchOwnedNftsFromAlchemy = async (address: string): Promise<NFT[]>
         };
 
         const hasAudio = Boolean(soundRaw) || hasPlayableAudio(candidate);
-        const isVideo = plan.mode !== 'audio-only';
+        const isVideo =
+          plan.mode !== 'audio-only' ||
+          alchemyAnimationLooksLikeVideo(nft.animation) ||
+          /\.(mp4|webm|mov|m4v)(?:\?|#|$)/i.test(animationFromAlchemy || '');
+
+        const playbackUrl = rewrite(
+          animationFromAlchemy ||
+            (isVideo && nft.animation?.cachedUrl && !isBrokenAlchemyAnimationCache(nft.animation)
+              ? nft.animation.cachedUrl
+              : '') ||
+            soundRaw
+        );
 
         const processedNFT: NFT = {
           contract: contractAddress,
@@ -831,10 +1239,10 @@ export const fetchOwnedNftsFromAlchemy = async (address: string): Promise<NFT[]>
           name: meta.name || `NFT #${tokenId}`,
           description: meta.description || '',
           image: imageUrl || '',
-          animationUrl: rewrite(mergedMeta.animation_url || plan.videoUrl || '') || '',
-          audio: audioUrl || '',
-          videoUrl: videoUrl || undefined,
-          playbackMode: plan.mode,
+          animationUrl: playbackUrl || rewrite(mergedMeta.animation_url || plan.videoUrl || '') || '',
+          audio: playbackUrl || audioUrl || '',
+          videoUrl: isVideo ? playbackUrl || videoUrl || undefined : videoUrl || undefined,
+          playbackMode: isVideo ? 'video-with-audio' : plan.mode,
           hasValidAudio: hasAudio,
           isVideo,
           isAnimation: false,
@@ -861,7 +1269,7 @@ export const fetchOwnedNftsFromAlchemy = async (address: string): Promise<NFT[]>
               rewrite(meta.image_url || '') ||
               rewrite(visualCover || '') ||
               '',
-            animation_url: rewrite(mergedMeta.animation_url || plan.videoUrl || '') || '',
+            animation_url: playbackUrl || rewrite(mergedMeta.animation_url || plan.videoUrl || '') || '',
             audio:
               mergedMeta.audio ||
               mergedMeta.audio_url ||

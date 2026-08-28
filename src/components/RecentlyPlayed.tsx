@@ -3,7 +3,7 @@ import { NFT } from '../types/user';
 import { subscribeToRecentPlays } from '../lib/firebase';
 import { logger } from '../utils/logger';
 import { NFTCard } from './nft/NFTCard';
-import { getMediaKey } from '../utils/media';
+import { getMediaKey, getNftIdentityKey } from '../utils/media';
 import { usePagedItems } from '../hooks/usePagedItems';
 import { isRealFid } from '../utils/platform';
 
@@ -106,27 +106,28 @@ const RecentlyPlayed: React.FC<RecentlyPlayedProps> = ({
   // Instant local prepend so the row updates the moment playback starts (after hydrate).
   useEffect(() => {
     if (!firebaseReady || !currentPlayingNFT) return;
-    const mediaKey = getMediaKey(currentPlayingNFT);
-    if (!mediaKey) return;
+    const identityKey = getNftIdentityKey(currentPlayingNFT);
+    if (!identityKey) return;
 
     setLocalRecentlyPlayed(prev => {
-      if (prev[0] && (prev[0].mediaKey || getMediaKey(prev[0])) === mediaKey) {
+      if (prev[0] && getNftIdentityKey(prev[0]) === identityKey) {
         return prev;
       }
+      const mediaKey = getMediaKey(currentPlayingNFT);
       const newNFT = {
         ...currentPlayingNFT,
-        mediaKey,
+        ...(mediaKey ? { mediaKey } : {}),
         addedToRecentlyPlayed: true,
         addedToRecentlyPlayedAt: Date.now(),
       };
-      const filtered = prev.filter(nft => (nft.mediaKey || getMediaKey(nft)) !== mediaKey);
+      const filtered = prev.filter((nft) => getNftIdentityKey(nft) !== identityKey);
       const updatedList = [newNFT, ...filtered].slice(0, 12);
       saveToLocalStorage(updatedList);
       return updatedList;
     });
   }, [currentPlayingNFT, saveToLocalStorage, firebaseReady]);
 
-  const nftIdentity = (nft: NFT) => nft.mediaKey || getMediaKey(nft) || `${nft.contract}-${nft.tokenId}`.toLowerCase();
+  const nftIdentity = (nft: NFT) => getNftIdentityKey(nft);
 
   const isDisplayableNft = (nft: NFT | null | undefined): nft is NFT => {
     if (!nft) return false;

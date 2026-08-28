@@ -10,7 +10,7 @@ import { uniqueLikedNfts } from '../../utils/likeDedupe';
 import { shouldPreserveAnimation } from '../../utils/imageOptimizer';
 import { PAGE_SIZE, usePagedItems } from '../../hooks/usePagedItems';
 import { useNFTLike } from '../../hooks/useNFTLike';
-import { withFeaturedCover } from '~/data/featuredNfts';
+import { withFeaturedCover, withFeaturedPlayback } from '~/data/featuredNfts';
 import { isPlayableMediaNFT } from '../../utils/isMediaNFT';
 import { sortLikedNewestFirst } from '../../utils/likeTime';
 
@@ -63,7 +63,7 @@ const SimpleNFTCard: React.FC<SimpleNFTCardProps> = ({
     return () => window.clearTimeout(timer);
   }, [animationDelay]);
 
-  const coverNft = withFeaturedCover(nft);
+  const coverNft = withFeaturedPlayback(withFeaturedCover(nft));
   const usedFeaturedCover = coverNft.image !== nft.image;
   const useGif =
     !usedFeaturedCover && shouldPreserveAnimation(nft.metadata?.image || nft.image || '');

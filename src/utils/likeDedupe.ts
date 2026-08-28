@@ -27,6 +27,7 @@ export function getLikeDedupeKey(nft?: LikeDedupeSource | null): string {
     tokenId: String(nft.tokenId ?? ''),
     audio: nft.audio || '',
     metadata: nft.metadata,
+    name: nft.name,
   });
   if (featured) {
     return `featured:${getNftIdentityKey(featured)}`;

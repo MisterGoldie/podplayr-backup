@@ -8,6 +8,7 @@ import {
 } from './media';
 import { isNftMediaDead } from './deadNftRegistry';
 import { isBlockedNftContract, isPhishingSpamNft, isUnsafePlaybackUrl } from './nftSafety';
+import { isPollutedPlaybackUrl } from '../lib/mediaCdn';
 
 const AUDIO_EXT_RE = /\.(mp3|wav|m4a|aac|ogg|flac)(?:\?|#|$)/i;
 const VIDEO_EXT_RE = /\.(mp4|webm|mov|m4v)(?:\?|#|$)/i;
@@ -305,7 +306,11 @@ export const pickVideoUrl = (candidate: MediaCandidate | NFT): string | null => 
     getMimeType(candidate) ||
     getCachedMediaMime(animation) ||
     getCachedMediaMime((candidate as NFT).videoUrl);
-  if (animation && (urlLooksLikeVideo(animation) || mime.startsWith('video/'))) {
+  if (
+    animation &&
+    !isPollutedPlaybackUrl(animation) &&
+    (urlLooksLikeVideo(animation) || mime.startsWith('video/'))
+  ) {
     return animation;
   }
 
@@ -313,6 +318,7 @@ export const pickVideoUrl = (candidate: MediaCandidate | NFT): string | null => 
   if (
     stored &&
     !urlLooksLikeAudio(stored) &&
+    !isPollutedPlaybackUrl(stored) &&
     (urlLooksLikeVideo(stored) || mime.startsWith('video/') || getCachedMediaMime(stored).startsWith('video/'))
   ) {
     return stored;
@@ -341,7 +347,10 @@ export const pickAudioUrl = (candidate: MediaCandidate | NFT): string | null => 
       meta?.properties?.soundContent?.url,
     ],
     (url) =>
-      !urlLooksLikeVideo(url) && !urlLooksLike3dModel(url) && !urlLooksLikeImage(url)
+      !urlLooksLikeVideo(url) &&
+      !urlLooksLike3dModel(url) &&
+      !urlLooksLikeImage(url) &&
+      !isPollutedPlaybackUrl(url)
   );
   if (dedicated) return dedicated;
 
@@ -569,21 +578,27 @@ export const rememberDeadGateway = (assetUrl: string, gatewayUrl: string): void 
 export const filterLivePlaybackUrls = (assetUrl: string, urls: string[]): string[] => {
   const dead = deadGatewayHosts.get(mediaAssetId(assetUrl));
   const source = getCachedMediaSourceUrl(assetUrl);
-  const ordered = source
-    ? [source, ...urls.filter((u) => u !== source)]
+  // Never promote polluted Mux / broken Alchemy HLS from mime-source memory.
+  const safeSource =
+    source && !isPollutedPlaybackUrl(source) ? source : '';
+  const ordered = safeSource
+    ? [safeSource, ...urls.filter((u) => u !== safeSource)]
     : urls;
   // ipfs.io 403s in-browser even if it was remembered from an older session.
-  const reachable = ordered.filter((u) => !isIpfsCorsHostileUrl(u));
-  const pool = reachable.length ? reachable : ordered;
-  if (!dead?.size) return pool;
-  const live = pool.filter((u) => {
+  const reachable = ordered.filter(
+    (u) => !isIpfsCorsHostileUrl(u) && !isPollutedPlaybackUrl(u)
+  );
+  const pool = reachable.length ? reachable : ordered.filter((u) => !isPollutedPlaybackUrl(u));
+  const finalPool = pool.length ? pool : ordered;
+  if (!dead?.size) return finalPool;
+  const live = finalPool.filter((u) => {
     try {
       return !dead.has(new URL(u).hostname);
     } catch {
       return true;
     }
   });
-  return live.length ? live : pool;
+  return live.length ? live : finalPool;
 };
 
 /** True when URL has no clear audio/video extension (Arweave/IPFS CIDs). */

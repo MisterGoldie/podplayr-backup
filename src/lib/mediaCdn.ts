@@ -198,6 +198,56 @@ function isUsableUrl(url?: string): url is string {
   return Boolean(url && /^https?:\/\//i.test(url));
 }
 
+const KNOWN_MUX_PLAYBACK_URLS = new Set(
+  Object.values(PLAYBACK_OVERRIDES).flatMap((o) =>
+    [o.mobile, o.desktop].filter((u): u is string => Boolean(u))
+  )
+);
+
+export function isMuxPlaybackUrl(url?: string | null): boolean {
+  // Only stream.mux.com HLS counts as "Mux playback" for override matching.
+  // mezzanine.mux.com progressive mp4s are Alchemy/on-chain derivatives — separate.
+  return !!url && /stream\.mux\.com/i.test(url);
+}
+
+/** Progressive mp4 derivative hosted by Mux (often Alchemy's animation.originalUrl). */
+export function isMezzanineMuxUrl(url?: string | null): boolean {
+  return !!url && /mezzanine\.mux\.com/i.test(url);
+}
+
+/**
+ * Mux URL that is not one of our intentional PLAYBACK_OVERRIDES.
+ * Polluted NFT caches / Firebase docs sometimes stamp a dead Mux stream onto
+ * audio/animation — those must not replace the real Arweave/IPFS origin.
+ */
+export function isOrphanMuxPlaybackUrl(url?: string | null): boolean {
+  if (!isMuxPlaybackUrl(url)) return false;
+  return !KNOWN_MUX_PLAYBACK_URLS.has(url as string);
+}
+
+/**
+ * Alchemy `…_animation` CDN URLs are often failed HLS ingest stubs
+ * (contentType x-mpegURL, partialUpload, ~128B) — not playable media.
+ */
+/** @deprecated Use `isBrokenAlchemyAnimationCache` in nft.ts (needs contentType/size). */
+export function isBrokenAlchemyAnimationCdnUrl(url?: string | null): boolean {
+  return !!url && /\.m3u8(?:\?|#|$)/i.test(url);
+}
+
+/** Playback URL that must never win over a real Arweave/IPFS/mp4 origin. */
+export function isPollutedPlaybackUrl(url?: string | null): boolean {
+  return isOrphanMuxPlaybackUrl(url) || isBrokenAlchemyAnimationCdnUrl(url);
+}
+
+/**
+ * Weak / non-durable playback: orphan Mux HLS, broken Alchemy stubs, or
+ * signed mezzanine.mux.com mp4s (signatures expire → 403 in browser).
+ * Prefer ar://; never treat mezzanine as a playable origin.
+ */
+export function isWeakPlaybackUrl(url?: string | null): boolean {
+  return isPollutedPlaybackUrl(url) || isMezzanineMuxUrl(url);
+}
+
 /** CDN / transcoded URLs to try *before* the original Arweave/IPFS file. */
 export function resolveCdnPlaybackUrls(
   sourceUrl: string,
