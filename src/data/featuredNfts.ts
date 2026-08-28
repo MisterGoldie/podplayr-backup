@@ -38,6 +38,26 @@ function findFeaturedByTitle(name?: string): NFT | undefined {
   });
 }
 
+/**
+ * Exact Featured-row identity with the curated still already on the object.
+ * Used so card/play enrich does not hit /api/nft with placeholder hex tokenIds
+ * (Alchemy treats `50dc9fb449e1` as 0x → NFT #88908502419937 → shared collection PNG).
+ * Does not match library remints on other contracts.
+ */
+export function isCuratedFeaturedCover(
+  nft: Pick<NFT, 'contract' | 'tokenId' | 'image'>
+): boolean {
+  const contract = nft.contract?.toLowerCase();
+  const tokenId = String(nft.tokenId ?? '');
+  if (!contract || !tokenId || !nft.image) return false;
+  return FEATURED_NFTS.some(
+    (featured) =>
+      featured.contract?.toLowerCase() === contract &&
+      String(featured.tokenId) === tokenId &&
+      featured.image === nft.image
+  );
+}
+
 /** Same token, same media file, or same featured episode title (remint on another contract). */
 export function findFeaturedNft(
   nft: Pick<NFT, 'contract' | 'tokenId' | 'audio' | 'metadata' | 'name'>

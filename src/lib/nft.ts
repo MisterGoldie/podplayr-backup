@@ -9,6 +9,7 @@ import {
 } from '../utils/isMediaNFT';
 import { isBlockedNftContract, isDangerousResourceUrl, isPhishingSpamNft } from '../utils/nftSafety';
 import { isPollutedPlaybackUrl, isMezzanineMuxUrl, isWeakPlaybackUrl } from './mediaCdn';
+import { isCuratedFeaturedCover } from '../data/featuredNfts';
 
 const PINATA_IPFS = 'https://gateway.pinata.cloud/ipfs/';
 
@@ -777,6 +778,10 @@ export const nftNeedsChainMediaEnrich = (nft: NFT | null | undefined): boolean =
   // Good Alchemy cover but Pinata/IPFS playback (Relic / Daniel Arsham, etc.).
   if (playbackFields.some((u) => isIpfsPlaybackUrl(u))) return true;
 
+  // Curated Featured stills already have Arweave + Mux. Do not re-fetch Alchemy
+  // for placeholder hex tokenIds — that returns the collection OpenSea PNG.
+  if (isCuratedFeaturedCover(nft)) return false;
+
   // Solid visual cover already — nothing to enrich for the card thumb.
   // Exception: Alchemy CDN alone is not enough when we also have a SeaDN /
   // Nifty Island animation — those CDN hashes are often the audio file.
@@ -1001,7 +1006,9 @@ export const enrichNftMediaFromChain = async (nft: NFT): Promise<NFT> => {
           !/\.(png|jpe?g|gif|webp|svg)(?:\?|#|$)/i.test(nft.image)));
 
     let resolvedImage = nft.image || '';
-    if (currentIsTokenVideo) {
+    if (isCuratedFeaturedCover(nft)) {
+      resolvedImage = nft.image as string;
+    } else if (currentIsTokenVideo) {
       // Keep Nifty / token video covers — don't replace with Alchemy still.
       resolvedImage = nft.image as string;
     } else if (

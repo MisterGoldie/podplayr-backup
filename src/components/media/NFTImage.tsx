@@ -742,7 +742,16 @@ export const NFTImage: React.FC<NFTImageProps> = ({
             next = enrichedStill;
           }
           if ((!next || isFragileCover(next)) && collectionStill) {
-            if (isFragileCover(current) && !currentIsTokenVideo && !currentIsAlchemy) {
+            // Never swap a live Arweave still for shared collection i2c
+            // (I Found It vs Seasoning with Sazón on the same contract).
+            const currentIsArweaveStill =
+              isArweaveMediaUrl(current) && !isVideoMediaUrl(current);
+            if (
+              isFragileCover(current) &&
+              !currentIsTokenVideo &&
+              !currentIsAlchemy &&
+              !currentIsArweaveStill
+            ) {
               next = collectionStill;
             }
           }
