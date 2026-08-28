@@ -18,9 +18,10 @@ export async function GET(request: NextRequest) {
     
     const nftData = await getNFTMetadata(contract, tokenId, network);
     
+    const playbackRefresh = request.nextUrl.searchParams.get('playback') === '1';
     return NextResponse.json(nftData, {
       headers: {
-        'Cache-Control': 'public, max-age=3600', // Cache for 1 hour
+        'Cache-Control': playbackRefresh ? 'private, no-store' : 'public, max-age=3600',
         'Access-Control-Allow-Origin': '*',
       },
     });

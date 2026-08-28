@@ -380,13 +380,22 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       ].find((u) => u && !isWeakPlaybackUrl(u) && !isPollutedPlaybackUrl(u));
       playbackDebug('play:enrich', {
         name: nft.name,
-        changed: playNft !== nft,
+        changed:
+          playNft.audio !== nft.audio ||
+          playNft.videoUrl !== nft.videoUrl ||
+          playNft.metadata?.animation_url !== nft.metadata?.animation_url,
         recovered: Boolean(recoveredUrl),
         audio: playNft.audio,
         videoUrl: playNft.videoUrl,
         mime: playNft.metadata?.mimeType || playNft.metadata?.mime_type,
       });
-      if (playNft !== nft) {
+      const playbackFieldsChanged =
+        playNft.audio !== nft.audio ||
+        playNft.videoUrl !== nft.videoUrl ||
+        playNft.metadata?.animation_url !== nft.metadata?.animation_url ||
+        playNft.isVideo !== nft.isVideo ||
+        playNft.playbackMode !== nft.playbackMode;
+      if (playbackFieldsChanged) {
         clearNftMediaUrlCache(nft, 'image');
         clearNftMediaUrlCache(nft, 'audio');
         Object.assign(nft, {
@@ -399,20 +408,6 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
           hasValidAudio: playNft.hasValidAudio,
           metadata: playNft.metadata,
           collection: playNft.collection,
-        });
-      } else if (
-        needsIpfsPlaybackRefresh &&
-        playNft.audio &&
-        playNft.audio !== nft.audio
-      ) {
-        Object.assign(nft, {
-          audio: playNft.audio,
-          videoUrl: playNft.videoUrl,
-          animationUrl: playNft.animationUrl,
-          playbackMode: playNft.playbackMode,
-          isVideo: playNft.isVideo,
-          hasValidAudio: playNft.hasValidAudio,
-          metadata: playNft.metadata,
         });
       }
     }
@@ -492,7 +487,8 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     const strongOrigins = originCandidates.filter((url) => !isWeakPlaybackUrl(url));
     const orphanMux = playbackCandidates.find((url) => isOrphanMuxPlaybackUrl(url));
     const weakMezzanine = playbackCandidates.find((url) => isMezzanineMuxUrl(url));
-    let rawAudioUrl = strongOrigins[0] || '';
+    const alchemyOrigin = strongOrigins.find((u) => /nft2?-cdn\.alchemy\.com/i.test(u));
+    let rawAudioUrl = alchemyOrigin || strongOrigins[0] || '';
 
     // Only polluted/weak URLs left (expired mezzanine, dead orphan Mux) — fail cleanly.
     if (!rawAudioUrl) {

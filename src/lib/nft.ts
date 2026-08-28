@@ -1,7 +1,7 @@
 import type { NFT, NFTMetadata } from '../types/user';
 import { Alchemy, Network } from 'alchemy-sdk';
 import { createHash } from 'crypto';
-import { rewriteLegacyOpenSeaMediaUrl } from '../utils/openSeaMedia';
+import { rewriteLegacyOpenSeaMediaUrl, nftHasSeaDnVideoAnimation, isFragileSeaDnPosterUrl } from '../utils/openSeaMedia';
 import {
   hasPlayableAudio,
   isPlayableMediaNFT,
@@ -750,6 +750,15 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
 const isAlchemyCdnUrl = (url?: string | null): boolean =>
   !!url && /nft-cdn\.alchemy\.com|nft2-cdn\.alchemy\.com|res\.cloudinary\.com\/alchemyapi/i.test(url);
 
+/** Profile caches often keep dead arweave.net links — refresh via /api/nft for Alchemy stills. */
+const isArweaveMediaUrl = (url?: string | null): boolean => {
+  if (!url || typeof url !== 'string') return false;
+  if (url.startsWith('ar://')) return true;
+  return /arweave\.(net|dev)|turbo-gateway\.com|permagate\.io|gateway\.irys\.xyz|ar-io\.dev|g8way\.io/i.test(
+    url
+  );
+};
+
 /** True when cover/playback still depend on fragile public IPFS gateways
  *  or video-as-image URLs that need Alchemy's static thumbnail cache. */
 export const nftNeedsChainMediaEnrich = (nft: NFT | null | undefined): boolean => {
@@ -787,9 +796,14 @@ export const nftNeedsChainMediaEnrich = (nft: NFT | null | undefined): boolean =
       /seadn\.io|openseauserdata\.com|i2c\.seadn|res\.cloudinary\.com/i.test(cover))
   ) {
     // Alchemy CDN "cover" + real token video → still enrich / prefer video.
-    if (!(isAlchemyCdnUrl(cover) && hasTokenVideoCover)) {
-      return false;
+    if (isAlchemyCdnUrl(cover) && hasTokenVideoCover) {
+      return true;
     }
+    // Dead raw2 jpg poster + SeaDN mp4 animation (Deep Space).
+    if (isFragileSeaDnPosterUrl(cover) && hasTokenVideoCover) {
+      return true;
+    }
+    return false;
   }
 
   const candidates = [
@@ -806,7 +820,8 @@ export const nftNeedsChainMediaEnrich = (nft: NFT | null | undefined): boolean =
     cover.startsWith('ipfs://') ||
     /\/ipfs\//i.test(cover) ||
     /\.ipfs\./i.test(cover) ||
-    AUDIO_OR_VIDEO_EXT_RE.test(cover);
+    AUDIO_OR_VIDEO_EXT_RE.test(cover) ||
+    isArweaveMediaUrl(cover);
 
   if (coverFragile) return true;
 
@@ -815,10 +830,25 @@ export const nftNeedsChainMediaEnrich = (nft: NFT | null | undefined): boolean =
       u.startsWith('ipfs://') ||
       /\/ipfs\//i.test(u) ||
       /\.ipfs\./i.test(u) ||
+      isArweaveMediaUrl(u) ||
       /\.(mp4|webm|mov|m4v)(?:\?|#|$)/i.test(u) ||
       /seadn\.io|openseauserdata\.com/i.test(u)
   );
 };
+
+/** Best playback URL from a fresh `/api/nft` response — Alchemy CDN first. */
+function pickBestApiPlaybackUrl(data: NFT): string {
+  const candidates = [data.audio, data.videoUrl, data.metadata?.animation_url, data.animationUrl].filter(
+    (u): u is string => typeof u === 'string' && !!u.trim()
+  );
+  return (
+    candidates.find(isAlchemyCdnPlaybackUrl) ||
+    candidates.find(
+      (u) => !isIpfsPlaybackUrl(u) && !isWeakPlaybackUrl(u) && !isPollutedPlaybackUrl(u)
+    ) ||
+    ''
+  );
+}
 
 /**
  * Refresh media via server Alchemy (`/api/nft`) so unreplicated IPFS CIDs can
@@ -833,16 +863,62 @@ export const enrichNftMediaFromChain = async (nft: NFT): Promise<NFT> => {
     const res = await fetch(
       `/api/nft?contract=${encodeURIComponent(nft.contract)}&tokenId=${encodeURIComponent(
         nft.tokenId
-      )}&network=${network}`
+      )}&network=${network}&playback=1`,
+      { cache: 'no-store' }
     );
     if (!res.ok) return nft;
     const data = (await res.json()) as NFT;
-    if (!data || typeof data !== 'object') return nft;
+    if (!data || typeof data !== 'object' || !data.contract || !data.tokenId) return nft;
+
+    const apiPlayback = pickBestApiPlaybackUrl(data);
+    const hasIpfsPlayback = [
+      nft.audio,
+      nft.videoUrl,
+      nft.animationUrl,
+      nft.metadata?.animation_url,
+    ].some(isIpfsPlaybackUrl);
+
+    // Pinata/IPFS in profile metadata but Alchemy CDN on /api/nft — swap immediately.
+    // (Browser may cache older /api/nft JSON without CDN fields for up to 1h.)
+    if (apiPlayback && isAlchemyCdnPlaybackUrl(apiPlayback) && hasIpfsPlayback) {
+      const cover =
+        nft.image ||
+        data.image ||
+        data.metadata?.image ||
+        data.metadata?.image_url ||
+        '';
+      return {
+        ...nft,
+        name: data.name || nft.name,
+        image: cover,
+        audio: apiPlayback,
+        videoUrl: apiPlayback,
+        animationUrl: apiPlayback,
+        playbackMode: data.playbackMode || 'video-with-audio',
+        isVideo: data.isVideo ?? true,
+        hasValidAudio: data.hasValidAudio ?? true,
+        collection: {
+          ...nft.collection,
+          name: data.collection?.name || nft.collection?.name || '',
+          image: data.collection?.image || nft.collection?.image,
+        },
+        metadata: {
+          ...nft.metadata,
+          ...data.metadata,
+          image: cover || nft.metadata?.image,
+          image_url: data.metadata?.image_url || cover || nft.metadata?.image_url,
+          animation_url: apiPlayback,
+          mimeType:
+            data.metadata?.mimeType || data.metadata?.mime_type || nft.metadata?.mimeType || 'video/mp4',
+          mime_type:
+            data.metadata?.mime_type || data.metadata?.mimeType || nft.metadata?.mime_type || 'video/mp4',
+        },
+      };
+    }
 
     const existingAnim =
       nft.metadata?.animation_url || nft.animationUrl || nft.videoUrl || nft.audio || '';
-    const incomingAnim =
-      data.metadata?.animation_url || data.videoUrl || data.audio || '';
+    const incomingAnim = apiPlayback || data.metadata?.animation_url || data.videoUrl || data.audio || '';
 
     const existingWeak =
       isWeakPlaybackUrl(existingAnim) ||
@@ -883,13 +959,20 @@ export const enrichNftMediaFromChain = async (nft: NFT): Promise<NFT> => {
     // there is no usable still (Nifty Island / Food). Never prefer collection
     // OpenSea art over an Alchemy CDN still that already looks like an image.
     const alchemyStill =
-      (data.image && /nft2?-cdn\.alchemy\.com|res\.cloudinary\.com\/alchemyapi/i.test(data.image)
+      (data.image &&
+      /nft2?-cdn\.alchemy\.com|res\.cloudinary\.com\/alchemyapi/i.test(data.image)
         ? data.image
         : '') ||
       (data.metadata?.image &&
       /nft2?-cdn\.alchemy\.com|res\.cloudinary\.com\/alchemyapi/i.test(data.metadata.image)
         ? data.metadata.image
-        : '');
+        : '') ||
+      ([data.image, data.metadata?.image, data.metadata?.image_url].find(
+        (u) =>
+          !!u &&
+          /i2c\.seadn\.io|raw2?\.seadn\.io/i.test(u) &&
+          IMAGE_EXT_RE.test(u)
+      ) ?? '');
     const tokenVideoCover = [data.image, data.metadata?.animation_url, data.videoUrl]
       .find(
         (u) =>
@@ -907,7 +990,9 @@ export const enrichNftMediaFromChain = async (nft: NFT): Promise<NFT> => {
     const currentFragile =
       !image ||
       /\/ipfs\//i.test(image) ||
-      image.startsWith('ipfs://');
+      image.startsWith('ipfs://') ||
+      isArweaveMediaUrl(image) ||
+      (isFragileSeaDnPosterUrl(image) && nftHasSeaDnVideoAnimation(nft));
     const currentIsTokenVideo =
       !!nft.image &&
       (/\.(mp4|webm|mov|m4v)(?:\?|#|$)/i.test(nft.image) ||
@@ -941,6 +1026,9 @@ export const enrichNftMediaFromChain = async (nft: NFT): Promise<NFT> => {
 
     const pickPlaybackField = (existing?: string, incoming?: string) => {
       if (replacePlayback && keepPlaybackAnim) return keepPlaybackAnim;
+      if (isAlchemyCdnPlaybackUrl(apiPlayback) && isIpfsPlaybackUrl(existing)) {
+        return apiPlayback;
+      }
       if (isAlchemyCdnPlaybackUrl(incoming) && isIpfsPlaybackUrl(existing)) {
         return incoming as string;
       }
@@ -948,12 +1036,25 @@ export const enrichNftMediaFromChain = async (nft: NFT): Promise<NFT> => {
       if (existing && isWeakPlaybackUrl(existing) && incoming && !isWeakPlaybackUrl(incoming)) {
         return incoming;
       }
-      if (existing && !isWeakPlaybackUrl(existing)) return existing;
+      if (
+        existing &&
+        !isWeakPlaybackUrl(existing) &&
+        !isIpfsPlaybackUrl(existing)
+      ) {
+        return existing;
+      }
       if (incoming && !isPollutedPlaybackUrl(incoming)) return incoming;
+      if (apiPlayback && !isPollutedPlaybackUrl(apiPlayback)) return apiPlayback;
       if (existing && !isPollutedPlaybackUrl(existing)) return existing;
       // Never fall through to orphan Mux / broken HLS.
       return '';
     };
+
+    const upgradedPlayback = replacePlayback || Boolean(
+      apiPlayback &&
+        isAlchemyCdnPlaybackUrl(apiPlayback) &&
+        [nft.audio, nft.videoUrl, nft.metadata?.animation_url].some(isIpfsPlaybackUrl)
+    );
 
     return {
       ...nft,
@@ -962,11 +1063,13 @@ export const enrichNftMediaFromChain = async (nft: NFT): Promise<NFT> => {
       audio: pickPlaybackField(nft.audio, data.audio),
       videoUrl: pickPlaybackField(nft.videoUrl, data.videoUrl) || undefined,
       animationUrl: pickPlaybackField(nft.animationUrl, data.animationUrl) || undefined,
-      playbackMode: replacePlayback
+      playbackMode: upgradedPlayback
         ? data.playbackMode || nft.playbackMode
         : nft.playbackMode || data.playbackMode,
-      isVideo: replacePlayback ? (data.isVideo ?? nft.isVideo) : (nft.isVideo ?? data.isVideo),
-      hasValidAudio: replacePlayback
+      isVideo: upgradedPlayback
+        ? (data.isVideo ?? nft.isVideo)
+        : (nft.isVideo ?? data.isVideo),
+      hasValidAudio: upgradedPlayback
         ? (data.hasValidAudio ?? nft.hasValidAudio)
         : (nft.hasValidAudio ?? data.hasValidAudio),
       collection: {

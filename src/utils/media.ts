@@ -11,6 +11,8 @@ import {
   toOpenSeaProxyUrl,
   toOpenSeaCdnProxyUrl,
   preferBrowserReachableMediaUrl,
+  isFragileSeaDnPosterUrl,
+  nftHasSeaDnVideoAnimation,
 } from './openSeaMedia';
 import { getMediaKey } from './nftIdentity';
 import { isDangerousResourceUrl } from './nftSafety';
@@ -22,6 +24,8 @@ export {
   toOpenSeaProxyUrl,
   toOpenSeaCdnProxyUrl,
   preferBrowserReachableMediaUrl,
+  isFragileSeaDnPosterUrl,
+  nftHasSeaDnVideoAnimation,
 } from './openSeaMedia';
 
 // List of reliable IPFS gateways in order of preference
@@ -253,8 +257,20 @@ export const pickImageCandidates = (nft: UserNFT | null | undefined): string[] =
     }
   }
 
-  // Collection image is a last-resort cover when token media is missing/broken.
-  push(nft.collection?.image);
+  // Collection image is last-resort only — skip shared collection GIF/PNG when the
+  // token already has Alchemy CDN or its own SeaDN/i2c video cover (BLOCKCHAIN ♪).
+  // Exception: fragile raw2 jpg poster + SeaDN mp4 animation (Deep Space).
+  const hasTokenLevelCover = raw.some(
+    (u) =>
+      isAlchemyCdnMediaUrl(u) ||
+      looksLikeVideoFileUrl(u) ||
+      (looksLikeStillImageUrl(u) &&
+        !isCollectionOpenSeaStillUrl(u, nft.collection?.image || '') &&
+        !isFragileSeaDnPosterUrl(u))
+  );
+  if (!hasTokenLevelCover || nftHasSeaDnVideoAnimation(nft)) {
+    push(nft.collection?.image);
+  }
 
   const seen = new Set<string>();
   const out: string[] = [];
@@ -272,13 +288,17 @@ export const pickImageCandidates = (nft: UserNFT | null | undefined): string[] =
       }
     }
   }
+  const seaDnVideoAnim = nftHasSeaDnVideoAnimation(nft);
   // Prefer a real still over the playback mp4 (PLATTER jpeg vs SeaDN video).
   const coverScore = (url: string): number => {
-    if (looksLikeStillImageUrl(url)) return 6;
+    if (seaDnVideoAnim && looksLikeVideoFileUrl(url) && /raw2?\.seadn\.io/i.test(url)) return 7;
+    if (seaDnVideoAnim && isFragileSeaDnPosterUrl(url)) return 1;
+    if (looksLikeStillImageUrl(url) && /i2c\.seadn/i.test(url)) return 6;
+    if (looksLikeStillImageUrl(url)) return 5;
     if (/niftyisland\.com/i.test(url) || looksLikeVideoFileUrl(url)) return 5;
     if (isAlchemyCdnMediaUrl(url)) return 4;
     if (/raw2?\.seadn\.io/i.test(url)) return 3;
-    if (/i2c\.seadn|openseauserdata\.com/i.test(url)) return 1; // often collection-level
+    if (/i2c\.seadn|openseauserdata\.com/i.test(url)) return 2; // often collection-level
     if (/seadn\.io|res\.cloudinary\.com/i.test(url)) return 2;
     if (IMAGE_FILE_EXT_RE.test(url) && !/\/ipfs\//i.test(url) && !url.startsWith('ipfs://')) return 2;
     if (/\/ipfs\//i.test(url) || url.startsWith('ipfs://') || /\.ipfs\./i.test(url)) return 0;
@@ -463,15 +483,17 @@ export const buildHttpCdnImageFallbackUrls = (
     if (isOpenSeaCdnHost(host)) {
       const raw2 = rewriteLegacyOpenSeaMediaUrl(source, opts?.contract, opts?.network);
       if (raw2 && raw2 !== source) push(raw2);
-      push(toOpenSeaProxyUrl(source));
-      push(toOpenSeaCdnProxyUrl(source));
+      // Direct CDN first — raw2 often 403s behind media-proxy in dev/tunnel too.
+      push(source);
       const bare = new URL(source);
       bare.search = '';
       const bareRaw2 = rewriteLegacyOpenSeaMediaUrl(bare.toString(), opts?.contract, opts?.network);
       if (bareRaw2 && bareRaw2 !== bare.toString()) push(bareRaw2);
+      if (bare.toString() !== source) push(bare.toString());
+      push(toOpenSeaProxyUrl(source));
+      push(toOpenSeaCdnProxyUrl(source));
       push(toOpenSeaProxyUrl(bare.toString()));
       push(toOpenSeaCdnProxyUrl(bare.toString()));
-      push(source);
       return out;
     }
 
@@ -1103,7 +1125,7 @@ export function ensurePlaybackVideoElement(contract: string, tokenId: string): H
   video.preload = 'auto';
   video.muted = false;
   video.autoplay = false;
-  video.referrerPolicy = 'no-referrer';
+  video.setAttribute('referrerpolicy', 'no-referrer');
   parkPlaybackVideo(video);
   document.body.appendChild(video);
   return video;
@@ -1307,12 +1329,20 @@ export const getNftMediaUrl = (nft: UserNFT, mediaType: 'image' | 'audio'): stri
       ? [nft.image, nft.metadata?.image, ...imageCandidates].find(
           (u) =>
             looksLikeStillImageUrl(u) &&
-            !isCollectionOpenSeaStillUrl(u, collectionImage)
+            !isCollectionOpenSeaStillUrl(u, collectionImage) &&
+            !(isFragileSeaDnPosterUrl(u) && nftHasSeaDnVideoAnimation(nft))
         )
       : undefined;
   const alchemyPreferred =
     mediaType === 'image'
-      ? [nft.image, ...imageCandidates].find((u) => isAlchemyCdnMediaUrl(u))
+      ? [
+          nft.image,
+          ...imageCandidates,
+          nft.metadata?.animation_url,
+          nft.animationUrl,
+          nft.videoUrl,
+          nft.audio,
+        ].find((u) => isAlchemyCdnMediaUrl(u))
       : [nft.audio, nft.videoUrl, nft.metadata?.animation_url].find((u) =>
           isAlchemyCdnMediaUrl(u)
         );
@@ -1330,7 +1360,9 @@ export const getNftMediaUrl = (nft: UserNFT, mediaType: 'image' | 'audio'): stri
         )
       : undefined;
   const animTokenVideo =
-    mediaType === 'image' && !alchemyPreferred && !stillPreferred
+    mediaType === 'image' &&
+    !alchemyPreferred &&
+    (!stillPreferred || nftHasSeaDnVideoAnimation(nft))
       ? [nft.metadata?.animation_url, nft.animationUrl, nft.videoUrl].find(
           (u) =>
             !!u &&

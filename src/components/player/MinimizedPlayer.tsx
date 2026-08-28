@@ -8,8 +8,9 @@ import { logger } from '../../utils/logger';
 import { findFeaturedNft } from '../sections/FeaturedSection';
 import { triggerHaptic } from '../../utils/haptics';
 import { formatTime, safeProgressPercent, getDisplayTimes, processMediaUrl } from '../../utils/media';
-import { getResizedImageUrl, getVideoCoverStillUrl, nftHasAnimatedCover, alchemyCoverIsPlaybackVideo, isVideoMediaUrl, isLikelyTokenVideoCoverUrl } from '../../utils/imageOptimizer';
+import { getResizedImageUrl, getVideoCoverStillUrl, shouldPreserveAnimation, alchemyCoverIsPlaybackVideo, isVideoMediaUrl, isLikelyTokenVideoCoverUrl } from '../../utils/imageOptimizer';
 import { getNftPlaybackPlan } from '../../utils/isMediaNFT';
+import { sanitizeMediaUrl } from '../../utils/media';
 import { PlayerArrowHint, usePlayerArrowHint } from './PlayerArrowHint';
 
 // Create a dedicated logger for the MinimizedPlayer
@@ -341,27 +342,61 @@ export const MinimizedPlayer: React.FC<MinimizedPlayerProps> = ({
   }, [featuredNft]);
 
   const playbackPlan = React.useMemo(() => getNftPlaybackPlan(nft), [nft]);
-  const isAnimatedCover = React.useMemo(
-    () => nftHasAnimatedCover(nft) || nftHasAnimatedCover(featuredNft),
-    [nft, featuredNft]
+
+  const alchemyVisual = React.useMemo(
+    () =>
+      [
+        nft.metadata?.animation_url,
+        nft.videoUrl,
+        nft.audio,
+        nft.image,
+        nft.metadata?.image,
+        playbackPlan.videoUrl,
+      ].find(
+        (u) =>
+          u &&
+          /nft2?-cdn\.alchemy\.com|res\.cloudinary\.com\/alchemyapi/i.test(String(u))
+      ),
+    [nft, playbackPlan.videoUrl]
   );
+
+  const tokenImageUrl = React.useMemo(
+    () =>
+      sanitizeMediaUrl(nft.image) ||
+      sanitizeMediaUrl(nft.metadata?.image) ||
+      sanitizeMediaUrl(nft.metadata?.image_url) ||
+      '',
+    [nft.image, nft.metadata?.image, nft.metadata?.image_url]
+  );
+
+  // Token-level GIF only — not shared collection art when Alchemy cover exists.
+  const isAnimatedCover = React.useMemo(
+    () =>
+      Boolean(tokenImageUrl) &&
+      shouldPreserveAnimation(tokenImageUrl) &&
+      !alchemyVisual,
+    [tokenImageUrl, alchemyVisual]
+  );
+
   const gifCoverNft = React.useMemo(() => {
     if (!isAnimatedCover) return nft;
-    if (nftHasAnimatedCover(nft)) return nft;
-    if (!featuredNft?.image) return nft;
-    return {
-      ...nft,
-      image: featuredNft.image,
-      metadata: { ...(nft.metadata || {}), image: featuredNft.image },
-    };
-  }, [nft, featuredNft, isAnimatedCover]);
+    return nft;
+  }, [nft, isAnimatedCover]);
+
   const minimizedThumbSrc = React.useMemo(() => {
-    const cover = nft.image || nft.metadata?.image || playbackPlan.videoUrl || '';
+    const cover =
+      tokenImageUrl ||
+      (alchemyVisual ? String(alchemyVisual) : '') ||
+      sanitizeMediaUrl(nft.metadata?.animation_url) ||
+      sanitizeMediaUrl(nft.videoUrl) ||
+      playbackPlan.videoUrl ||
+      '';
     if (isAnimatedCover) return cover;
     const needsVideoStill =
       alchemyCoverIsPlaybackVideo(nft) ||
       isVideoMediaUrl(cover) ||
-      isLikelyTokenVideoCoverUrl(cover);
+      isLikelyTokenVideoCoverUrl(cover) ||
+      Boolean(alchemyVisual);
     if (!needsVideoStill) return cover;
     const alchemyPeer = [
       nft.audio,
@@ -371,10 +406,11 @@ export const MinimizedPlayer: React.FC<MinimizedPlayerProps> = ({
       nft.videoUrl,
       nft.image,
       nft.metadata?.image,
+      alchemyVisual,
     ].find((u) => !!u && /nft2?-cdn\.alchemy\.com/i.test(String(u)));
     const peer = alchemyPeer || playbackPlan.videoUrl || cover;
-    return getVideoCoverStillUrl(peer, 360, { assumeVideo: true }) || cover;
-  }, [nft, playbackPlan, isAnimatedCover]);
+    return getVideoCoverStillUrl(peer, 96, { assumeVideo: true }) || cover;
+  }, [nft, playbackPlan, isAnimatedCover, tokenImageUrl, alchemyVisual]);
 
   return (
     <>
