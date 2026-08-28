@@ -35,6 +35,25 @@ export const isOpenSeaCdnHost = (hostname: string): boolean => {
 const openSeaChainSlug = (network?: string): 'ethereum' | 'base' =>
   network === 'base' ? 'base' : 'ethereum';
 
+const SEADN_VIDEO_EXT_RE = /\.(mp4|webm|mov|m4v)(?:\?|#|$)/i;
+const SEADN_STILL_EXT_RE = /\.(png|jpe?g|gif|webp)(?:\?|#|$)/i;
+
+/** raw2.seadn still poster — often 403 while the token mp4 animation plays fine. */
+export const isFragileSeaDnPosterUrl = (url?: string | null): boolean =>
+  !!url && /raw2?\.seadn\.io/i.test(url) && SEADN_STILL_EXT_RE.test(url);
+
+/** Token animation is a SeaDN video (Deep Space / OpenSea shared storefront). */
+export const nftHasSeaDnVideoAnimation = (nft: {
+  metadata?: { animation_url?: string };
+  animationUrl?: string;
+  videoUrl?: string;
+} | null | undefined): boolean => {
+  const anim = nft?.metadata?.animation_url || nft?.animationUrl || nft?.videoUrl || '';
+  if (!anim || /\.(mp3|wav|m4a|aac|ogg|flac)(?:\?|#|$)/i.test(anim)) return false;
+  if (!/raw2?\.seadn\.io/i.test(anim)) return false;
+  return SEADN_VIDEO_EXT_RE.test(anim) || !/\.(png|jpe?g|gif|webp|svg)(?:\?|#|$)/i.test(anim);
+};
+
 /**
  * OpenSea migrated CDN paths: legacy i.seadn.io/gcs/files/{hash} and
  * openseauserdata.com/files/{hash} → raw2.seadn.io/{chain}/{contract}/{hash.slice(2)}/{hash}.ext

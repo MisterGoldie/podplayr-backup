@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { processMediaUrl, IPFS_GATEWAYS, isAudioUrlUsedAsImage, getCleanIPFSUrl, processArweaveUrl, getMediaKey, getNftIdentityKey, buildArweaveImageFallbackUrls, buildIpfsFallbackUrls, buildHttpCdnImageFallbackUrls, extractIPFSPath, getNftMediaUrl, toIpfsGatewayUrl, clearNftMediaUrlCache, pickImageCandidates, shouldProbeIpfsDirectory, sanitizeMediaUrl, looksLikeStillImageUrl, isCollectionOpenSeaStillUrl } from '../../utils/media';
+import { processMediaUrl, IPFS_GATEWAYS, isAudioUrlUsedAsImage, getCleanIPFSUrl, processArweaveUrl, getMediaKey, getNftIdentityKey, buildArweaveImageFallbackUrls, buildIpfsFallbackUrls, buildHttpCdnImageFallbackUrls, extractIPFSPath, getNftMediaUrl, toIpfsGatewayUrl, clearNftMediaUrlCache, pickImageCandidates, shouldProbeIpfsDirectory, sanitizeMediaUrl, looksLikeStillImageUrl, isCollectionOpenSeaStillUrl, isFragileSeaDnPosterUrl, nftHasSeaDnVideoAnimation } from '../../utils/media';
 import { getCardThumbUrl, getCardThumbAlternates, shouldPreserveAnimation, nftHasAnimatedCover, isBrowserFriendlyCdnUrl, isArweaveMediaUrl, isIpfsMediaUrl, isVideoMediaUrl, isLikelyTokenVideoCoverUrl, getVideoCoverStillUrl, alchemyCoverIsPlaybackVideo, parseAlchemyCdnRef } from '../../utils/imageOptimizer';
 import { imageDebug, imageDebugUrlKind, logNftCoverDebug } from '../../utils/imageDebug';
 import Image from 'next/image';
@@ -375,11 +375,29 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       ) {
         return fromNft || fromMeta;
       }
-      return (
+      const seaDnVideo =
+        nft && nftHasSeaDnVideoAnimation(nft)
+          ? sanitizeMediaUrl(
+              nft.metadata?.animation_url || nft.animationUrl || nft.videoUrl || ''
+            )
+          : '';
+      const still =
         fromProp ||
         fromNft ||
         fromMeta ||
         sanitizeMediaUrl(nft?.collection?.image) ||
+        '';
+      if (
+        seaDnVideo &&
+        still &&
+        isFragileSeaDnPosterUrl(still) &&
+        !isFragileSeaDnPosterUrl(seaDnVideo)
+      ) {
+        return seaDnVideo;
+      }
+      return (
+        still ||
+        seaDnVideo ||
         sanitizeMediaUrl(nft?.metadata?.animation_url) ||
         sanitizeMediaUrl(nft?.videoUrl) ||
         ''
@@ -682,7 +700,8 @@ export const NFTImage: React.FC<NFTImageProps> = ({
               /\/ipfs\//i.test(u) ||
               u.startsWith('ipfs://') ||
               /\.ipfs\./i.test(u) ||
-              isArweaveMediaUrl(u)
+              isArweaveMediaUrl(u) ||
+              (isFragileSeaDnPosterUrl(u) && nftHasSeaDnVideoAnimation(nft))
             );
           };
 
@@ -1181,6 +1200,25 @@ export const NFTImage: React.FC<NFTImageProps> = ({
         (u) => !!u && (isVideoMediaUrl(u) || isLikelyTokenVideoCoverUrl(u))
       ) as string | undefined;
       const orig = originalUrlRef.current || failedSrc;
+      const raw2PosterFail =
+        isFragileSeaDnPosterUrl(orig) && !!videoCoverUrl && nftHasSeaDnVideoAnimation(nft);
+      if (raw2PosterFail && !attemptedFallbacks.current[`${videoCoverUrl}-native-video`]) {
+        attemptedFallbacks.current[`${videoCoverUrl}-native-video`] = true;
+        imageDebug('cover:hop', {
+          name: nft?.name,
+          contract: nft?.contract,
+          tokenId: nft?.tokenId,
+          from: failedSrc,
+          to: videoCoverUrl,
+          toKind: imageDebugUrlKind(videoCoverUrl),
+          reason: 'native-video-poster',
+        });
+        setIsVideo(true);
+        setImgSrc(videoCoverUrl);
+        setError(false);
+        setIsLoadingFallback(false);
+        return;
+      }
       const thumbFailed = /thumbnailv2/i.test(failedSrc);
       const videoFetchFailed = /video\/fetch/i.test(failedSrc);
       const coverIsPlaybackVideo = alchemyCoverIsPlaybackVideo(nft);
@@ -1861,7 +1899,6 @@ export const NFTImage: React.FC<NFTImageProps> = ({
         preload="metadata"
         loop
         autoPlay={false}
-        referrerPolicy="no-referrer"
         onError={handleError as unknown as (e: SyntheticEvent<HTMLVideoElement>) => void}
         onLoadedData={(e) => {
           const vid = e.currentTarget;

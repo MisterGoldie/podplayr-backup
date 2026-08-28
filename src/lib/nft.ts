@@ -1,7 +1,7 @@
 import type { NFT, NFTMetadata } from '../types/user';
 import { Alchemy, Network } from 'alchemy-sdk';
 import { createHash } from 'crypto';
-import { rewriteLegacyOpenSeaMediaUrl } from '../utils/openSeaMedia';
+import { rewriteLegacyOpenSeaMediaUrl, nftHasSeaDnVideoAnimation, isFragileSeaDnPosterUrl } from '../utils/openSeaMedia';
 import {
   hasPlayableAudio,
   isPlayableMediaNFT,
@@ -796,9 +796,14 @@ export const nftNeedsChainMediaEnrich = (nft: NFT | null | undefined): boolean =
       /seadn\.io|openseauserdata\.com|i2c\.seadn|res\.cloudinary\.com/i.test(cover))
   ) {
     // Alchemy CDN "cover" + real token video → still enrich / prefer video.
-    if (!(isAlchemyCdnUrl(cover) && hasTokenVideoCover)) {
-      return false;
+    if (isAlchemyCdnUrl(cover) && hasTokenVideoCover) {
+      return true;
     }
+    // Dead raw2 jpg poster + SeaDN mp4 animation (Deep Space).
+    if (isFragileSeaDnPosterUrl(cover) && hasTokenVideoCover) {
+      return true;
+    }
+    return false;
   }
 
   const candidates = [
@@ -986,7 +991,8 @@ export const enrichNftMediaFromChain = async (nft: NFT): Promise<NFT> => {
       !image ||
       /\/ipfs\//i.test(image) ||
       image.startsWith('ipfs://') ||
-      isArweaveMediaUrl(image);
+      isArweaveMediaUrl(image) ||
+      (isFragileSeaDnPosterUrl(image) && nftHasSeaDnVideoAnimation(nft));
     const currentIsTokenVideo =
       !!nft.image &&
       (/\.(mp4|webm|mov|m4v)(?:\?|#|$)/i.test(nft.image) ||
