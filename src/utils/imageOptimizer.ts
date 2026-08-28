@@ -641,10 +641,24 @@ export function getCardThumbUrl(
     return url;
   }
 
-  // wsrv cannot fetch ipfs:// (and a leading space made it `url=+ipfs://…`).
-  // Load a public gateway directly — same as profile cards with SeaDN stills.
-  if (isIpfsMediaUrl(url) || url.startsWith('ipfs://') || url.startsWith('ar://')) {
-    return getOptimizedImageUrl(url);
+  // wsrv cannot fetch ipfs:// / ar:// / https Arweave gateways (blocked in Base mini-apps).
+  if (
+    isIpfsMediaUrl(url) ||
+    isArweaveMediaUrl(url) ||
+    url.startsWith('ipfs://') ||
+    url.startsWith('ar://')
+  ) {
+    const hasStillExt = /\.(png|jpe?g|gif|webp|avif|svg)(?:\?|#|$)/i.test(url);
+    // Extensionless Arweave tx ids are often video/mp4 — wsrv and <img> both fail.
+    if (!hasStillExt || opts?.preferVideoStill || isVideoMediaUrl(url)) {
+      const videoStill = getVideoCoverStillUrl(url, size, {
+        assumeVideo: opts?.preferVideoStill || !hasStillExt,
+      });
+      if (videoStill) return videoStill;
+    }
+    return isArweaveMediaUrl(url) || url.startsWith('ar://')
+      ? url
+      : getOptimizedImageUrl(url);
   }
 
   // Video file URLs, or Alchemy hashes that *are* the playback mp4.

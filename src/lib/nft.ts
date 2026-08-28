@@ -750,6 +750,15 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
 const isAlchemyCdnUrl = (url?: string | null): boolean =>
   !!url && /nft-cdn\.alchemy\.com|nft2-cdn\.alchemy\.com|res\.cloudinary\.com\/alchemyapi/i.test(url);
 
+/** Profile caches often keep dead arweave.net links — refresh via /api/nft for Alchemy stills. */
+const isArweaveMediaUrl = (url?: string | null): boolean => {
+  if (!url || typeof url !== 'string') return false;
+  if (url.startsWith('ar://')) return true;
+  return /arweave\.(net|dev)|turbo-gateway\.com|permagate\.io|gateway\.irys\.xyz|ar-io\.dev|g8way\.io/i.test(
+    url
+  );
+};
+
 /** True when cover/playback still depend on fragile public IPFS gateways
  *  or video-as-image URLs that need Alchemy's static thumbnail cache. */
 export const nftNeedsChainMediaEnrich = (nft: NFT | null | undefined): boolean => {
@@ -806,7 +815,8 @@ export const nftNeedsChainMediaEnrich = (nft: NFT | null | undefined): boolean =
     cover.startsWith('ipfs://') ||
     /\/ipfs\//i.test(cover) ||
     /\.ipfs\./i.test(cover) ||
-    AUDIO_OR_VIDEO_EXT_RE.test(cover);
+    AUDIO_OR_VIDEO_EXT_RE.test(cover) ||
+    isArweaveMediaUrl(cover);
 
   if (coverFragile) return true;
 
@@ -815,6 +825,7 @@ export const nftNeedsChainMediaEnrich = (nft: NFT | null | undefined): boolean =
       u.startsWith('ipfs://') ||
       /\/ipfs\//i.test(u) ||
       /\.ipfs\./i.test(u) ||
+      isArweaveMediaUrl(u) ||
       /\.(mp4|webm|mov|m4v)(?:\?|#|$)/i.test(u) ||
       /seadn\.io|openseauserdata\.com/i.test(u)
   );
@@ -943,13 +954,20 @@ export const enrichNftMediaFromChain = async (nft: NFT): Promise<NFT> => {
     // there is no usable still (Nifty Island / Food). Never prefer collection
     // OpenSea art over an Alchemy CDN still that already looks like an image.
     const alchemyStill =
-      (data.image && /nft2?-cdn\.alchemy\.com|res\.cloudinary\.com\/alchemyapi/i.test(data.image)
+      (data.image &&
+      /nft2?-cdn\.alchemy\.com|res\.cloudinary\.com\/alchemyapi/i.test(data.image)
         ? data.image
         : '') ||
       (data.metadata?.image &&
       /nft2?-cdn\.alchemy\.com|res\.cloudinary\.com\/alchemyapi/i.test(data.metadata.image)
         ? data.metadata.image
-        : '');
+        : '') ||
+      ([data.image, data.metadata?.image, data.metadata?.image_url].find(
+        (u) =>
+          !!u &&
+          /i2c\.seadn\.io|raw2?\.seadn\.io/i.test(u) &&
+          IMAGE_EXT_RE.test(u)
+      ) ?? '');
     const tokenVideoCover = [data.image, data.metadata?.animation_url, data.videoUrl]
       .find(
         (u) =>
@@ -967,7 +985,8 @@ export const enrichNftMediaFromChain = async (nft: NFT): Promise<NFT> => {
     const currentFragile =
       !image ||
       /\/ipfs\//i.test(image) ||
-      image.startsWith('ipfs://');
+      image.startsWith('ipfs://') ||
+      isArweaveMediaUrl(image);
     const currentIsTokenVideo =
       !!nft.image &&
       (/\.(mp4|webm|mov|m4v)(?:\?|#|$)/i.test(nft.image) ||

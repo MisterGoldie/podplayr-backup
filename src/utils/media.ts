@@ -253,8 +253,18 @@ export const pickImageCandidates = (nft: UserNFT | null | undefined): string[] =
     }
   }
 
-  // Collection image is a last-resort cover when token media is missing/broken.
-  push(nft.collection?.image);
+  // Collection image is last-resort only — skip shared collection GIF/PNG when the
+  // token already has Alchemy CDN or its own SeaDN/i2c video cover (BLOCKCHAIN ♪).
+  const hasTokenLevelCover = raw.some(
+    (u) =>
+      isAlchemyCdnMediaUrl(u) ||
+      looksLikeVideoFileUrl(u) ||
+      (looksLikeStillImageUrl(u) &&
+        !isCollectionOpenSeaStillUrl(u, nft.collection?.image || ''))
+  );
+  if (!hasTokenLevelCover) {
+    push(nft.collection?.image);
+  }
 
   const seen = new Set<string>();
   const out: string[] = [];
@@ -463,15 +473,17 @@ export const buildHttpCdnImageFallbackUrls = (
     if (isOpenSeaCdnHost(host)) {
       const raw2 = rewriteLegacyOpenSeaMediaUrl(source, opts?.contract, opts?.network);
       if (raw2 && raw2 !== source) push(raw2);
-      push(toOpenSeaProxyUrl(source));
-      push(toOpenSeaCdnProxyUrl(source));
+      // Direct CDN first — raw2 often 403s behind media-proxy in dev/tunnel too.
+      push(source);
       const bare = new URL(source);
       bare.search = '';
       const bareRaw2 = rewriteLegacyOpenSeaMediaUrl(bare.toString(), opts?.contract, opts?.network);
       if (bareRaw2 && bareRaw2 !== bare.toString()) push(bareRaw2);
+      if (bare.toString() !== source) push(bare.toString());
+      push(toOpenSeaProxyUrl(source));
+      push(toOpenSeaCdnProxyUrl(source));
       push(toOpenSeaProxyUrl(bare.toString()));
       push(toOpenSeaCdnProxyUrl(bare.toString()));
-      push(source);
       return out;
     }
 
@@ -1312,7 +1324,14 @@ export const getNftMediaUrl = (nft: UserNFT, mediaType: 'image' | 'audio'): stri
       : undefined;
   const alchemyPreferred =
     mediaType === 'image'
-      ? [nft.image, ...imageCandidates].find((u) => isAlchemyCdnMediaUrl(u))
+      ? [
+          nft.image,
+          ...imageCandidates,
+          nft.metadata?.animation_url,
+          nft.animationUrl,
+          nft.videoUrl,
+          nft.audio,
+        ].find((u) => isAlchemyCdnMediaUrl(u))
       : [nft.audio, nft.videoUrl, nft.metadata?.animation_url].find((u) =>
           isAlchemyCdnMediaUrl(u)
         );
