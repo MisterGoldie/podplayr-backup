@@ -374,34 +374,58 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
     }
 
     const videoIsClock = playbackPlan.mode === 'video-with-audio' && !playbackPlan.muteVideo;
-    // Some sources report video/mp4 but carry no visual track at all (Alchemy
-    // mislabeling a WAV as video, an audio-only Mux override, etc.) — the
-    // element still loads and even keeps playing sound, it just never gets
-    // real dimensions. Detect that and fall back to the same cover image the
-    // NFT card uses instead of showing a black box. This check must run even
-    // when videoIsClock is true: bailing on the VISUAL layer only swaps what
-    // MaximizedPlayer renders here — useAudioPlayer still owns this shared
-    // element elsewhere, so audio playback is unaffected.
-    const onLoadedMetadata = () => {
-      if (video.videoWidth > 0 && video.videoHeight > 0) {
-        applyPlaybackPlanToNft(nft, playbackPlan);
-      } else {
-        setVideoLayerFailed(true);
+    // HLS/Mux almost always reports 0×0 on loadedmetadata — the video track
+    // only gets real dimensions after the first fragment decodes (resize /
+    // loadeddata / playing). BLUE! #2 is the other case: an audio-only Mux
+    // override that stays 0×0 forever. Only hide the visual layer after
+    // playback has actually started and dimensions still never arrive.
+    // Failing at metadata time was hiding every featured Mux music video.
+    let visualFailTimer: ReturnType<typeof setTimeout> | null = null;
+    const hasVisualTrack = () => video.videoWidth > 0 && video.videoHeight > 0;
+    const confirmVisualTrack = () => {
+      if (!hasVisualTrack()) return false;
+      if (visualFailTimer) {
+        clearTimeout(visualFailTimer);
+        visualFailTimer = null;
       }
+      setVideoLayerFailed(false);
+      applyPlaybackPlanToNft(nft, playbackPlan);
+      return true;
     };
-    // Metadata may have already loaded before this effect attached its listener
-    // (e.g. playback started before the maximized view opened) — loadedmetadata
-    // won't fire again in that case, so check the current state synchronously too.
-    if (video.readyState >= 1) {
-      onLoadedMetadata();
-    }
+    const scheduleVisualFail = () => {
+      if (visualFailTimer || hasVisualTrack()) return;
+      visualFailTimer = setTimeout(() => {
+        visualFailTimer = null;
+        if (!hasVisualTrack()) setVideoLayerFailed(true);
+      }, 1500);
+    };
+    const onLoadedMetadata = () => {
+      if (confirmVisualTrack()) return;
+      if (!video.paused || video.currentTime > 0) scheduleVisualFail();
+    };
+    const onPlayingOrData = () => {
+      if (!confirmVisualTrack()) scheduleVisualFail();
+    };
+    if (video.readyState >= 1) onLoadedMetadata();
+    if (!video.paused || video.currentTime > 0) onPlayingOrData();
     video.addEventListener('loadedmetadata', onLoadedMetadata);
+    video.addEventListener('loadeddata', onPlayingOrData);
+    video.addEventListener('resize', onPlayingOrData);
+    video.addEventListener('playing', onPlayingOrData);
+
+    const detachVisualProbe = () => {
+      if (visualFailTimer) clearTimeout(visualFailTimer);
+      video.removeEventListener('loadedmetadata', onLoadedMetadata);
+      video.removeEventListener('loadeddata', onPlayingOrData);
+      video.removeEventListener('resize', onPlayingOrData);
+      video.removeEventListener('playing', onPlayingOrData);
+    };
 
     if (videoIsClock) {
       video.preload = 'auto';
       video.loop = false;
       return () => {
-        video.removeEventListener('loadedmetadata', onLoadedMetadata);
+        detachVisualProbe();
         // Host may unmount on NFT change — park on body so the clock isn't
         // pulled out of the document (which pauses playback).
         if (video.parentElement === host) {
@@ -434,7 +458,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
     video.addEventListener('error', onError);
 
     return () => {
-      video.removeEventListener('loadedmetadata', onLoadedMetadata);
+      detachVisualProbe();
       video.removeEventListener('error', onError);
       if (video.parentElement === host) {
         document.body.appendChild(video);
