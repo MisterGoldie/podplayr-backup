@@ -181,6 +181,29 @@ export const getCachedWallet = async (fid: number): Promise<string | null> => {
   }
 };
 
+// user_searches has no TTL — every search adds a permanent doc, so it grows
+// forever unless something trims it. Cap each searcher's history so the
+// collection self-maintains instead (same pattern as top_played's top-3 cap).
+const USER_SEARCH_HISTORY_CAP = 100;
+const pruneOldUserSearches = async (searchingFid: number): Promise<void> => {
+  try {
+    const excess = await getDocs(
+      query(
+        collection(db, 'user_searches'),
+        where('searching_fid', '==', searchingFid),
+        orderBy('timestamp', 'desc'),
+        limit(USER_SEARCH_HISTORY_CAP + 1)
+      )
+    );
+    if (excess.size <= USER_SEARCH_HISTORY_CAP) return;
+    const oldest = excess.docs[excess.docs.length - 1];
+    await deleteDoc(oldest.ref);
+  } catch (error) {
+    // Hygiene-only — never let a pruning failure block the search itself
+    firebaseLogger.warn('Error pruning old user_searches doc:', error);
+  }
+};
+
 // Track ENS user search and save to Firebase
 export const trackENSUserSearch = async (ensName: string, syntheticFid: number, address: string, userData: any, currentUserFid: number = 0): Promise<FarcasterUser> => {
   try {
@@ -236,6 +259,7 @@ export const trackENSUserSearch = async (ensName: string, syntheticFid: number, 
     firebaseLogger.info('Adding ENS search with data:', searchRecord);
     await addDoc(searchRef, searchRecord);
     firebaseLogger.info('ENS search tracked successfully');
+    await pruneOldUserSearches(currentUserFid);
     
     // Return a FarcasterUser-compatible object
     return {
@@ -419,13 +443,21 @@ export const trackUserSearch = async (username: string, fid: number): Promise<Fa
     
     if (user.username === 'podplayr' || user.fid === PODPLAYR_ACCOUNT.fid) {
       try {
-        // Get the total number of users, which equals the number of PODPlayr followers
-        const usersRef = collection(db, 'users');
-        const usersSnapshot = await getDocs(usersRef);
-        followerCount = usersSnapshot.size;
-        firebaseLogger.info(`Using total users count (${followerCount}) for PODPlayr follower count in trackUserSearch`);
+        // The authoritative in-app follower count lives in the atomically
+        // incremented `followerCount` field on this same doc (kept in sync
+        // by followUser/unfollowUser on every real follow). The `users`
+        // collection is NOT a reliable proxy for "total app users" — a
+        // top-level users/{fid} doc only gets created when that user
+        // uploads a profile background image, so its size undercounts
+        // real users by a wide margin.
+        const existingDoc = await getDoc(searchedUserRef);
+        const cachedFollowerCount = existingDoc.exists() ? existingDoc.data().followerCount : undefined;
+        if (typeof cachedFollowerCount === 'number') {
+          followerCount = cachedFollowerCount;
+          firebaseLogger.info(`Using cached followerCount (${followerCount}) for PODPlayr follower count in trackUserSearch`);
+        }
       } catch (error) {
-        console.error('Error getting total users count for PODPlayr:', error);
+        console.error('Error reading cached PODPlayr follower count:', error);
       }
     }
     
@@ -474,6 +506,7 @@ export const trackUserSearch = async (username: string, fid: number): Promise<Fa
     firebaseLogger.info('Adding search with data:', searchRecord);
     await addDoc(searchRef, searchRecord);
     firebaseLogger.info('Search tracked successfully');
+    await pruneOldUserSearches(fid);
 
     // Extract bio from the API response and normalize it to a string
     let bioText = "";
@@ -3136,19 +3169,22 @@ export const searchUsers = async (queryString: string): Promise<FarcasterUser[]>
         // This will update asynchronously - not blocking the UI
         (async () => {
           try {
-            // Get the total users count - this is the true follower count for PODPlayr
-            const usersRef = collection(db, 'users');
-            const usersSnapshot = await getDocs(usersRef);
-            const totalUsers = usersSnapshot.size;
+            // The authoritative in-app follower count is the atomically
+            // incremented `followerCount` field (kept in sync by
+            // followUser/unfollowUser) — not the size of the `users`
+            // collection, which only has a doc for users who've uploaded
+            // a profile background image and badly undercounts real users.
+            const podplayrDocRef = doc(db, 'searchedusers', PODPLAYR_ACCOUNT.fid.toString());
+            const podplayrDoc = await getDoc(podplayrDocRef);
+            const cachedFollowerCount = podplayrDoc.exists() ? podplayrDoc.data().followerCount : undefined;
             
-            // Only update if the count is different
-            if (totalUsers !== followerCount) {
-              firebaseLogger.info(`Correcting PODPlayr follower count from ${followerCount} to ${totalUsers}`);
+            // Only update if the cached counter is present and different
+            if (typeof cachedFollowerCount === 'number' && cachedFollowerCount !== followerCount) {
+              firebaseLogger.info(`Correcting PODPlayr follower_count from ${followerCount} to ${cachedFollowerCount}`);
               
               // Update the searchedusers record with the correct count
-              const podplayrDocRef = doc(db, 'searchedusers', PODPLAYR_ACCOUNT.fid.toString());
               await updateDoc(podplayrDocRef, {
-                follower_count: totalUsers
+                follower_count: cachedFollowerCount
               });
             }
           } catch (error) {

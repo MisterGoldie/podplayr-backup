@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useEffect } from 'react';
-import { FirebaseProvider } from '../contexts/FirebaseContext';
 import dynamic from 'next/dynamic';
 import { setupArweaveUrlInterceptor } from "../utils/networkErrorHandler";
 import { useMiniKit } from '@coinbase/onchainkit/minikit';
@@ -52,11 +51,9 @@ const App: React.FC = () => {
   }, []);
 
   return (
-    <FirebaseProvider>
-      <main className="flex flex-col">
-        <Demo />
-      </main>
-    </FirebaseProvider>
+    <main className="flex flex-col">
+      <Demo />
+    </main>
   );
 };
 
