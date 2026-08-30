@@ -1,4 +1,5 @@
 import { createHash } from 'crypto';
+import { getAddress } from 'viem';
 
 export type NftKeySource = {
   contract?: string;
@@ -66,8 +67,13 @@ export function getMediaAssetId(url?: string | null): string {
 
   const ar =
     s.match(/arweave\.net\/([A-Za-z0-9_-]{43,})/i) ||
-    s.match(/ar:\/\/([A-Za-z0-9_-]{43,})/);
+    s.match(/ar:\/\/([A-Za-z0-9_-]{43,})/) ||
+    s.match(
+      /(?:turbo-gateway\.com|permagate\.io|ar-io\.dev|g8way\.io)\/(?:raw\/)?([A-Za-z0-9_-]{43,})/i
+    );
   if (ar?.[1]) return `ar:${ar[1]}`;
+
+  if (/stream\.mux\.com|mezzanine\.mux\.com/i.test(s)) return '';
 
   if (/^https?:\/\//i.test(s) || s.startsWith('ipfs://') || s.startsWith('ar://')) {
     return `url:${s.replace(/^https?:\/\//i, '').toLowerCase()}`;
@@ -172,11 +178,24 @@ function tokenIdVariants(tokenId: string): string[] {
   return [...variants];
 }
 
+export function contractCasingVariants(contract: string): string[] {
+  const raw = contract.trim();
+  const variants = [raw, raw.toLowerCase()];
+  if (/^0x[0-9a-f]{40}$/i.test(raw)) {
+    try {
+      variants.push(getAddress(raw));
+    } catch {
+      // ignore invalid checksum
+    }
+  }
+  return uniqueStrings(variants);
+}
+
 function mintHashCandidates(nft: NftKeySource): string[] {
   if (!nft.contract || nft.tokenId === undefined || nft.tokenId === null || String(nft.tokenId) === '') {
     return [];
   }
-  const contracts = uniqueStrings([nft.contract, nft.contract.toLowerCase()]);
+  const contracts = contractCasingVariants(nft.contract);
   const tokens = tokenIdVariants(String(nft.tokenId));
   const keys: string[] = [];
   for (const contract of contracts) {
@@ -199,20 +218,26 @@ export function getLegacyMediaKeyCandidates(nft?: NftKeySource | null): string[]
 
   for (const id of mintHashCandidates(nft)) keys.add(id);
 
-  const asset = getNftMediaAssetId(nft);
-  // Pre-fix canonical key for real on-chain NFTs was media-asset-based —
-  // keep it as a healing candidate so any doc that predates the identity-
-  // first switch (or slips through a future edge case) still gets found.
-  if (asset) keys.add(hashMediaKeySource(`media:${asset}`));
-  if (asset?.startsWith('ipfs:')) {
-    keys.add(`ipfs_${asset.slice(5)}`);
-  }
-  if (asset?.startsWith('ar:')) {
-    const id = asset.slice(3);
-    keys.add(`arweave_net_${id}`);
-    keys.add(`arweave.net_${id}`);
-    keys.add(`arweave_net_${id.toLowerCase()}`);
-    keys.add(`arweave.net_${id.toLowerCase()}`);
+  const assets = uniqueStrings([
+    getNftMediaAssetId(nft),
+    ...[nft.audio, nft.animationUrl, nft.videoUrl, nft.metadata?.animation_url].map((u) =>
+      getMediaAssetId(u)
+    ),
+  ]);
+  for (const asset of assets) {
+    if (asset.startsWith('ipfs:') || asset.startsWith('ar:')) {
+      keys.add(hashMediaKeySource(`media:${asset}`));
+    }
+    if (asset.startsWith('ipfs:')) {
+      keys.add(`ipfs_${asset.slice(5)}`);
+    }
+    if (asset.startsWith('ar:')) {
+      const id = asset.slice(3);
+      keys.add(`arweave_net_${id}`);
+      keys.add(`arweave.net_${id}`);
+      keys.add(`arweave_net_${id.toLowerCase()}`);
+      keys.add(`arweave.net_${id.toLowerCase()}`);
+    }
   }
 
   return [...keys];

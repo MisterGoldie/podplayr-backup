@@ -18,6 +18,16 @@ import {
 } from '../utils/nftIdentity';
 import { sameLikedTrack, getLikeDedupeKey } from '../utils/likeDedupe';
 import { likeTimeFromFields, snapshotCreateMillis } from '../utils/likeTime';
+import { mergeLegacyCountDocs } from './legacyCountDocs';
+
+/** Fold leftover global_likes docs for one NFT onto the canonical mediaKey. */
+export async function mergeLegacyLikeCounts(
+  db: Firestore,
+  nft: NftKeySource,
+  canonical = getMediaKey(nft)
+): Promise<number> {
+  return mergeLegacyCountDocs(db, 'global_likes', 'likeCount', nft, canonical);
+}
 
 const consolidatedUsers = new Set<string>();
 

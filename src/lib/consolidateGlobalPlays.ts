@@ -2,17 +2,16 @@ import {
   Firestore,
   collection,
   doc,
-  getDoc,
   getDocs,
   writeBatch,
 } from 'firebase/firestore';
 import {
-  getLegacyMediaKeyCandidates,
   getMediaKey,
   normalizeNftContract,
   normalizeNftTokenId,
   type NftKeySource,
 } from '../utils/nftIdentity';
+import { mergeLegacyCountDocs } from './legacyCountDocs';
 
 function playDocNft(id: string, data: Record<string, unknown>): NftKeySource {
   const nested =
@@ -51,49 +50,7 @@ export async function mergeLegacyPlayCounts(
   nft: NftKeySource,
   canonical = getMediaKey(nft)
 ): Promise<number> {
-  if (!canonical) return 0;
-  const ids = getLegacyMediaKeyCandidates(nft);
-  const snaps = await Promise.all(
-    ids.map(async (id) => {
-      try {
-        return await getDoc(doc(db, 'global_plays', id));
-      } catch {
-        return null;
-      }
-    })
-  );
-  const existing = snaps.filter((snap) => snap?.exists());
-  if (existing.length === 0) return 0;
-
-  const canonicalSnap = existing.find((snap) => snap!.id === canonical) || null;
-  let total = 0;
-  let keep = canonicalSnap?.data() || existing[0]!.data() || {};
-  const batch = writeBatch(db);
-  let extras = 0;
-
-  for (const snap of existing) {
-    if (!snap) continue;
-    const count = Number(snap.data()?.playCount) || 0;
-    total += count;
-    if (count >= (Number(keep.playCount) || 0)) keep = snap.data() || keep;
-    if (snap.id !== canonical) {
-      batch.delete(snap.ref);
-      extras += 1;
-    }
-  }
-
-  if (extras === 0 && canonicalSnap?.exists()) return total;
-
-  batch.set(doc(db, 'global_plays', canonical), {
-    ...keep,
-    mediaKey: canonical,
-    playCount: total,
-    nftContract: normalizeNftContract(nft.contract) || keep.nftContract,
-    contract: normalizeNftContract(nft.contract) || keep.contract,
-    tokenId: normalizeNftTokenId(nft.tokenId) || keep.tokenId,
-  });
-  await batch.commit();
-  return total;
+  return mergeLegacyCountDocs(db, 'global_plays', 'playCount', nft, canonical);
 }
 
 type PlayRow = {

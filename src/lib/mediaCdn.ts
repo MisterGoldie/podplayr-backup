@@ -214,6 +214,24 @@ const KNOWN_MUX_PLAYBACK_URLS = new Set(
   )
 );
 
+const MUX_URL_TO_ORIGIN_ID = new Map<string, string>();
+for (const [originId, override] of Object.entries(PLAYBACK_OVERRIDES)) {
+  for (const url of [override.mobile, override.desktop]) {
+    if (url) MUX_URL_TO_ORIGIN_ID.set(url, originId);
+  }
+}
+
+/** Durable Arweave/IPFS URL for a Mux override — used to recover play/like keys. */
+export function originUrlFromMuxPlayback(url?: string | null): string {
+  if (!url) return '';
+  const originId = MUX_URL_TO_ORIGIN_ID.get(url);
+  if (!originId) return '';
+  if (/^(bafy|bafkrei|qm)/i.test(originId)) {
+    return `https://gateway.pinata.cloud/ipfs/${originId}`;
+  }
+  return `https://arweave.net/${originId}`;
+}
+
 export function isMuxPlaybackUrl(url?: string | null): boolean {
   // Only stream.mux.com HLS counts as "Mux playback" for override matching.
   // mezzanine.mux.com progressive mp4s are Alchemy/on-chain derivatives — separate.

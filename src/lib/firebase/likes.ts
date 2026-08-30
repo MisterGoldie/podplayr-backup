@@ -31,7 +31,7 @@ import { getMediaKey, getNftIdentityKey, normalizeNftContract, normalizeNftToken
 import { uniqueLikedNfts } from '../../utils/likeDedupe';
 import { applyConfirmedPlayback, hydrateNftPlayback, restoreStoredAnimationUrl, isPlayableMediaNFT } from '../../utils/isMediaNFT';
 import { stampNftLikeTime, sortLikedNewestFirst, getNftLikedTime, snapshotCreateMillis, fetchLikeCreateTimes } from '../../utils/likeTime';
-import { consolidateUserLikes, findExistingUserLikeIds } from '../consolidateUserLikes';
+import { consolidateUserLikes, findExistingUserLikeIds, mergeLegacyLikeCounts } from '../consolidateUserLikes';
 
 
 
@@ -693,6 +693,7 @@ export const toggleLikeNFT = async (nft: NFT, fidOrWalletAddress: number | strin
       return false;
     }
     nft.mediaKey = mediaKey;
+    await mergeLegacyLikeCounts(db, nft, mediaKey);
     const variantLikeIds = await findExistingUserLikeIds(db, userId, nft);
     
     // CRITICAL: This is the path where likes are stored in Firebase

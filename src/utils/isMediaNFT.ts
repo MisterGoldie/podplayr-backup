@@ -8,7 +8,7 @@ import {
 } from './media';
 import { isNftMediaDead } from './deadNftRegistry';
 import { isBlockedNftContract, isPhishingSpamNft, isUnsafePlaybackUrl } from './nftSafety';
-import { isPollutedPlaybackUrl } from '../lib/mediaCdn';
+import { isMuxPlaybackUrl, isPollutedPlaybackUrl, isWeakPlaybackUrl } from '../lib/mediaCdn';
 
 const AUDIO_EXT_RE = /\.(mp3|wav|m4a|aac|ogg|flac)(?:\?|#|$)/i;
 const VIDEO_EXT_RE = /\.(mp4|webm|mov|m4v)(?:\?|#|$)/i;
@@ -744,15 +744,22 @@ export const probeMediaContentType = async (url: string): Promise<string> => {
   return '';
 };
 
+const isCdnPlaybackHop = (url?: string | null) =>
+  !!url && (isMuxPlaybackUrl(url) || isWeakPlaybackUrl(url));
+
 /** Stamp resolved plan fields onto the NFT. Never copy audio onto animation_url for audio-only. */
 export const applyPlaybackPlanToNft = (nft: NFT, plan: NftPlaybackPlan, mime?: string): void => {
   nft.playbackMode = plan.mode;
   nft.isVideo = plan.mode !== 'audio-only';
-  nft.videoUrl = plan.mode === 'audio-only' ? undefined : plan.videoUrl || undefined;
-  if (plan.audioUrl) {
+  if (plan.mode === 'audio-only') {
+    nft.videoUrl = undefined;
+  } else if (plan.videoUrl && !isCdnPlaybackHop(plan.videoUrl)) {
+    nft.videoUrl = plan.videoUrl;
+  }
+  if (plan.audioUrl && !isCdnPlaybackHop(plan.audioUrl)) {
     nft.audio = plan.audioUrl;
     nft.hasValidAudio = true;
-  } else if (!plan.videoUrl) {
+  } else if (!plan.audioUrl && !plan.videoUrl) {
     nft.audio = '';
     nft.hasValidAudio = false;
     nft.isVideo = false;
@@ -760,7 +767,7 @@ export const applyPlaybackPlanToNft = (nft: NFT, plan: NftPlaybackPlan, mime?: s
   if (!nft.metadata) {
     nft.metadata = { image: nft.image };
   }
-  if (plan.videoUrl && plan.mode !== 'audio-only') {
+  if (plan.videoUrl && plan.mode !== 'audio-only' && !isCdnPlaybackHop(plan.videoUrl)) {
     nft.metadata.animation_url = nft.metadata.animation_url || plan.videoUrl;
   }
   if (mime) {

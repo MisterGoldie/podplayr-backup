@@ -3,6 +3,9 @@ import { getFirestore, doc, getDoc, onSnapshot } from 'firebase/firestore';
 import type { Unsubscribe } from 'firebase/firestore';
 import type { NFT } from '../types/user';
 import { isPlaybackActive, getMediaKey } from '../utils/media';
+import { findExistingUserLikeIds, mergeLegacyLikeCounts } from '../lib/consolidateUserLikes';
+
+const mergedLikeKeys = new Set<string>();
 
 const likeStateLogger = {
   debug: (message: string, ...args: any[]) => {
@@ -60,47 +63,83 @@ export const useNFTLikeState = (
 
     const mediaKey = getMediaKey(nft);
     mediaKeyRef.current = mediaKey;
+    setIsLoading(true);
 
     const db = getFirestore();
     let cancelled = false;
-
     let unsubscribeUserLike: Unsubscribe | null = null;
-    if (watchIsLiked && fid) {
-      unsubscribeUserLike = onSnapshot(
-        doc(db, 'users', String(fid), 'likes', mediaKey),
-        (snap) => {
-          if (cancelled) return;
-          setIsLiked(snap.exists());
-          setIsLoading(false);
-          setLastUpdated(Date.now());
-        },
-        (error) => {
-          likeStateLogger.error('User like listener failed:', error);
-          if (!cancelled) setIsLoading(false);
-        }
-      );
-    } else {
-      setIsLoading(false);
-    }
-
-    // Canonical global count: global_likes/{mediaKey}.likeCount
-    const globalLikeRef = doc(db, 'global_likes', mediaKey);
     let unsubscribeCount: Unsubscribe | null = null;
-    if (watchCount) {
-      if (liveCount) {
-        unsubscribeCount = onSnapshot(globalLikeRef, (snap) => {
-          if (cancelled) return;
-          setLikesCount(snap.exists() ? (snap.data()?.likeCount || 0) : 0);
-        });
-      } else {
-        getDoc(globalLikeRef).then((snap) => {
-          if (cancelled) return;
-          setLikesCount(snap.exists() ? (snap.data()?.likeCount || 0) : 0);
-        }).catch(() => {
-          if (!cancelled) setLikesCount(0);
-        });
+
+    const listen = (foldedCount?: number) => {
+      if (cancelled) return;
+
+      if (watchIsLiked && fid) {
+        unsubscribeUserLike = onSnapshot(
+          doc(db, 'users', String(fid), 'likes', mediaKey),
+          (snap) => {
+            if (cancelled) return;
+            setIsLiked(snap.exists());
+            if (!watchCount) setIsLoading(false);
+            setLastUpdated(Date.now());
+          },
+          (error) => {
+            likeStateLogger.error('User like listener failed:', error);
+            if (!cancelled && !watchCount) setIsLoading(false);
+          }
+        );
       }
-    }
+
+      const globalLikeRef = doc(db, 'global_likes', mediaKey);
+      if (watchCount) {
+        if (typeof foldedCount === 'number' && foldedCount > 0) {
+          setLikesCount(foldedCount);
+        }
+        if (liveCount) {
+          unsubscribeCount = onSnapshot(globalLikeRef, (snap) => {
+            if (cancelled) return;
+            setLikesCount(snap.exists() ? (snap.data()?.likeCount || 0) : 0);
+            setIsLoading(false);
+          });
+        } else {
+          getDoc(globalLikeRef).then((snap) => {
+            if (cancelled) return;
+            setLikesCount(snap.exists() ? (snap.data()?.likeCount || 0) : 0);
+            setIsLoading(false);
+          }).catch(() => {
+            if (!cancelled) {
+              setLikesCount(0);
+              setIsLoading(false);
+            }
+          });
+        }
+      } else if (!watchIsLiked) {
+        setIsLoading(false);
+      }
+    };
+
+    void (async () => {
+      let folded = 0;
+      try {
+        if (watchCount && !mergedLikeKeys.has(mediaKey)) {
+          mergedLikeKeys.add(mediaKey);
+          try {
+            folded = await mergeLegacyLikeCounts(db, nft, mediaKey);
+          } catch (error) {
+            mergedLikeKeys.delete(mediaKey);
+            throw error;
+          }
+        }
+        if (watchIsLiked && fid) {
+          const existing = await findExistingUserLikeIds(db, String(fid), nft);
+          if (!cancelled && existing.length > 0) {
+            setIsLiked(true);
+          }
+        }
+      } catch (error) {
+        likeStateLogger.error('Error folding leftover like counts:', error);
+      }
+      listen(folded);
+    })();
 
     isSubscribedRef.current = true;
 
