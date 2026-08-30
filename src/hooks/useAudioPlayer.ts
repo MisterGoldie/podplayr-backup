@@ -53,6 +53,7 @@ import {
 } from '../utils/media';
 import { resolveCdnPlaybackUrls, isOrphanMuxPlaybackUrl, isMuxPlaybackUrl, isPollutedPlaybackUrl, isWeakPlaybackUrl, isMezzanineMuxUrl } from '../lib/mediaCdn';
 import { attachPlaybackSource, detachHlsPlayback, isHlsAttached, isHlsUrl, pauseHlsBuffering, resumeHlsBuffering } from '../lib/hlsPlayback';
+import { setActiveMainMedia } from '../lib/activeMainMedia';
 import { restorePageScroll } from '../utils/pageScroll';
 
 function findNftInQueue(queue: NFT[], nft: NFT): number {
@@ -717,6 +718,7 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       if (isMobile) videoEl.volume = 0.7;
       visualPlaybackRef.current = videoEl;
     }
+    setActiveMainMedia(media);
 
     let urlIndex = 0;
     let switchingUrl = false;
