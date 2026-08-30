@@ -53,7 +53,7 @@ import {
 } from '../utils/media';
 import { resolveCdnPlaybackUrls, isOrphanMuxPlaybackUrl, isMuxPlaybackUrl, isPollutedPlaybackUrl, isWeakPlaybackUrl, isMezzanineMuxUrl } from '../lib/mediaCdn';
 import { attachPlaybackSource, detachHlsPlayback, isHlsAttached, isHlsUrl, pauseHlsBuffering, resumeHlsBuffering } from '../lib/hlsPlayback';
-import { setActiveMainMedia } from '../lib/activeMainMedia';
+import { setActiveMainMedia, pauseActiveMainMedia } from '../lib/activeMainMedia';
 import { restorePageScroll } from '../utils/pageScroll';
 
 function findNftInQueue(queue: NFT[], nft: NFT): number {
@@ -355,27 +355,50 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
 
     reviveNftMedia(nft, 'audio');
 
+    // Cut the current track immediately. Enrich/probe used to run first, so
+    // the previous video kept rolling for seconds after a new card click.
+    if (currentlyPlaying && currentlyPlaying !== `${nft.contract}-${nft.tokenId}`) {
+      pauseActiveMainMedia();
+      const clock = visualPlaybackRef.current || audioRef.current;
+      if (clock && !clock.paused) clock.pause();
+    }
+
     // Likes / recently-played often store raw IPFS URLs. When public gateways
     // hang or 404, Alchemy still has cached CDN copies — refresh via /api/nft.
     // Also force enrich when playback is orphan Mux / broken Alchemy HLS so we
     // recover the real Arweave/IPFS origin before building the URL list.
     let playNft = nft;
-    const needsPlaybackRecovery = [
+    const playbackFields = [
       nft.audio,
       nft.videoUrl,
       nft.animationUrl,
       nft.metadata?.animation_url,
-    ].some((u) => isWeakPlaybackUrl(u));
-    const needsIpfsPlaybackRefresh = [
-      nft.audio,
-      nft.videoUrl,
-      nft.animationUrl,
-      nft.metadata?.animation_url,
-    ].some((u) => isIpfsPlaybackUrl(u));
+    ];
+    const needsPlaybackRecovery = playbackFields.some((u) => isWeakPlaybackUrl(u));
+    const needsIpfsPlaybackRefresh = playbackFields.some((u) => isIpfsPlaybackUrl(u));
+    const hasReadyPlayback = playbackFields.some(
+      (u) =>
+        !!u &&
+        !isWeakPlaybackUrl(u) &&
+        (isMuxPlaybackUrl(u) ||
+          /\.(mp3|wav|m4a|aac|ogg|flac|mp4|webm|mov|m4v)(?:\?|#|$)/i.test(u) ||
+          /gateway\.pinata\.cloud|nft2?-cdn\.alchemy\.com|raw2?\.seadn\.io|arweave\.net|turbo-gateway\.com/i.test(
+            u
+          ))
+    );
+    const shouldBlockOnEnrich =
+      needsPlaybackRecovery ||
+      (!hasReadyPlayback &&
+        (needsIpfsPlaybackRefresh || nftNeedsChainMediaEnrich(nft)));
     if (
       isOnChainNftIdentity(nft.contract, nft.tokenId) &&
       (needsPlaybackRecovery || needsIpfsPlaybackRefresh || nftNeedsChainMediaEnrich(nft))
     ) {
+      if (!shouldBlockOnEnrich) {
+        // Cover / IPFS refresh can finish after play starts — don't stall the switch.
+        void enrichNftMediaFromChain(nft);
+        playbackDebug('play:enrich-background', { name: nft.name, hasReadyPlayback: true });
+      } else {
       playNft = await enrichNftMediaFromChain(nft);
       const recoveredUrl = [
         playNft.audio,
@@ -413,6 +436,7 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
           metadata: playNft.metadata,
           collection: playNft.collection,
         });
+      }
       }
     }
 
@@ -453,6 +477,7 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     // leave real videos (Dumpster Fire) on the <audio> + still path.
     const mustProbeAudioOnly =
       plan.mode === 'audio-only' &&
+      !cachedMime.startsWith('video/') &&
       mediaUrlNeedsMimeProbe(probeUrl) &&
       !/\.(mp3|wav|m4a|aac|ogg|flac)(?:\?|#|$)/i.test(probeUrl || '');
     if ((mediaUrlNeedsMimeProbe(probeUrl) && !skipMimeProbe) || mustProbeAudioOnly) {
