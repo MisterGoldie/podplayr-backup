@@ -12,12 +12,10 @@ import {
 /**
  * TEMP IMAGE / COVER DEBUG — remove after card-thumb issues are fixed.
  *
- * On in `yarn dev`. Off in production.
- * Force on:  window.__PODPLAYR_IMAGE_DEBUG = true
- * Force off: window.__PODPLAYR_IMAGE_DEBUG = false
+ * Off for now. Force on: window.__PODPLAYR_IMAGE_DEBUG = true
  * Filter DevTools console by: IMAGE DEBUG
  */
-export const IMAGE_DEBUG_ENABLED = process.env.NODE_ENV !== 'production';
+export const IMAGE_DEBUG_ENABLED = false;
 
 const PREFIX = '[IMAGE DEBUG — REMOVE]';
 

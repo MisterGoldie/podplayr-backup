@@ -2,12 +2,10 @@
  * TEMP PLAYBACK DEBUG — remove this file and every `playbackDebug` import
  * after the unplayable-audio issue is fixed.
  *
- * On in `yarn dev`. Off in production.
- * Force on:  window.__PODPLAYR_PLAYBACK_DEBUG = true
- * Force off: window.__PODPLAYR_PLAYBACK_DEBUG = false
+ * Off for now. Force on: window.__PODPLAYR_PLAYBACK_DEBUG = true
  * Filter DevTools console by: PLAYBACK DEBUG
  */
-export const PLAYBACK_DEBUG_ENABLED = process.env.NODE_ENV !== 'production';
+export const PLAYBACK_DEBUG_ENABLED = false;
 
 const PREFIX = '[PLAYBACK DEBUG — REMOVE]';
 

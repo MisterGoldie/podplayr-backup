@@ -4,14 +4,21 @@ import { isPhishingSpamNft, isUnsafePlaybackUrl } from './nftSafety';
 
 /**
  * Dev dump for comparing real spam vs legit media NFTs.
+ * Off for now. Force on: window.__PODPLAYR_SPAM_DEBUG = true
  * Filter console with: [podplayr:spam-debug]
  */
+declare global {
+  interface Window {
+    __PODPLAYR_SPAM_DEBUG?: boolean;
+  }
+}
+
 export const logNftCardSpamDebug = (
   nft: NFT,
   reason: 'click' | 'hide' | 'mount' = 'click'
 ): void => {
   if (typeof window === 'undefined') return;
-  if (process.env.NODE_ENV === 'production') return;
+  if (window.__PODPLAYR_SPAM_DEBUG !== true) return;
 
   const plan = getNftPlaybackPlan(nft);
   const meta = nft.metadata || {};
