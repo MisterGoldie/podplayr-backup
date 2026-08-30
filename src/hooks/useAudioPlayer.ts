@@ -440,12 +440,31 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       getCachedMediaMime(probeUrl) ||
       knownMime
     ).toLowerCase();
+    // Never skip a probe just because the host is Alchemy CDN — Rodeo (and
+    // others) stuff a raw video/mp4 onto an extensionless nft2-cdn hash.
+    // Skipping that HEAD left those tokens stuck audio-only with a still
+    // in the maximized player. Only trust a cached audio mime when the URL
+    // itself looks like audio (Late #7).
     const skipMimeProbe =
-      /nft2-cdn\.alchemy\.com|nft-cdn\.alchemy\.com/i.test(probeUrl || '') ||
-      cachedMime.startsWith('audio/') ||
-      cachedMime.startsWith('video/');
-    if (mediaUrlNeedsMimeProbe(probeUrl) && !skipMimeProbe) {
+      cachedMime.startsWith('video/') ||
+      (cachedMime.startsWith('audio/') && /\.(mp3|wav|m4a|aac|ogg|flac)(?:\?|#|$)/i.test(probeUrl || ''));
+    // Extensionless IPFS/Alchemy hashes classified audio-only must always
+    // probe — a stale metadata.mimeType of audio/* used to skip this and
+    // leave real videos (Dumpster Fire) on the <audio> + still path.
+    const mustProbeAudioOnly =
+      plan.mode === 'audio-only' &&
+      mediaUrlNeedsMimeProbe(probeUrl) &&
+      !/\.(mp3|wav|m4a|aac|ogg|flac)(?:\?|#|$)/i.test(probeUrl || '');
+    if ((mediaUrlNeedsMimeProbe(probeUrl) && !skipMimeProbe) || mustProbeAudioOnly) {
       plan = await resolveNftPlaybackPlan(playNft);
+      playbackDebug('play:probed', {
+        name: playNft.name,
+        from: 'audio-only-or-unknown',
+        to: plan.mode,
+        probeUrl,
+        knownMime,
+        cachedMime,
+      });
     } else if (
       cachedMime.startsWith('video/') &&
       plan.mode === 'audio-only' &&

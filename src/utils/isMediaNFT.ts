@@ -326,6 +326,24 @@ export const pickVideoUrl = (candidate: MediaCandidate | NFT): string | null => 
     return stored;
   }
 
+  // Rodeo / OpenSea often put the mp4 on image / display_image_url and leave
+  // animation_url empty. That's still the video, not a cover. Do not use
+  // urlLooksLikeVideo() here — Cloudinary `video/fetch` stills contain
+  // "video/" in the path and are PNG frames, not playback.
+  const imageVideo = [
+    meta?.display_image_url,
+    meta?.image_url,
+    meta?.image,
+    (candidate as NFT).image,
+  ].find((u) => {
+    if (typeof u !== 'string' || !u || isPollutedPlaybackUrl(u) || urlLooksLikeAudio(u)) {
+      return false;
+    }
+    if (/\/video\/fetch\//i.test(u)) return false;
+    return VIDEO_EXT_RE.test(u);
+  });
+  if (imageVideo) return imageVideo;
+
   return null;
 };
 
@@ -625,8 +643,16 @@ export const mediaUrlNeedsMimeProbe = (url?: string | null): boolean => {
 export const probeMediaContentType = async (url: string): Promise<string> => {
   loadMimeCache();
   const cacheKey = mediaAssetId(url);
-  if (mimeProbeCache.has(cacheKey)) {
-    return mimeProbeCache.get(cacheKey)!;
+  const cachedMime = mimeProbeCache.get(cacheKey);
+  // Stale audio/* on an extensionless CID is how Dumpster Fire got stuck —
+  // a prior <audio> play or a timed-out probe cached the wrong type.
+  const cachedAudioUntrusted =
+    !!cachedMime &&
+    cachedMime.startsWith('audio/') &&
+    mediaUrlNeedsMimeProbe(url) &&
+    !urlLooksLikeAudio(url);
+  if (cachedMime && !cachedAudioUntrusted) {
+    return cachedMime;
   }
 
   const candidates = new Set<string>();
@@ -661,7 +687,9 @@ export const probeMediaContentType = async (url: string): Promise<string> => {
 
   const timedFetch = (u: string, init: RequestInit) => {
     const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 1500);
+    // Pinata/IPFS HEADs on a cold CID routinely take 2–5s; 1.5s was aborting
+    // the probe, marking the gateway dead, and leaving video CIDs audio-only.
+    const t = setTimeout(() => ctrl.abort(), 8000);
     return fetch(u, { ...init, signal: ctrl.signal, mode: 'cors' }).finally(() =>
       clearTimeout(t)
     );
@@ -683,9 +711,12 @@ export const probeMediaContentType = async (url: string): Promise<string> => {
         const mime = store(headCt, probeUrl);
         if (mime) return mime;
       }
-    } catch {
-      // CORS / network — do not keep hammering this host for this CID
-      rememberDeadGateway(url, probeUrl);
+    } catch (err) {
+      // Timeouts are transient — do not poison a working gateway (Pinata)
+      // just because the first HEAD was slow.
+      if (!(err instanceof DOMException && err.name === 'AbortError')) {
+        rememberDeadGateway(url, probeUrl);
+      }
       continue;
     }
 
@@ -703,8 +734,10 @@ export const probeMediaContentType = async (url: string): Promise<string> => {
         const mime = store(getCt, probeUrl);
         if (mime) return mime;
       }
-    } catch {
-      rememberDeadGateway(url, probeUrl);
+    } catch (err) {
+      if (!(err instanceof DOMException && err.name === 'AbortError')) {
+        rememberDeadGateway(url, probeUrl);
+      }
     }
   }
 
@@ -923,7 +956,11 @@ export const resolveNftPlaybackPlan = async (
     if (typed.contract) applyPlaybackPlanToNft(typed, plan, known || undefined);
     return plan;
   }
-  if (known.startsWith('audio/')) {
+  // Library/Firebase often stamps mimeType: audio/* on extensionless IPFS
+  // CIDs that are actually video/mp4 (Dumpster Fire). Only trust an audio
+  // mime when the URL itself looks like audio — otherwise fall through to
+  // a live probe.
+  if (known.startsWith('audio/') && (!candidate || !mediaUrlNeedsMimeProbe(candidate))) {
     const plan = audioPlan();
     if (typed.contract) applyPlaybackPlanToNft(typed, plan, known);
     return plan;

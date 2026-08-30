@@ -708,14 +708,27 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
       });
     const fileVideoUri = fileVideo?.uri || fileVideo?.url || '';
 
+    const imageVideoType = (alchemyImage.image?.contentType || '').toLowerCase();
+    const videoFromImage =
+      imageVideoType.startsWith('video/')
+        ? [
+            alchemyImage.image?.originalUrl,
+            rawMeta.display_image_url,
+            rawMeta.image_url,
+            alchemyImage.image?.cachedUrl,
+          ].find((u) => u && isUsableOriginPlaybackUrl(u) && !isWeakPlaybackUrl(u)) || ''
+        : '';
     let alchemyAnimation =
       pickAlchemyAnimationPlaybackUrl(alchemyImage.animation, rawMeta.animation_url, [
         contentUri,
         fileVideoUri,
         rawMeta.properties?.video,
         rawMeta.properties?.animation_url,
+        // Only the video-typed image origin — never a JPEG display_image_url.
+        videoFromImage,
       ]) ||
       (isUsableOriginPlaybackUrl(alchemyImageAsAudio) ? alchemyImageAsAudio : '') ||
+      videoFromImage ||
       '';
 
     // Prefer on-chain Arweave when Alchemy only has Mux mezzanine / empty.
@@ -765,13 +778,16 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
     ).toLowerCase();
     const resolvedAnimType =
       alchemyAnimationLooksLikeVideo(alchemyImage.animation) ||
+      imageVideoType.startsWith('video/') ||
       (alchemyAnimation &&
         (alchemyAnimation.startsWith('ar://') ||
           /arweave\.net\//i.test(alchemyAnimation) ||
           recoveredMime.startsWith('video/')))
         ? recoveredMime.startsWith('video/')
           ? recoveredMime
-          : 'video/mp4'
+          : imageVideoType.startsWith('video/')
+            ? imageVideoType
+            : 'video/mp4'
         : alchemyAnimType;
 
     const mergedMeta: NFTMetadata = {
@@ -1050,6 +1066,10 @@ export const nftNeedsChainMediaEnrich = (nft: NFT | null | undefined): boolean =
     nft.animationUrl,
     nft.metadata?.animation_url,
   ].filter(Boolean) as string[];
+
+  // Cover was derived from a video file (Rodeo image=mp4) but playback never
+  // got a videoUrl — don't lock that broken audio-only shape in Redis.
+  if (nft.coverIsVideo && !nft.isVideo && !nft.videoUrl) return true;
 
   // Polluted Mux / broken Alchemy HLS / signed mezzanine → always re-fetch origin.
   if (playbackFields.some((u) => isWeakPlaybackUrl(u))) return true;
