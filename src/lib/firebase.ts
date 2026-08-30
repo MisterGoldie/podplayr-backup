@@ -885,33 +885,16 @@ export const trackNFTPlay = async (nft: NFT, fid: number, options?: { forceTrack
       });
     }
 
-    // Update top_played collection
+    // Maintain top_played as a lean cache of ONLY the top 3 most-played NFTs.
+    // A blind per-play upsert (the old behavior) turns this into a doc-per-
+    // NFT-ever-played collection instead of a top-3 cache — only touch it
+    // here when this NFT already qualifies, or newly displaces the current
+    // #3, evicting that entry so the collection can't grow past 3.
     const topPlayedRef = doc(db, 'top_played', mediaKey);
     const topPlayedDoc = await getDoc(topPlayedRef);
-    
-    if (!topPlayedDoc.exists()) {
-      // First time in top_played
-      batch.set(topPlayedRef, {
-        mediaKey,
-        nftContract: nft.contract,
-        tokenId: nft.tokenId,
-        name: nft.name || 'Untitled',
-        image: nft.image || '',
-        audioUrl: audioUrl,
-        videoUrl: playbackStore.videoUrl,
-        animationUrl: playbackStore.animationUrl,
-        isVideo: playbackStore.isVideo,
-        playbackMode: playbackStore.playbackMode,
-        mediaMime: playbackStore.mediaMime,
-        description: nft.description || nft.metadata?.description || '',
-        collection: nft.collection?.name || 'Unknown Collection',
-        network: nft.network || 'base',
-        firstTopPlayedAt: serverTimestamp(),
-        lastPlayed: serverTimestamp(),
-        playCount: newPlayCount
-      });
-    } else {
-      // Update existing top_played entry with latest metadata
+
+    if (topPlayedDoc.exists()) {
+      // Already one of the top 3 — just keep its count/metadata fresh.
       const data = topPlayedDoc.data();
       batch.update(topPlayedRef, {
         lastPlayed: serverTimestamp(),
@@ -929,6 +912,37 @@ export const trackNFTPlay = async (nft: NFT, fid: number, options?: { forceTrack
         collection: nft.collection?.name || data.collection || 'Unknown Collection',
         network: nft.network || data.network || 'base'
       });
+    } else {
+      const currentTop3 = await getDocs(
+        query(collection(db, 'top_played'), orderBy('playCount', 'desc'), limit(3))
+      );
+      const lowestOfTop3 = currentTop3.size >= 3 ? currentTop3.docs[currentTop3.size - 1] : null;
+      const qualifiesForTop3 = !lowestOfTop3 || newPlayCount > (lowestOfTop3.data().playCount || 0);
+
+      if (qualifiesForTop3) {
+        if (lowestOfTop3) {
+          batch.delete(lowestOfTop3.ref);
+        }
+        batch.set(topPlayedRef, {
+          mediaKey,
+          nftContract: nft.contract,
+          tokenId: nft.tokenId,
+          name: nft.name || 'Untitled',
+          image: nft.image || '',
+          audioUrl: audioUrl,
+          videoUrl: playbackStore.videoUrl,
+          animationUrl: playbackStore.animationUrl,
+          isVideo: playbackStore.isVideo,
+          playbackMode: playbackStore.playbackMode,
+          mediaMime: playbackStore.mediaMime,
+          description: nft.description || nft.metadata?.description || '',
+          collection: nft.collection?.name || 'Unknown Collection',
+          network: nft.network || 'base',
+          firstTopPlayedAt: serverTimestamp(),
+          lastPlayed: serverTimestamp(),
+          playCount: newPlayCount
+        });
+      }
     }
 
     // Also update nft_plays collection for backward compatibility
