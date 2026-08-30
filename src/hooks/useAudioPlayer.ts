@@ -818,7 +818,15 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
         restorePageScroll();
       }).catch((err) => {
         if (playAttempt !== playAttemptRef.current) return;
-        if (err instanceof DOMException && err.name === 'AbortError') return;
+        if (err instanceof DOMException && err.name === 'AbortError') {
+          // Re-parenting the shared <video> (cover enrich / player layout)
+          // aborts the original play() — retry once if this click is still live.
+          const src = media.currentSrc || media.src;
+          if (src && src !== window.location.href && media.paused) {
+            media.play().then(() => restorePageScroll()).catch(() => {});
+          }
+          return;
+        }
         if (err instanceof DOMException && err.name === 'NotAllowedError' && isMobile) {
           media.muted = true;
           media.play()

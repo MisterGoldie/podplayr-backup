@@ -359,6 +359,8 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
     );
   };
 
+  // Adopt the shared <video> once per token. Re-running this on every nft/cover
+  // update used to re-parent the clock and abort play() (Thought Loop, etc.).
   useLayoutEffect(() => {
     if (!rawVideoSrc) return;
     const host = videoHostRef.current;
@@ -369,13 +371,31 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
     video.setAttribute('playsinline', 'true');
     video.setAttribute('webkit-playsinline', 'true');
     video.playsInline = true;
+
+    return () => {
+      if (video.parentElement === host) {
+        document.body.appendChild(video);
+        parkPlaybackVideo(video);
+      }
+    };
+  }, [rawVideoSrc ? `${nft.contract}-${nft.tokenId}` : '', nft.contract, nft.tokenId]);
+
+  useLayoutEffect(() => {
+    const video = videoRef.current;
+    if (!video || !rawVideoSrc) return;
     if (isMinimized || videoLayerFailed) {
       parkPlaybackVideo(video);
     } else {
       applyPlaybackVideoPresentation(video);
     }
+  }, [rawVideoSrc, isMinimized, videoLayerFailed, nft.contract, nft.tokenId]);
 
-    const videoIsClock = playbackPlan.mode === 'video-with-audio' && !playbackPlan.muteVideo;
+  useLayoutEffect(() => {
+    if (!rawVideoSrc) return;
+    const video = videoRef.current;
+    if (!video) return;
+
+    const clock = playbackPlan.mode === 'video-with-audio' && !playbackPlan.muteVideo;
     // HLS/Mux almost always reports 0×0 on loadedmetadata — the video track
     // only gets real dimensions after the first fragment decodes (resize /
     // loadeddata / playing). BLUE! #2 is the other case: an audio-only Mux
@@ -415,25 +435,15 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
     video.addEventListener('resize', onPlayingOrData);
     video.addEventListener('playing', onPlayingOrData);
 
-    const detachVisualProbe = () => {
-      if (visualFailTimer) clearTimeout(visualFailTimer);
-      video.removeEventListener('loadedmetadata', onLoadedMetadata);
-      video.removeEventListener('loadeddata', onPlayingOrData);
-      video.removeEventListener('resize', onPlayingOrData);
-      video.removeEventListener('playing', onPlayingOrData);
-    };
-
-    if (videoIsClock) {
+    if (clock) {
       video.preload = 'auto';
       video.loop = false;
       return () => {
-        detachVisualProbe();
-        // Host may unmount on NFT change — park on body so the clock isn't
-        // pulled out of the document (which pauses playback).
-        if (video.parentElement === host) {
-          document.body.appendChild(video);
-          parkPlaybackVideo(video);
-        }
+        if (visualFailTimer) clearTimeout(visualFailTimer);
+        video.removeEventListener('loadedmetadata', onLoadedMetadata);
+        video.removeEventListener('loadeddata', onPlayingOrData);
+        video.removeEventListener('resize', onPlayingOrData);
+        video.removeEventListener('playing', onPlayingOrData);
       };
     }
 
@@ -460,14 +470,14 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
     video.addEventListener('error', onError);
 
     return () => {
-      detachVisualProbe();
+      if (visualFailTimer) clearTimeout(visualFailTimer);
+      video.removeEventListener('loadedmetadata', onLoadedMetadata);
+      video.removeEventListener('loadeddata', onPlayingOrData);
+      video.removeEventListener('resize', onPlayingOrData);
+      video.removeEventListener('playing', onPlayingOrData);
       video.removeEventListener('error', onError);
-      if (video.parentElement === host) {
-        document.body.appendChild(video);
-        parkPlaybackVideo(video);
-      }
     };
-  }, [rawVideoSrc, nft, playbackPlan, nft.contract, nft.tokenId, nft.network, isMinimized, videoLayerFailed]);
+  }, [rawVideoSrc, nft.contract, nft.tokenId, nft.network, playbackPlan.mode, playbackPlan.muteVideo, playbackPlan.videoUrl]);
 
   const handleMinimizeToggle = () => {
     dismissMinimizeHint();
