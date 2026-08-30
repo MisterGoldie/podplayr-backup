@@ -11,7 +11,7 @@ export async function shareProfileToFarcaster({
 }): Promise<void> {
   const url = getProfileUrl(fid);
   const handle = username ? `@${username.replace(/^@/, '')}` : 'this profile';
-  const text = `Check out ${handle} on PODPLAYR`;
+  const text = `Check out ${handle} on @PODPLAYR`;
 
   try {
     const { sdk } = await import('@farcaster/miniapp-sdk');

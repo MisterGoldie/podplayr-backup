@@ -13,6 +13,7 @@ import { isCuratedFeaturedCover } from '../data/featuredNfts';
 import { getOpenSeaNftMedia } from './opensea';
 import { getCachedNftCover, setCachedNftCover } from './nftCoverCache';
 import { getCachedNftResponse, setCachedNftResponse } from './nftResponseCache';
+import { getCachedAnimationProbe, setCachedAnimationProbe } from './nftAnimationProbeCache';
 
 const PINATA_IPFS = 'https://gateway.pinata.cloud/ipfs/';
 
@@ -49,6 +50,77 @@ function ownedNftMediaKey(contract: string, tokenId: string): string {
 
 const AUDIO_OR_VIDEO_EXT_RE = /\.(mp3|wav|m4a|aac|ogg|flac|mp4|webm|mov|m4v)(?:\?|#|$)/i;
 const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|svg|avif)(?:\?|#|$)/i;
+
+/**
+ * Alchemy's own async mirror-upload for huge animations (podcast-length
+ * video, 500MB+) can still be in flight when its metadata API responds —
+ * `animation.size`/`contentType` come back null in that window, so
+ * isBrokenAlchemyAnimationCache() below (which only catches broken caches
+ * when Alchemy *does* report a small size) can't see it. cachedUrl then
+ * serves a tiny stub like {"keyName":...,"partialUpload":true,"bytes":...}
+ * mislabeled `Content-Type: video/mp4`, which <video>/<audio> reject with
+ * NotSupportedError. A cheap HEAD reveals the real Content-Length regardless
+ * of what Alchemy's metadata claims. Only called when size is missing (real
+ * animations almost always report one), and the result gets folded into the
+ * Redis-cached NFT response, so this is at most one extra request ever per
+ * token. Fails open (null) on any error/timeout so a probe hiccup never
+ * breaks an animation that was already working.
+ */
+async function probeAlchemyCachedAnimationSize(url?: string): Promise<number | null> {
+  if (!url || !/_animation(?:\?|#|$)/i.test(url)) return null;
+  try {
+    const res = await fetch(url, {
+      method: 'HEAD',
+      signal: AbortSignal.timeout(4000),
+      cache: 'no-store',
+    });
+    const len = Number(res.headers.get('content-length'));
+    return Number.isFinite(len) && len >= 0 ? len : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Alchemy's classification pipeline for a still-uploading animation leaves
+ * contentType null in the same window it leaves size null — once the size
+ * probe above confirms the cache is genuinely broken, that also means we
+ * can't trust Alchemy's (missing) opinion on whether the token is video or
+ * audio. Recover it directly from the real origin (IPFS/Arweave, rewritten
+ * to an https gateway) instead, so a filmed session doesn't get silently
+ * downgraded to audio-only just because Alchemy never finished mirroring it.
+ * Fails open (null) on any error/timeout.
+ */
+async function probeOriginAnimationContentType(originalUrl?: string): Promise<string | null> {
+  if (!originalUrl) return null;
+  // originalUrl is often already an `https://ipfs.io/ipfs/<cid>` URL, not the
+  // `ipfs://` scheme processMediaUrlServer rewrites — and ipfs.io is slow
+  // enough to reliably blow the probe's timeout (confirmed: >15s to fail a
+  // HEAD). Re-host on Pinata regardless of which gateway/scheme it arrived
+  // in so the probe actually gets an answer within budget.
+  const ipfsMatch = originalUrl.match(/\/ipfs\/([^?#]+)/i);
+  const httpUrl = originalUrl.startsWith('ipfs://')
+    ? `${PINATA_IPFS}${originalUrl.slice(7).replace(/^ipfs\//, '')}`
+    : ipfsMatch
+      ? `${PINATA_IPFS}${ipfsMatch[1]}`
+      : originalUrl;
+  if (!/^https?:\/\//i.test(httpUrl)) return null;
+  try {
+    // A HEAD against a huge, rarely-accessed pinned file still needs Pinata's
+    // backend to touch the IPFS network before it can answer — observed
+    // 1-4s+ even for a plain HEAD, notably slower than the tiny Alchemy stub
+    // probe above, so this gets a longer budget.
+    const res = await fetch(httpUrl, {
+      method: 'HEAD',
+      signal: AbortSignal.timeout(8000),
+      cache: 'no-store',
+    });
+    const type = (res.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+    return type || null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Alchemy sometimes "caches" Arweave/IPFS videos as a tiny broken HLS playlist
@@ -544,6 +616,43 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
       image?: AlchemyImageFields;
       animation?: AlchemyImageFields;
     };
+    // See probeAlchemyCachedAnimationSize — stamping the real size here lets
+    // every isBrokenAlchemyAnimationCache() check below (there are several)
+    // correctly treat a still-uploading animation as broken for free. Tokens
+    // stuck in this state keep IPFS/Pinata playback, which makes the overall
+    // response too fragile for setCachedNftResponse below to durably cache
+    // (see nftNeedsChainMediaEnrich) — so this verdict gets its own small,
+    // independent cache to avoid re-probing on every single play/enrich call.
+    if (alchemyImage.animation && typeof alchemyImage.animation.size !== 'number') {
+      const cacheableUrl = alchemyImage.animation.cachedUrl;
+      const cachedVerdict = cacheableUrl ? await getCachedAnimationProbe(cacheableUrl) : null;
+      if (cachedVerdict) {
+        alchemyImage.animation.size = cachedVerdict.size;
+        if (cachedVerdict.contentType) {
+          alchemyImage.animation.contentType = cachedVerdict.contentType;
+        }
+      } else {
+        const realSize = await probeAlchemyCachedAnimationSize(alchemyImage.animation.cachedUrl);
+        if (realSize !== null) {
+          alchemyImage.animation.size = realSize;
+        }
+        // Confirmed broken + Alchemy never classified it either (contentType
+        // null) — recover the real type from the origin so this doesn't fall
+        // back to audio-only just because Alchemy's pipeline stalled.
+        if (realSize !== null && realSize < 2048 && !alchemyImage.animation.contentType) {
+          const realType = await probeOriginAnimationContentType(alchemyImage.animation.originalUrl);
+          if (realType) {
+            alchemyImage.animation.contentType = realType;
+          }
+        }
+        if (realSize !== null && cacheableUrl) {
+          await setCachedAnimationProbe(cacheableUrl, {
+            size: realSize,
+            contentType: alchemyImage.animation.contentType || null,
+          });
+        }
+      }
+    }
     const collectionOpenSeaImage =
       metadata.contract?.openSeaMetadata?.imageUrl || '';
     const { cover: alchemyVisualCover, audioFromImage: alchemyImageAsAudio } =
@@ -782,12 +891,24 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
         // Prefer durable cover; don't re-inject unreplicated IPFS over OpenSea/collection.
         image: alchemyImageCached || imageUrl || '',
         image_url: alchemyImageCached || imageUrl || '',
+        // Prefer the already-resolved/rewritten playback fields — falling
+        // back to mergedMeta.animation_url first (as this used to) can leak
+        // a raw ipfs://ar:// scheme into metadata even when audio/videoUrl
+        // above already resolved to a proper https gateway URL, which then
+        // confuses client-side enrich (it treats metadata.animation_url as
+        // the most-authoritative source and can regress a working https
+        // URL back to an unfetchable raw scheme).
         animation_url:
-          (isUsableOriginPlaybackUrl(mergedMeta.animation_url)
-            ? mergedMeta.animation_url
-            : '') ||
           resolvedVideo ||
+          (isUsableOriginPlaybackUrl(audioUrl) ? audioUrl : '') ||
           (isUsableOriginPlaybackUrl(plan.videoUrl) ? plan.videoUrl : '') ||
+          (isUsableOriginPlaybackUrl(mergedMeta.animation_url)
+            ? processMediaUrlServer(
+                rewriteLegacyOpenSeaMediaUrl(mergedMeta.animation_url, contract, network),
+                '',
+                'audio'
+              )
+            : '') ||
           '',
         audio: mergedMeta.audio || (plan.mode === 'video-plus-audio' ? plan.audioUrl : mergedMeta.audio) || undefined,
         mimeType: resolvedAnimType || mergedMeta.mimeType,

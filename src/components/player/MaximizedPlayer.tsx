@@ -106,13 +106,20 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
     setPlanForNft(planNftKey);
     setPlaybackPlan(syncPlan);
   }
-  const rawVideoSrc = (!videoLayerFailed && playbackPlan.videoUrl) || null;
+  // The shared <video> is also the playback clock for video-with-audio. If we
+  // drop it from the DOM just because the visual track is missing (audio-only
+  // Mux, Alchemy WAV mislabeled as mp4), the browser pauses that element and
+  // the card click looks like a no-op. Keep the clock mounted and only hide
+  // the visual layer.
+  const videoIsClock = playbackPlan.mode === 'video-with-audio' && !playbackPlan.muteVideo;
+  const rawVideoSrc =
+    (playbackPlan.videoUrl && (!videoLayerFailed || videoIsClock)) || null;
   const hasVideoLayer = Boolean(rawVideoSrc);
-  const showVideoVisually = hasVideoLayer;
+  const showVideoVisually = Boolean(playbackPlan.videoUrl) && !videoLayerFailed;
 
   useEffect(() => {
     setVideoLayerFailed(false);
-  }, [nft.contract, nft.tokenId, nft.audio, nft.videoUrl]);
+  }, [nft.contract, nft.tokenId]);
 
   useEffect(() => {
     const sync = getNftPlaybackPlan(nft);
@@ -330,7 +337,6 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
     if (!rawVideo) return null;
 
     const currentMediaKey = getMediaKey(nft);
-    const videoIsClock = playbackPlan.mode === 'video-with-audio' && !playbackPlan.muteVideo;
 
     if (lastLoggedMediaKeyRef.current !== currentMediaKey) {
       playerLogger.info('Video playback source:', {
@@ -361,20 +367,34 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
     video.setAttribute('playsinline', 'true');
     video.setAttribute('webkit-playsinline', 'true');
     video.playsInline = true;
-    if (isMinimized) {
+    if (isMinimized || videoLayerFailed) {
       parkPlaybackVideo(video);
     } else {
       applyPlaybackVideoPresentation(video);
     }
 
     const videoIsClock = playbackPlan.mode === 'video-with-audio' && !playbackPlan.muteVideo;
+    // Some sources report video/mp4 but carry no visual track at all (Alchemy
+    // mislabeling a WAV as video, an audio-only Mux override, etc.) — the
+    // element still loads and even keeps playing sound, it just never gets
+    // real dimensions. Detect that and fall back to the same cover image the
+    // NFT card uses instead of showing a black box. This check must run even
+    // when videoIsClock is true: bailing on the VISUAL layer only swaps what
+    // MaximizedPlayer renders here — useAudioPlayer still owns this shared
+    // element elsewhere, so audio playback is unaffected.
     const onLoadedMetadata = () => {
       if (video.videoWidth > 0 && video.videoHeight > 0) {
         applyPlaybackPlanToNft(nft, playbackPlan);
-      } else if (!videoIsClock) {
+      } else {
         setVideoLayerFailed(true);
       }
     };
+    // Metadata may have already loaded before this effect attached its listener
+    // (e.g. playback started before the maximized view opened) — loadedmetadata
+    // won't fire again in that case, so check the current state synchronously too.
+    if (video.readyState >= 1) {
+      onLoadedMetadata();
+    }
     video.addEventListener('loadedmetadata', onLoadedMetadata);
 
     if (videoIsClock) {
@@ -382,6 +402,12 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
       video.loop = false;
       return () => {
         video.removeEventListener('loadedmetadata', onLoadedMetadata);
+        // Host may unmount on NFT change — park on body so the clock isn't
+        // pulled out of the document (which pauses playback).
+        if (video.parentElement === host) {
+          document.body.appendChild(video);
+          parkPlaybackVideo(video);
+        }
       };
     }
 
@@ -410,8 +436,12 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
     return () => {
       video.removeEventListener('loadedmetadata', onLoadedMetadata);
       video.removeEventListener('error', onError);
+      if (video.parentElement === host) {
+        document.body.appendChild(video);
+        parkPlaybackVideo(video);
+      }
     };
-  }, [rawVideoSrc, nft, playbackPlan, nft.contract, nft.tokenId, nft.network, isMinimized]);
+  }, [rawVideoSrc, nft, playbackPlan, nft.contract, nft.tokenId, nft.network, isMinimized, videoLayerFailed]);
 
   const handleMinimizeToggle = () => {
     dismissMinimizeHint();
