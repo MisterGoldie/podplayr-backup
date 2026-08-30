@@ -225,6 +225,14 @@ export function alchemyCoverIsPlaybackVideo(nft?: {
   });
 }
 
+/** Rewrite Cloudinary w_/h_ on an already-sized Alchemy thumb (card 400 → player 720). */
+export function resizeAlchemyCloudinaryThumb(url: string, size: number): string {
+  if (!url || !size || !/res\.cloudinary\.com\/alchemyapi\//i.test(url)) return url;
+  return url
+    .replace(/(^|[,/])w_\d+/gi, `$1w_${size}`)
+    .replace(/(^|[,/])h_\d+/gi, `$1h_${size}`);
+}
+
 /**
  * Alchemy-hosted card thumbs (no third-party proxy).
  * Prefer thumbnailv2 / sized video stills — wsrv cold-starts and fails on video blobs.
@@ -242,7 +250,7 @@ export function getAlchemyNativeCardThumb(url: string, size = 360): string | nul
     /res\.cloudinary\.com\/alchemyapi\/(?:image\/upload|video\/fetch)/i.test(u) &&
     /\/w_\d+/.test(u)
   ) {
-    return u;
+    return resizeAlchemyCloudinaryThumb(u, size);
   }
 
   if (/res\.cloudinary\.com\/alchemyapi\/image\/upload/i.test(u)) {

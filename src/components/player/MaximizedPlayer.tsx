@@ -113,7 +113,9 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
   // the visual layer.
   const videoIsClock = playbackPlan.mode === 'video-with-audio' && !playbackPlan.muteVideo;
   const rawVideoSrc =
-    (playbackPlan.videoUrl && (!videoLayerFailed || videoIsClock)) || null;
+    playbackPlan.videoUrl && (!videoLayerFailed || videoIsClock)
+      ? playbackPlan.videoUrl
+      : null;
   const hasVideoLayer = Boolean(rawVideoSrc);
   const showVideoVisually = Boolean(playbackPlan.videoUrl) && !videoLayerFailed;
 
@@ -748,7 +750,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
                   className={
                     showVideoVisually
                       ? 'contents'
-                      : 'absolute inset-0 opacity-0 pointer-events-none overflow-hidden'
+                      : 'fixed left-0 bottom-20 w-px h-px opacity-0 pointer-events-none overflow-hidden'
                   }
                   aria-hidden={!showVideoVisually}
                 >
@@ -756,17 +758,15 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
                 </div>
               )}
               {!showVideoVisually && (
-                <div className="relative rounded-3xl overflow-hidden max-h-[58vh] shadow-2xl shadow-purple-900/40 ring-1 ring-white/10">
+                <div className="relative rounded-3xl overflow-hidden w-[min(90vw,58vh)] h-[min(90vw,58vh)] max-w-full max-h-[58vh] shadow-2xl shadow-purple-900/40 ring-1 ring-white/10">
                   {(nft.name === 'ACYL RADIO - Hidden Tales' || nft.name === 'ACYL RADIO - WILL01' || nft.name === 'ACYL RADIO - Chili Sounds 🌶️') ? (
                     <img
                       src={resolvedImageUrl}
                       alt={nft.name}
-                      className="w-auto h-auto object-contain rounded-3xl max-h-[58vh]"
-                      width={400}
-                      height={400}
+                      className="w-full h-full object-contain rounded-3xl"
+                      width={720}
+                      height={720}
                       style={{
-                        maxWidth: '90vw',
-                        maxHeight: '58vh',
                         willChange: 'transform',
                         transform: 'translateZ(0)',
                       }}
@@ -775,9 +775,9 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
                     <NFTImage
                       src={resolvedImageUrl}
                       alt={nft.name}
-                      className="w-auto h-auto object-contain rounded-3xl max-h-[58vh]"
-                      width={400}
-                      height={400}
+                      className="w-full h-full object-contain rounded-3xl"
+                      width={720}
+                      height={720}
                       priority={true}
                       nft={nft}
                       key={`thumb-${nft.contract}-${nft.tokenId}`}
