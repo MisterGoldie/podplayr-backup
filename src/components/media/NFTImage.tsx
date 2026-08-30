@@ -299,7 +299,8 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       useCardThumb &&
       (isVideoMediaUrl(url) ||
         isLikelyTokenVideoCoverUrl(url) ||
-        alchemyCoverIsPlaybackVideo(nft))
+        alchemyCoverIsPlaybackVideo(nft) ||
+        nft?.coverIsVideo)
     ) {
       const size = Math.max(width * 2, 360);
       const alchemyPeer = [
@@ -542,7 +543,17 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       let resolveBranch = 'none';
       let resolvedForLog = '';
 
-      if (rememberedHit) {
+      // A remembered cover from *before* the server told us this token's
+      // image is really video (coverIsVideo) can be the doomed plain-image
+      // guess itself — trusting it blindly re-eats the same 400 every mount.
+      const rememberedNeedsVideoStillFix =
+        !!rememberedHit &&
+        !!nft?.coverIsVideo &&
+        !isVideoMediaUrl(rememberedHit) &&
+        !/alchemyapi\/video\/fetch/i.test(rememberedHit) &&
+        !isLikelyTokenVideoCoverUrl(rememberedHit);
+
+      if (rememberedHit && !rememberedNeedsVideoStillFix) {
         resolveBranch = 'rememberedDisplay';
         originalUrlRef.current = rememberedHit;
         loadedOkSrcRef.current = rememberedHit;
@@ -553,6 +564,14 @@ export const NFTImage: React.FC<NFTImageProps> = ({
         resolvedForLog = rememberedHit;
         setImgSrc(rememberedHit);
         setImgLoading(false);
+      } else if (rememberedNeedsVideoStillFix) {
+        resolveBranch = 'rememberedDisplay-video-corrected';
+        const corrected = toDisplaySrc(rememberedHit);
+        processedUrlCache.current[cacheKey] = corrected;
+        clearNftMediaUrlCache(nft, 'image');
+        setIsVideo(false);
+        resolvedForLog = corrected;
+        setImgSrc(corrected);
       } else if (stillSrc) {
         resolveBranch = 'stillSrc';
         processedUrlCache.current[cacheKey] = stillSrc;
@@ -794,7 +813,11 @@ export const NFTImage: React.FC<NFTImageProps> = ({
 
           if (!next || keepCurrentThumb || (next === current && !isFragileCover(current))) {
             // Collection merge only — no better cover, or keep Alchemy thumb.
+            // Still carry over coverIsVideo even when keeping the same URL —
+            // future resolves of this same nft object (remembered-cover reuse,
+            // re-mounts) must not repeat the doomed plain-image guess.
             Object.assign(nft, {
+              coverIsVideo: enriched.coverIsVideo ?? nft.coverIsVideo,
               collection: {
                 ...nft.collection,
                 ...enriched.collection,
@@ -826,6 +849,10 @@ export const NFTImage: React.FC<NFTImageProps> = ({
           // COVER ONLY — never replace metadata.animation_url / audio (breaks play).
           Object.assign(nft, {
             image: next || enriched.image || nft.image,
+            // Server already knows (Alchemy contentType) whether this exact
+            // cover needs a video-still fetch — carry it over so toDisplaySrc
+            // doesn't have to blind-guess the plain image transform first.
+            coverIsVideo: enriched.coverIsVideo ?? nft.coverIsVideo,
             metadata: {
               ...nft.metadata,
               image: next || enriched.image || nft.metadata?.image,
@@ -1342,6 +1369,7 @@ export const NFTImage: React.FC<NFTImageProps> = ({
               '';
             Object.assign(nft, {
               image: next || nft.image,
+              coverIsVideo: enriched.coverIsVideo ?? nft.coverIsVideo,
               metadata: {
                 ...nft.metadata,
                 image: next || nft.metadata?.image,
@@ -1602,6 +1630,7 @@ export const NFTImage: React.FC<NFTImageProps> = ({
           // COVER ONLY — preserve playback metadata.
           Object.assign(nft, {
             image: next || nft.image,
+            coverIsVideo: enriched.coverIsVideo ?? nft.coverIsVideo,
             metadata: {
               ...nft.metadata,
               image: next || nft.metadata?.image,

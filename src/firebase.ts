@@ -1,4 +1,4 @@
-import { initializeApp } from 'firebase/app';
+import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getFirestore, doc, setDoc } from 'firebase/firestore';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
@@ -13,7 +13,11 @@ const firebaseConfig = {
 };
 
 // Initialize Firebase
-const app = initializeApp(firebaseConfig);
+// `src/lib/firebase.ts` and `src/lib/firebase/config.ts` also register the
+// default Firebase app — whichever of the three runs second throws
+// `app/duplicate-app` (especially easy to hit via Next.js Fast Refresh
+// re-executing this module). Reuse the existing app instead of re-creating it.
+const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 // Initialize Firebase Storage with custom settings
 export const storage = getStorage(app, 'gs://podplayr2.firebasestorage.app');

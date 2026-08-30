@@ -10,6 +10,9 @@ import {
 import { isBlockedNftContract, isDangerousResourceUrl, isPhishingSpamNft } from '../utils/nftSafety';
 import { isPollutedPlaybackUrl, isMezzanineMuxUrl, isWeakPlaybackUrl } from './mediaCdn';
 import { isCuratedFeaturedCover } from '../data/featuredNfts';
+import { getOpenSeaNftMedia } from './opensea';
+import { getCachedNftCover, setCachedNftCover } from './nftCoverCache';
+import { getCachedNftResponse, setCachedNftResponse } from './nftResponseCache';
 
 const PINATA_IPFS = 'https://gateway.pinata.cloud/ipfs/';
 
@@ -499,6 +502,20 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
     if (!isOnChainNftIdentity(contract, tokenId)) {
       throw new Error('Invalid NFT identity');
     }
+
+    // The base Alchemy fetch + on-chain fallback below is the real cost
+    // driver (2-9s per token) — skip it entirely on repeat requests for
+    // tokens we've already durably resolved with no fragile playback fields.
+    const cachedFullResponse = await getCachedNftResponse(contract, tokenId, network);
+    if (cachedFullResponse) {
+      console.log(`[podplayr:redis] full-nft cache HIT — skipping Alchemy/chain fetch entirely`, {
+        contract,
+        tokenId,
+        network,
+      });
+      return cachedFullResponse;
+    }
+
     const client = network === 'base' ? baseAlchemy : ethAlchemy;
     const tokenIdFormats = alchemyTokenIdCandidates(tokenId);
     if (tokenIdFormats.length === 0) {
@@ -780,6 +797,106 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
 
     if (nft.hasValidAudio || nft.isVideo) {
       nft.mediaKey = ownedNftMediaKey(nft.contract, nft.tokenId);
+    }
+
+    // Video tokens (e.g. Rodeo's AI-art mints) can resolve their "image" to a
+    // raw video file — or an Alchemy/Cloudinary `video/fetch` frame-extraction
+    // URL — that our own pipeline would otherwise pay to derive live. OpenSea
+    // already renders + permanently caches a still for anything it indexes.
+    // This must key off the resolved image URL itself, NOT `isAlchemyVideo`
+    // (the audio/playback classifier) — a token can be "audio-only" for
+    // playback purposes while its cover still needs frame extraction, as with
+    // Rodeo's "Born again" (isVideo: false, image: still a video/fetch URL).
+    //
+    // Extensionless Alchemy CDN hashes (nft2-cdn.alchemy.com/base-mainnet/<hash>)
+    // give no clue from the URL alone — but Alchemy already told us the real
+    // contentType for this exact field. Only trust it when `nft.image` is
+    // literally that same raw hash (not a pngUrl/thumbnailUrl still Alchemy
+    // separately vouched for), so genuine stills aren't second-guessed.
+    const alchemyCoverIsAmbiguousVideoHash =
+      (alchemyImage.image?.contentType || '').toLowerCase().startsWith('video/') &&
+      !!nft.image &&
+      (nft.image === alchemyImage.image?.cachedUrl ||
+        nft.image === alchemyImage.image?.originalUrl) &&
+      !AUDIO_OR_VIDEO_EXT_RE.test(nft.image);
+    const imageNeedsVideoFrameExtraction =
+      !nft.image ||
+      AUDIO_OR_VIDEO_EXT_RE.test(nft.image) ||
+      /\/video\/fetch\//i.test(nft.image) ||
+      alchemyCoverIsAmbiguousVideoHash;
+    const openSeaLogTag = `[podplayr:opensea] ${nft.name || 'untitled'} ${contractAddress}#${formattedTokenId}`;
+    if (imageNeedsVideoFrameExtraction) {
+      // `getNFTMetadata` runs with `no-store` on every enrich request (playback
+      // fields must stay fresh), which meant the OpenSea lookup below was
+      // getting redone from scratch on every single card mount, for every
+      // user, forever. Check the durable cover cache first — once we've
+      // decided on a good still for a token, skip straight to it.
+      const cachedCover = await getCachedNftCover(contractAddress, formattedTokenId, network);
+      if (cachedCover) {
+        console.log(`${openSeaLogTag} durable cache HIT — reusing previously resolved cover`, {
+          cover: cachedCover,
+        });
+        nft.image = cachedCover;
+        if (nft.metadata) {
+          nft.metadata.image = cachedCover;
+          nft.metadata.image_url = cachedCover;
+        }
+      } else {
+        console.log(`${openSeaLogTag} attempting fallback — current image needs video frame extraction`, {
+          currentImage: nft.image,
+        });
+        const openSeaMedia = await getOpenSeaNftMedia(contractAddress, formattedTokenId, network);
+        // OpenSea's `image_url`/`display_image_url` on the Get-NFT endpoint can
+        // itself just be a mirrored raw video (their own docs: "nearly
+        // equivalent to the metadata read on-chain") — an <img>/<Image> tag
+        // can't render that, so only accept it if it's actually a still.
+        const openSeaImageIsAlsoVideo =
+          !!openSeaMedia?.imageUrl && AUDIO_OR_VIDEO_EXT_RE.test(openSeaMedia.imageUrl);
+        if (openSeaMedia?.imageUrl && !openSeaImageIsAlsoVideo) {
+          console.log(`${openSeaLogTag} fallback SUCCEEDED`, {
+            from: nft.image,
+            to: openSeaMedia.imageUrl,
+          });
+          nft.image = openSeaMedia.imageUrl;
+          if (nft.metadata) {
+            nft.metadata.image = openSeaMedia.imageUrl;
+            nft.metadata.image_url = openSeaMedia.imageUrl;
+          }
+        } else if (openSeaImageIsAlsoVideo) {
+          console.log(`${openSeaLogTag} fallback REJECTED — OpenSea also only has a raw video, no still`, {
+            openSeaUrl: openSeaMedia?.imageUrl,
+          });
+        } else {
+          console.log(`${openSeaLogTag} fallback SKIPPED — no OpenSea image (missing key, not indexed, or error)`);
+        }
+
+        // Whatever we landed on (OpenSea still, or the pre-existing Alchemy
+        // video/fetch still) is durable — remember it so the next request for
+        // this exact token skips the OpenSea round-trip entirely.
+        if (nft.image && !AUDIO_OR_VIDEO_EXT_RE.test(nft.image)) {
+          await setCachedNftCover(contractAddress, formattedTokenId, network, nft.image);
+        }
+      }
+    }
+
+    // Tell the client this cover needs a <video>-style still fetch instead of
+    // guessing a plain image transform first and eating a 400 from Cloudinary.
+    nft.coverIsVideo =
+      !!nft.image &&
+      (AUDIO_OR_VIDEO_EXT_RE.test(nft.image) ||
+        /\/video\/fetch\//i.test(nft.image) ||
+        alchemyCoverIsAmbiguousVideoHash);
+
+    // Only durably cache the *whole* response when nothing about it still
+    // depends on fragile playback fields (Mux mezzanine, polluted HLS, public
+    // IPFS gateways) — those genuinely need to stay fresh on every request.
+    if (!nftNeedsChainMediaEnrich(nft)) {
+      await setCachedNftResponse(contract, tokenId, network, nft);
+    } else {
+      console.log('[podplayr:redis] full-nft NOT cached — still depends on fragile playback fields', {
+        contract,
+        tokenId,
+      });
     }
 
     return nft;

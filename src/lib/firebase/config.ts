@@ -1,4 +1,4 @@
-import { initializeApp } from 'firebase/app';
+import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { getStorage } from 'firebase/storage';
@@ -19,7 +19,12 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID
 };
 
-const app = initializeApp(firebaseConfig);
+// Next.js dev-mode Fast Refresh can re-execute this module while the
+// Firebase SDK's internal app registry still holds `[DEFAULT]` from the
+// previous run — calling initializeApp() again then throws
+// `app/duplicate-app`, which silently breaks every Firestore read/write
+// (plays, likes, etc.) until a hard reload. Reuse the existing app instead.
+const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 export { app };
 export const db = getFirestore(app);
 export const auth = getAuth(app);

@@ -96,12 +96,38 @@ function cachedHash(source: string): string {
   return mediaKey;
 }
 
+/** True only for a real EVM contract address — excludes placeholders like
+ * "pending" used by curated/off-chain content (podcast episodes etc.) that
+ * has no on-chain identity at all. */
+function isRealOnChainContract(contract?: string | null): boolean {
+  return /^0x[0-9a-f]{40}$/i.test((contract || '').trim());
+}
+
 /**
- * Firestore id for likes and plays: same file → same key, even across token ids.
- * Prefers the media asset; falls back to lowercase(contract)-decimal(tokenId).
+ * Firestore id for likes and plays.
+ *
+ * Prefers the STABLE on-chain identity (contract-tokenId) whenever we have
+ * one. A token's address+id never changes, but the media URL it resolves to
+ * can (IPFS gateway swap, CDN migration, Alchemy re-hosting a video still,
+ * etc.) — keying on the resolved URL meant every one of those resolution
+ * changes silently orphaned that token's historical play/like counts under
+ * an unreachable old key. Identity-first fixes that permanently, at the cost
+ * of no longer merging counts across multiple token ids that intentionally
+ * share identical media (e.g. reprints/editions) — those now count per-token.
+ *
+ * Falls back to the media asset for curated/off-chain content with no real
+ * on-chain identity (e.g. podcast episodes keyed by a placeholder "pending"
+ * contract) — same file → same key there, since that's the only identity
+ * such content has.
  */
 export function getMediaKey(nft?: NftKeySource | null): string {
   if (!nft) return '';
+
+  if (isRealOnChainContract(nft.contract)) {
+    const onChainIdentity = getNftIdentityKey(nft);
+    if (onChainIdentity) return cachedHash(onChainIdentity);
+  }
+
   const asset = getNftMediaAssetId(nft);
   if (asset) return cachedHash(`media:${asset}`);
 
@@ -174,6 +200,10 @@ export function getLegacyMediaKeyCandidates(nft?: NftKeySource | null): string[]
   for (const id of mintHashCandidates(nft)) keys.add(id);
 
   const asset = getNftMediaAssetId(nft);
+  // Pre-fix canonical key for real on-chain NFTs was media-asset-based —
+  // keep it as a healing candidate so any doc that predates the identity-
+  // first switch (or slips through a future edge case) still gets found.
+  if (asset) keys.add(hashMediaKeySource(`media:${asset}`));
   if (asset?.startsWith('ipfs:')) {
     keys.add(`ipfs_${asset.slice(5)}`);
   }

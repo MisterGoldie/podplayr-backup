@@ -1,4 +1,4 @@
-import { initializeApp } from 'firebase/app';
+import { initializeApp, getApps, getApp } from 'firebase/app';
 import { 
   getFirestore, 
   collection, 
@@ -144,7 +144,11 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID
 };
 
-const app = initializeApp(firebaseConfig);
+// `src/firebase.ts` and `src/lib/firebase/config.ts` also register the
+// default Firebase app — whichever of the three runs second throws
+// `app/duplicate-app` (especially easy to hit via Next.js Fast Refresh
+// re-executing this module). Reuse the existing app instead of re-creating it.
+const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 export { app };
 export const db = getFirestore(app);
 

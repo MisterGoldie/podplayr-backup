@@ -71,6 +71,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
   const canLike = Boolean(onLikeToggle) && isRealFid(fid);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const videoHostRef = useRef<HTMLDivElement | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const [showControls, setShowControls] = useState(true);
   const [videoLoading, setVideoLoading] = useState(false);
   const hideControlsTimer = useRef<NodeJS.Timeout | undefined>(undefined);
@@ -417,6 +418,16 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
     onMinimizeToggle();
   };
 
+  // Minimizing sets aria-hidden on this whole container — but the button the
+  // user just tapped (minimize, like, etc.) still has DOM focus at that exact
+  // moment. Blur it first so focus isn't trapped inside a hidden subtree
+  // ("Blocked aria-hidden on an element because its descendant retained focus").
+  useEffect(() => {
+    if (isMinimized && rootRef.current?.contains(document.activeElement)) {
+      (document.activeElement as HTMLElement | null)?.blur();
+    }
+  }, [isMinimized]);
+
   const iconButtonClass =
     'p-2 rounded-full bg-black/45 backdrop-blur-md border border-white/10 text-white/90 active:scale-95 transition-transform touch-manipulation';
   const progressPercent = safeProgressPercent(
@@ -585,6 +596,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
   return (
     <>
       <div
+        ref={rootRef}
         className={
           isMinimized
             ? 'fixed bottom-20 left-0 z-0 w-px h-px overflow-hidden opacity-0 pointer-events-none'

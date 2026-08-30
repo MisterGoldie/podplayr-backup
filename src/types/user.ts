@@ -134,6 +134,9 @@ export interface NFT {
   hasValidAudio?: boolean;
   isVideo?: boolean;
   isAnimation?: boolean;
+  /** Server already knows this cover's underlying bytes are video (Alchemy contentType) —
+   *  skip the client's plain-image-transform guess and go straight to a video still. */
+  coverIsVideo?: boolean;
   /** Explicit playback layout from getNftPlaybackPlan (preferred over isVideo heuristics). */
   playbackMode?: 'audio-only' | 'video-with-audio' | 'video-plus-audio';
   /** Processed URL for visual <video> when present. */
