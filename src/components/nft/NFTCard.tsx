@@ -5,10 +5,8 @@ import { useFarcasterContext } from '~/app/providers';
 import { NFT } from '~/types/nft';
 import { useNFTLikeState } from '~/hooks/useNFTLikeState';
 import { useNFTLike } from '~/hooks/useNFTLike';
-import { NFTImage } from '../media/NFTImage';
-import { NFTGifImage } from '../media/NFTGifImage';
+import { NftCoverImage } from '../media/NftCoverImage';
 import { withFeaturedHydration } from '~/data/featuredNfts';
-import { getNftCardCover } from '../../utils/nftCardCover';
 import { logNftCardSpamDebug } from '~/utils/nftSpamDebug';
 import { logNftCoverDebug } from '~/utils/imageDebug';
 
@@ -75,8 +73,11 @@ const NFTCardInner: React.FC<NFTCardProps> = ({
     () => withFeaturedHydration(nft),
     [nft, nft.contract, nft.tokenId, nft.name, nft.image, nft.audio, nft.metadata?.image, nft.metadata?.animation_url]
   );
-  const { rawImageUrl, useGifCover } = getNftCardCover(displayNft);
   const [hasEntered, setHasEntered] = useState(false);
+
+  useEffect(() => {
+    logNftCoverDebug(displayNft, 'mount');
+  }, [displayNft]);
   const enterStyleRef = useRef(
     animationDelay ? { animationDelay: `${animationDelay}s` } : undefined
   );
@@ -121,27 +122,13 @@ const NFTCardInner: React.FC<NFTCardProps> = ({
           className="aspect-square rounded-lg overflow-hidden bg-gray-800/20 shadow-lg relative"
           style={{ contentVisibility: 'auto', containIntrinsicSize: '180px 180px' }}
         >
-          {useGifCover ? (
-            <NFTGifImage
-              nft={displayNft}
-              className="w-full h-full object-cover"
-              width={smallCard ? 160 : 180}
-              height={smallCard ? 160 : 180}
-              priority={!smallCard}
-            />
-          ) : (
-            <NFTImage
-              nft={displayNft}
-              src={rawImageUrl}
-              alt={nft.name}
-              className="w-full h-full object-cover"
-              width={smallCard ? 160 : 180}
-              height={smallCard ? 160 : 180}
-              sizes={smallCard ? '160px' : '180px'}
-              quality={60}
-              loading="lazy"
-            />
-          )}
+          <NftCoverImage
+            nft={displayNft}
+            className="w-full h-full object-cover"
+            sizes={smallCard ? '160px' : '180px'}
+            smallCard={smallCard}
+            priority={!smallCard}
+          />
           
           {effectiveFid && (
             <button 

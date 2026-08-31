@@ -38,6 +38,10 @@ const openSeaChainSlug = (network?: string): 'ethereum' | 'base' =>
 const SEADN_VIDEO_EXT_RE = /\.(mp4|webm|mov|m4v)(?:\?|#|$)/i;
 const SEADN_STILL_EXT_RE = /\.(png|jpe?g|gif|webp)(?:\?|#|$)/i;
 
+/** OpenSea i2c / userdata stills — often the shared collection GIF for video tokens. */
+export const isOpenSeaHostedStillUrl = (url?: string | null): boolean =>
+  !!url && /i2c\.seadn\.io|openseauserdata\.com/i.test(url);
+
 /** raw2.seadn still poster — often 403 while the token mp4 animation plays fine. */
 export const isFragileSeaDnPosterUrl = (url?: string | null): boolean =>
   !!url && /raw2?\.seadn\.io/i.test(url) && SEADN_STILL_EXT_RE.test(url);

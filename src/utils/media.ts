@@ -12,6 +12,7 @@ import {
   toOpenSeaCdnProxyUrl,
   preferBrowserReachableMediaUrl,
   isFragileSeaDnPosterUrl,
+  isOpenSeaHostedStillUrl,
   nftHasSeaDnVideoAnimation,
 } from './openSeaMedia';
 import { getMediaKey } from './nftIdentity';
@@ -25,6 +26,7 @@ export {
   toOpenSeaCdnProxyUrl,
   preferBrowserReachableMediaUrl,
   isFragileSeaDnPosterUrl,
+  isOpenSeaHostedStillUrl,
   nftHasSeaDnVideoAnimation,
 } from './openSeaMedia';
 
@@ -110,9 +112,31 @@ const looksLikeVideoFileUrl = (url: string): boolean => VIDEO_FILE_EXT_RE.test(u
 /** JPEG/PNG/etc or OpenSea i2c stills — never treat these as video covers.
  *  Collection-level i2c is handled separately — callers must not prefer it
  *  over a per-token Alchemy CDN hash. */
+
+/** Base ERC-1155 Ethereum Stories shorts — card art is a Pinata GIF with no .gif suffix. */
+export const ETHEREUM_STORIES_CONTRACT =
+  '0x8bbce470617ba666c8f1fae0094c837268716398';
+
+const ETHEREUM_STORIES_GIF_CIDS = [
+  'bafybeibtczwqvgf5ftnl6hikq2azbzk2r3sznw6bvhyx2wamdfjptvuj64',
+  'bafybeicpovwwgj55w3w6xbyxiggpexshrurpkjre4xd44fqqxmzn6l42bu',
+  'bafybeibkr4xkrio2yguoa276nphicrhtgrclle7v64suqhvzqy5ryuzhoe',
+];
+
+export const isEthereumStoriesNft = (
+  nft?: { contract?: string | null } | null
+): boolean => (nft?.contract || '').toLowerCase() === ETHEREUM_STORIES_CONTRACT;
+
+export const isEthereumStoriesGifCoverUrl = (url?: string | null): boolean => {
+  if (!url) return false;
+  const lower = url.toLowerCase();
+  return ETHEREUM_STORIES_GIF_CIDS.some((cid) => lower.includes(cid));
+};
+
 export const looksLikeStillImageUrl = (url?: string | null): boolean => {
   if (!url) return false;
   if (/res\.cloudinary\.com\/alchemyapi\/video\/fetch/i.test(url)) return false;
+  if (isEthereumStoriesGifCoverUrl(url)) return true;
   if (IMAGE_FILE_EXT_RE.test(url)) return true;
   return /i2c\.seadn\.io/i.test(url);
 };
@@ -125,6 +149,39 @@ export const isCollectionOpenSeaStillUrl = (
   if (!url || !collectionImage) return false;
   if (!/i2c\.seadn\.io/i.test(url)) return false;
   return normalizeMediaUrlKey(url) === normalizeMediaUrlKey(collectionImage);
+};
+
+/** Any shared collection image — OpenSea i2c or a contract-wide PNG like COMMUNITY .ETH. */
+export const isSharedCollectionCoverUrl = (
+  url?: string | null,
+  collectionImage?: string | null
+): boolean => {
+  if (!url || !collectionImage) return false;
+  return normalizeMediaUrlKey(url) === normalizeMediaUrlKey(collectionImage);
+};
+
+/** Video tokens have a per-episode still / mp4. Collection art is the same PNG for every token. */
+export const nftPrefersTokenVideoCover = (
+  nft?: { isVideo?: boolean; coverIsVideo?: boolean; playbackMode?: string; videoUrl?: string; image?: string; audio?: string; animationUrl?: string; metadata?: { animation_url?: string } } | null
+): boolean => {
+  if (!nft) return false;
+  if (nft.coverIsVideo || nft.isVideo) return true;
+  if (nft.playbackMode === 'video-with-audio' || nft.playbackMode === 'video-plus-audio') {
+    return true;
+  }
+  if (nft.videoUrl) return true;
+  const anim = nft.metadata?.animation_url || nft.animationUrl || '';
+  return looksLikeVideoFileUrl(anim) || looksLikeVideoFileUrl(nft.image || '') || looksLikeVideoFileUrl(nft.audio || '');
+};
+
+/** Video tokens must not use OpenSea i2c / shared collection art as the card. */
+export const nftRejectsSharedCoverUrl = (
+  nft: Parameters<typeof nftPrefersTokenVideoCover>[0],
+  url?: string | null,
+  collectionImage?: string | null
+): boolean => {
+  if (!url || !nftPrefersTokenVideoCover(nft)) return false;
+  return isOpenSeaHostedStillUrl(url) || isSharedCollectionCoverUrl(url, collectionImage);
 };
 
 const normalizeMediaUrlKey = (url: string): string => {
@@ -228,6 +285,9 @@ export const pickImageCandidates = (nft: UserNFT | null | undefined): string[] =
     // Skip dedicated audio. Allow video covers (Nifty Island / SeaDN mp4).
     if (looksLikeAudioFileUrl(trimmed)) return;
     if (looksLikeVideoFileUrl(trimmed) && !opts?.allowVideo) return;
+    if (nftRejectsSharedCoverUrl(nft, trimmed, nft.collection?.image)) {
+      return;
+    }
     raw.push(trimmed);
   };
 
@@ -266,9 +326,13 @@ export const pickImageCandidates = (nft: UserNFT | null | undefined): string[] =
       looksLikeVideoFileUrl(u) ||
       (looksLikeStillImageUrl(u) &&
         !isCollectionOpenSeaStillUrl(u, nft.collection?.image || '') &&
+        !isSharedCollectionCoverUrl(u, nft.collection?.image || '') &&
         !isFragileSeaDnPosterUrl(u))
   );
-  if (!hasTokenLevelCover || nftHasSeaDnVideoAnimation(nft)) {
+  if (
+    (!hasTokenLevelCover || nftHasSeaDnVideoAnimation(nft)) &&
+    !nftPrefersTokenVideoCover(nft)
+  ) {
     push(nft.collection?.image);
   }
 
@@ -1297,12 +1361,21 @@ const nftDisplayCoverCache: Record<string, string> = {};
 
 export const rememberNftDisplayCover = (nft: UserNFT | null | undefined, url: string): void => {
   if (!nft?.contract || !nft?.tokenId || !url || url.includes('default-nft.png')) return;
+  if (nftRejectsSharedCoverUrl(nft, url, nft.collection?.image)) {
+    return;
+  }
   nftDisplayCoverCache[`${nft.contract}-${nft.tokenId}`] = url;
 };
 
 export const getRememberedNftDisplayCover = (nft: UserNFT | null | undefined): string => {
   if (!nft?.contract || !nft?.tokenId) return '';
-  return nftDisplayCoverCache[`${nft.contract}-${nft.tokenId}`] || '';
+  const key = `${nft.contract}-${nft.tokenId}`;
+  const url = nftDisplayCoverCache[key] || '';
+  if (url && nftRejectsSharedCoverUrl(nft, url, nft.collection?.image)) {
+    delete nftDisplayCoverCache[key];
+    return '';
+  }
+  return url;
 };
 
 /** Drop cached image/audio URLs so the next resolve re-runs processMediaUrl. */
@@ -1343,6 +1416,7 @@ export const getNftMediaUrl = (nft: UserNFT, mediaType: 'image' | 'audio'): stri
           (u) =>
             looksLikeStillImageUrl(u) &&
             !isCollectionOpenSeaStillUrl(u, collectionImage) &&
+            !nftRejectsSharedCoverUrl(nft, u, collectionImage) &&
             !(isFragileSeaDnPosterUrl(u) && nftHasSeaDnVideoAnimation(nft))
         )
       : undefined;

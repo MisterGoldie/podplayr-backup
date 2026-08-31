@@ -1,12 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { NFTImage } from '../media/NFTImage';
-import { NFTGifImage } from '../media/NFTGifImage';
+import { NftCoverImage } from '../media/NftCoverImage';
 import { PlaybackButton } from '../buttons/PlaybackButton';
 import type { NFT } from '../../types/user';
 import InfoPanel from './InfoPanel';
 import { logger } from '../../utils/logger';
-import { withFeaturedHydration } from '~/data/featuredNfts';
-import { getNftCardCover } from '../../utils/nftCardCover';
 import { triggerHaptic } from '../../utils/haptics';
 import { formatTime, safeProgressPercent, getDisplayTimes } from '../../utils/media';
 import { PlayerArrowHint, usePlayerArrowHint } from './PlayerArrowHint';
@@ -327,12 +324,6 @@ export const MinimizedPlayer: React.FC<MinimizedPlayerProps> = ({
     }
   }, [isPlaying, nft]);
 
-  const displayNft = React.useMemo(
-    () => withFeaturedHydration(nft),
-    [nft, nft.contract, nft.tokenId, nft.name, nft.image, nft.audio, nft.metadata?.image, nft.metadata?.animation_url]
-  );
-  const { rawImageUrl, useGifCover } = getNftCardCover(displayNft);
-
   return (
     <>
       {showInfo && (
@@ -381,28 +372,12 @@ export const MinimizedPlayer: React.FC<MinimizedPlayerProps> = ({
             {/* NFT Image and Info */}
             <div className="flex items-center gap-3 flex-1 min-w-0">
               <div className="relative w-12 h-12 flex-shrink-0 rounded-xl overflow-hidden bg-purple-900/20 ring-1 ring-white/10">
-                {useGifCover ? (
-                  <NFTGifImage
-                    nft={displayNft}
-                    className="w-full h-full object-cover"
-                    width={180}
-                    height={180}
-                    priority
-                  />
-                ) : (
-                  <NFTImage
-                    nft={displayNft}
-                    src={rawImageUrl}
-                    alt={nft.name}
-                    className="w-full h-full object-cover"
-                    width={180}
-                    height={180}
-                    sizes="48px"
-                    quality={60}
-                    priority
-                    key={`thumb-regular-${nft.contract}-${nft.tokenId}`}
-                  />
-                )}
+                <NftCoverImage
+                  nft={nft}
+                  className="w-full h-full object-cover"
+                  sizes="48px"
+                  priority
+                />
               </div>
               <div className="flex-1 min-w-0">
                 <h3 className="text-white text-sm font-medium truncate">{nft.name}</h3>

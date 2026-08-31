@@ -10,6 +10,7 @@ import {
   pickImageCandidates,
   processMediaUrl,
   isIpfsCorsHostileUrl,
+  isEthereumStoriesGifCoverUrl,
 } from '../../utils/media';
 import { rememberWorkingMediaUrl, forgetMediaUrl, getRememberedMediaUrl } from '../../utils/gatewayMemory';
 import { shouldPreserveAnimation } from '../../utils/imageOptimizer';
@@ -130,7 +131,13 @@ const NFTGifImageInner: React.FC<NFTGifImageProps> = ({
     if (!imgLoading || hasError || !(isVisible || priority)) return;
     if (attemptIndex >= candidates.length - 1) return;
 
-    const hangMs = priority ? GIF_HANG_MS : width <= 200 ? GIF_HANG_MS_SMALL : GIF_HANG_MS;
+    const hangMs = isEthereumStoriesGifCoverUrl(imageUrl)
+      ? 20000
+      : priority
+        ? GIF_HANG_MS
+        : width <= 200
+          ? GIF_HANG_MS_SMALL
+          : GIF_HANG_MS;
     const timeout = window.setTimeout(() => {
       const next = attemptIndex + 1;
       const current = nftRef.current;
