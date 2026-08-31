@@ -9,7 +9,7 @@ interface UserProfileNFTGridProps {
   isPlaying: boolean;
   handlePlayPause: () => void;
   onPlayNFT: (nft: NFT) => void;
-  onLikeToggle?: (nft: NFT) => Promise<void>;
+  onLikeToggle?: (nft: NFT) => Promise<boolean | void>;
   isNFTLiked?: (nft: NFT) => boolean;
   userFid?: number;
   scrollRoot?: HTMLElement | null;

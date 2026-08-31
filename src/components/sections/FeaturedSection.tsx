@@ -13,7 +13,7 @@ interface FeaturedSectionProps {
   handlePlayPause: () => void;
   currentlyPlaying: string | null;
   isPlaying: boolean;
-  onLikeToggle: (nft: NFT) => Promise<void>;
+  onLikeToggle: (nft: NFT) => Promise<boolean | void>;
   isNFTLiked: (nft: NFT) => boolean;
   userFid?: string;
   nfts?: NFT[];

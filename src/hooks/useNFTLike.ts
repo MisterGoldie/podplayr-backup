@@ -3,7 +3,7 @@ import type { NFT } from '../types/user';
 import { useNFTNotification } from '../context/NFTNotificationContext';
 
 interface UseNFTLikeProps {
-  onLikeToggle: (nft: NFT) => Promise<void>;
+  onLikeToggle: (nft: NFT) => Promise<boolean | void>;
   setIsLiked?: (isLiked: boolean) => void;
 }
 
@@ -12,9 +12,10 @@ export const useNFTLike = ({ onLikeToggle, setIsLiked }: UseNFTLikeProps) => {
 
   const handleUnlike = useCallback(async (nft: NFT) => {
     try {
-      await onLikeToggle(nft);
-      showNotification('unlike', nft);
-      setIsLiked?.(false);
+      const next = await onLikeToggle(nft);
+      const liked = typeof next === 'boolean' ? next : false;
+      showNotification(liked ? 'like' : 'unlike', nft);
+      setIsLiked?.(liked);
     } catch (error) {
       console.error('Error unliking NFT:', error);
     }
@@ -22,9 +23,10 @@ export const useNFTLike = ({ onLikeToggle, setIsLiked }: UseNFTLikeProps) => {
 
   const handleLike = useCallback(async (nft: NFT) => {
     try {
-      await onLikeToggle(nft);
-      showNotification('like', nft);
-      setIsLiked?.(true);
+      const next = await onLikeToggle(nft);
+      const liked = typeof next === 'boolean' ? next : true;
+      showNotification(liked ? 'like' : 'unlike', nft);
+      setIsLiked?.(liked);
     } catch (error) {
       console.error('Error liking NFT:', error);
     }

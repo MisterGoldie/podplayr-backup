@@ -36,7 +36,7 @@ interface ProfileViewProps {
   currentlyPlaying: string | null;
   handlePlayPause: () => void;
   onNFTsLoaded: (nfts: NFT[]) => void;
-  onLikeToggle: (nft: NFT) => Promise<void>;
+  onLikeToggle: (nft: NFT) => Promise<boolean | void>;
   isNFTLiked?: (nft: NFT) => boolean;
   onUserProfileClick?: (user: FarcasterUser) => void;
 }

@@ -292,7 +292,7 @@ const DemoBase: React.FC = () => {
     return likedNFTs.some((likedNFT) => sameLikedTrack(likedNFT, nft));
   }, [likedNFTs]);
 
-  const onLikeToggle = useCallback(async (nft: NFT) => {
+  const onLikeToggle = useCallback(async (nft: NFT): Promise<boolean> => {
     if (!fid) {
       demoLogger.warn('No FID available for like toggle');
       throw new Error('No FID available for like toggle');
@@ -320,6 +320,7 @@ const DemoBase: React.FC = () => {
       } else {
         setLikedNFTs((prev) => prev.filter((likedNFT) => !sameLikedTrack(likedNFT, nft)));
       }
+      return newLikeState;
     } catch (likeError) {
       demoLogger.error('Error toggling like:', likeError);
       throw likeError;
@@ -407,14 +408,13 @@ const DemoBase: React.FC = () => {
   }, [closeUserProfile]);
 
   const handlePlayerLikeToggle = useCallback(async (nft: NFT) => {
-    const wasLiked = isNFTLiked(nft);
     try {
-      await onLikeToggle(nft);
-      showNotification(wasLiked ? 'unlike' : 'like', nft);
+      const nowLiked = await onLikeToggle(nft);
+      showNotification(nowLiked ? 'like' : 'unlike', nft);
     } catch {
       // Logged inside onLikeToggle; skip the header banner on failure.
     }
-  }, [isNFTLiked, onLikeToggle, showNotification]);
+  }, [onLikeToggle, showNotification]);
 
   const handleDirectUserSelect = useCallback(async (user: FarcasterUser) => {
     try {

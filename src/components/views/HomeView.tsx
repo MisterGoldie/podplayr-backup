@@ -23,7 +23,7 @@ interface HomeViewProps {
   isPlaying: boolean;
   handlePlayPause: () => void;
   isLoading?: boolean;
-  onLikeToggle: (nft: NFT) => Promise<void>;
+  onLikeToggle: (nft: NFT) => Promise<boolean | void>;
   likedNFTs: NFT[];
   currentPlayingNFT?: NFT | null;
   recentlyAddedNFT?: React.MutableRefObject<string | null>;

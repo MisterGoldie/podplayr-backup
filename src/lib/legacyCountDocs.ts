@@ -1,6 +1,7 @@
 import {
   Firestore,
   QueryDocumentSnapshot,
+  DocumentSnapshot,
   collection,
   doc,
   getDoc,
@@ -41,15 +42,25 @@ function muxOriginAudio(nft: NftKeySource): string {
   );
 }
 
+function featuredForCount(nft: NftKeySource) {
+  return findFeaturedNft({
+    contract: nft.contract || '',
+    tokenId: nft.tokenId == null ? '' : String(nft.tokenId),
+    audio: nft.audio || '',
+    metadata: nft.metadata,
+    name: (nft as { name?: string }).name || '',
+  });
+}
+
+function isExistingCountSnap(
+  snap: DocumentSnapshot | QueryDocumentSnapshot | null
+): snap is DocumentSnapshot | QueryDocumentSnapshot {
+  return Boolean(snap?.exists());
+}
+
 /** Every historical identity we might have written a count doc under. */
 export function countMergeSources(nft: NftKeySource): NftKeySource[] {
-  const featured = findFeaturedNft({
-    contract: nft.contract,
-    tokenId: nft.tokenId,
-    audio: nft.audio,
-    metadata: nft.metadata,
-    name: (nft as { name?: string }).name,
-  });
+  const featured = featuredForCount(nft);
   const origin = muxOriginAudio(nft) || muxOriginAudio(featured || {});
   const sources: NftKeySource[] = [nft];
   if (origin) {
@@ -122,13 +133,7 @@ export async function findCountDocsByMint(
   const tokenId = normalizeNftTokenId(nft.tokenId);
   if (!contract || !tokenId) return [];
 
-  const featured = findFeaturedNft({
-    contract: nft.contract,
-    tokenId: nft.tokenId,
-    audio: nft.audio,
-    metadata: nft.metadata,
-    name: (nft as { name?: string }).name,
-  });
+  const featured = featuredForCount(nft);
   const contracts = uniqueStrings([
     ...contractCasingVariants(nft.contract || ''),
     ...(featured?.contract ? contractCasingVariants(featured.contract) : []),
@@ -189,13 +194,7 @@ export async function peakFromNftPlayEvents(
 ): Promise<number> {
   const tokenId = normalizeNftTokenId(nft.tokenId);
   if (!nft.contract || !tokenId) return 0;
-  const featured = findFeaturedNft({
-    contract: nft.contract,
-    tokenId: nft.tokenId,
-    audio: nft.audio,
-    metadata: nft.metadata,
-    name: (nft as { name?: string }).name,
-  });
+  const featured = featuredForCount(nft);
   const contracts = uniqueStrings([
     ...contractCasingVariants(nft.contract),
     ...(featured?.contract ? contractCasingVariants(featured.contract) : []),
@@ -262,8 +261,7 @@ export async function mergeLegacyCountDocs(
   );
   const byMint = await findCountDocsByMint(db, collectionName, nft);
   const seen = new Set<string>();
-  const existing = [...snaps, ...byMint].filter((snap) => {
-    if (!snap?.exists()) return false;
+  const existing = [...snaps, ...byMint].filter(isExistingCountSnap).filter((snap) => {
     if (seen.has(snap.id)) return false;
     seen.add(snap.id);
     return true;
@@ -289,25 +287,6 @@ export async function mergeLegacyCountDocs(
     }
   }
   best = Math.max(best, eventPeak);
-
-  if (typeof window !== 'undefined') {
-    console.log('[PLAY-COUNT-DEBUG] merge', {
-      collection: collectionName,
-      name: (nft as { name?: string }).name,
-      canonical,
-      candidateIds: [...ids],
-      found: existing.map((snap) => ({
-        id: snap.id,
-        count: readStoredCount(snap.data() as Record<string, unknown>, countField),
-        name: snap.data()?.name,
-        nftContract: snap.data()?.nftContract || snap.data()?.contract,
-        tokenId: snap.data()?.tokenId,
-      })),
-      eventPeak,
-      extras,
-      best,
-    });
-  }
 
   if (best <= 0 && existing.length === 0) return 0;
 

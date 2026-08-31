@@ -160,6 +160,7 @@ export const useNFTLikeState = (
       setIsLiked(newIsLiked);
       setLikesCount((prev) => Math.max(0, prev + (newIsLiked ? 1 : -1)));
       setLastUpdated(Date.now());
+      return newIsLiked;
     } catch (error) {
       likeStateLogger.error('Error toggling like state:', error);
     }

@@ -17,7 +17,7 @@ interface RecentlyPlayedProps {
   currentlyPlaying?: string | null;
   isPlaying?: boolean;
   handlePlayPause?: () => void;
-  onLikeToggle?: (nft: NFT) => Promise<void>;
+  onLikeToggle?: (nft: NFT) => Promise<boolean | void>;
   isNFTLiked?: (nft: NFT) => boolean;
   currentPlayingNFT?: NFT | null;
 }

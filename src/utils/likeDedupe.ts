@@ -1,5 +1,6 @@
 import { findFeaturedNft } from '../data/featuredNfts';
 import {
+  getLegacyMediaKeyCandidates,
   getMediaKey,
   getNftIdentityKey,
   getNftMediaAssetId,
@@ -51,7 +52,12 @@ export function sameLikedTrack(a?: LikeDedupeSource | null, b?: LikeDedupeSource
   const keyA = getLikeDedupeKey(a);
   const keyB = getLikeDedupeKey(b);
   if (keyA && keyB && keyA === keyB) return true;
-  return sameNftIdentity(a, b);
+  if (sameNftIdentity(a, b)) return true;
+  // Cache-only rows (`{ mediaKey }`) and leftover like-doc ids from the
+  // identity-first key change still have to match the live NFT.
+  if (a?.mediaKey && getLegacyMediaKeyCandidates(b).includes(a.mediaKey)) return true;
+  if (b?.mediaKey && getLegacyMediaKeyCandidates(a).includes(b.mediaKey)) return true;
+  return false;
 }
 
 export function uniqueLikedNfts<T extends LikeDedupeSource>(nfts: T[]): T[] {

@@ -18,7 +18,7 @@ interface NFTCardProps {
   isPlaying?: boolean;
   currentlyPlaying?: string | null;
   handlePlayPause?: () => void;
-  onLikeToggle?: (nft: NFT) => Promise<void>;
+  onLikeToggle?: (nft: NFT) => Promise<boolean | void>;
   userFid?: string;
   isNFTLiked?: () => boolean;
   playCountBadge?: string;
@@ -61,8 +61,7 @@ const NFTCardInner: React.FC<NFTCardProps> = ({
 
   const dispatchLikeToggle = useCallback(async (toggled: NFT) => {
     if (onLikeToggleRef.current) {
-      await onLikeToggleRef.current(toggled);
-      return;
+      return onLikeToggleRef.current(toggled);
     }
     if (!fid) return;
     await toggleLike();

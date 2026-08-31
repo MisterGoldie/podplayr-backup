@@ -29,7 +29,7 @@ interface LibraryViewProps {
   setIsLiked: (isLiked: boolean) => void;
   setIsPlayerVisible: (visible: boolean) => void;
   setIsPlayerMinimized: (minimized: boolean) => void;
-  onLikeToggle: (nft: NFT) => Promise<void>;
+  onLikeToggle: (nft: NFT) => Promise<boolean | void>;
   isLoading?: boolean;
 }
 
@@ -39,7 +39,7 @@ interface SimpleNFTCardProps {
   handlePlayPause: () => void;
   isPlaying: boolean;
   currentlyPlaying: string | null;
-  onLikeToggle: (nft: NFT) => Promise<void>;
+  onLikeToggle: (nft: NFT) => Promise<boolean | void>;
   animationDelay?: number;
 }
 
@@ -159,7 +159,7 @@ interface LibraryNFTFeedProps {
   currentlyPlaying: string | null;
   handlePlayPause: () => void;
   handlePlayAudio: (nft: NFT, context?: { queue?: NFT[]; queueType?: string }) => Promise<void>;
-  onLikeToggle: (nft: NFT) => Promise<void>;
+  onLikeToggle: (nft: NFT) => Promise<boolean | void>;
 }
 
 const LibraryNFTFeed: React.FC<LibraryNFTFeedProps> = ({

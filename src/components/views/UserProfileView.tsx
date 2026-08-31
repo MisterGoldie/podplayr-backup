@@ -31,7 +31,7 @@ interface UserProfileViewProps {
   onUserProfileClick?: (user: FarcasterUser) => void;
   onBack: () => void;
   currentUserFid: number;
-  onLikeToggle: (nft: NFT) => Promise<void>;
+  onLikeToggle: (nft: NFT) => Promise<boolean | void>;
   isNFTLiked?: (nft: NFT) => boolean;
 }
 

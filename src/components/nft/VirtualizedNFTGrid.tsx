@@ -13,7 +13,7 @@ interface VirtualizedNFTGridProps {
   publicCollections: string[];
   addToPublicCollection?: (nft: NFT, collectionId: string) => void;
   removeFromPublicCollection?: (nft: NFT, collectionId: string) => void;
-  onLikeToggle?: (nft: NFT) => Promise<void>;
+  onLikeToggle?: (nft: NFT) => Promise<boolean | void>;
   isNFTLiked?: (nft: NFT, ignoreCurrentPage?: boolean) => boolean;
   userFid?: number;
   scrollRoot?: HTMLElement | null;

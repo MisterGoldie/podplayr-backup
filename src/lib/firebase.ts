@@ -33,7 +33,7 @@ import type { NFT } from '../types/nft';
 import { fetchUserNFTsFromAlchemy } from './nft';
 import { getMediaKey, getNftIdentityKey, normalizeNftContract, normalizeNftTokenId } from '~/utils/media';
 import { uniqueLikedNfts } from '~/utils/likeDedupe';
-import { consolidateUserLikes, findExistingUserLikeIds } from './consolidateUserLikes';
+import { consolidateUserLikes, findExistingUserLikeIds, mergeLegacyLikeCounts } from './consolidateUserLikes';
 import { mergeLegacyPlayCounts } from './consolidateGlobalPlays';
 import { getNftPlaybackPlan, hydrateNftPlayback, isPlayableMediaNFT, restoreStoredAnimationUrl, applyConfirmedPlayback, getCachedMediaMime } from '../utils/isMediaNFT';
 import { stampNftLikeTime, sortLikedNewestFirst, snapshotCreateMillis, fetchLikeCreateTimes } from '../utils/likeTime';
@@ -1481,6 +1481,7 @@ export const toggleLikeNFT = async (nft: NFT, fid: number, forceUnlike: boolean 
       return false;
     }
     nft.mediaKey = mediaKey;
+    await mergeLegacyLikeCounts(db, nft, mediaKey);
     const variantLikeIds = await findExistingUserLikeIds(db, fid.toString(), nft);
     
     firebaseLogger.info('Using mediaKey for like operation:', mediaKey);
