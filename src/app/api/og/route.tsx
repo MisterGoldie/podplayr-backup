@@ -1,35 +1,7 @@
 import { NextRequest } from 'next/server';
 import { ImageResponse } from 'next/og';
-import { readFile } from 'fs/promises';
-import path from 'path';
 import { getNFTMetadata } from '../../../lib/nft';
 import { fetchNFTDetails } from '../../../lib/firebase';
-
-// Satori (next/og's renderer) fetches every <img src> over the network, even
-// for our own static /public assets. Building that URL from the request's
-// origin is fragile — behind a proxy/tunnel (e.g. `cloudflared tunnel`) the
-// forwarded proto/host can combine into an address that doesn't actually
-// exist (https tacked onto a plain-http dev server), so the self-fetch just
-// fails and the logo silently never renders. Read the file straight off disk
-// instead and hand Satori a data: URI — no network round-trip, no baseUrl.
-const publicImageDataUriCache = new Map<string, string | null>();
-
-async function readPublicImageAsDataUri(filename: string): Promise<string | null> {
-  if (publicImageDataUriCache.has(filename)) {
-    return publicImageDataUriCache.get(filename)!;
-  }
-  try {
-    const filePath = path.join(process.cwd(), 'public', filename);
-    const buf = await readFile(filePath);
-    const dataUri = `data:image/png;base64,${buf.toString('base64')}`;
-    publicImageDataUriCache.set(filename, dataUri);
-    return dataUri;
-  } catch (error) {
-    console.error(`Failed to read public asset ${filename}:`, error);
-    publicImageDataUriCache.set(filename, null);
-    return null;
-  }
-}
 
 // Server-safe media URL processing functions (extracted from media.ts)
 const IPFS_GATEWAYS = [
@@ -175,7 +147,8 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const playLogoDataUri = await readPublicImageAsDataUri('podplayrplaylogo.png');
+    // Get the base URL for absolute image paths
+    const baseUrl = new URL(request.url).origin;
 
     return new ImageResponse(
       (
@@ -194,30 +167,28 @@ export async function GET(request: NextRequest) {
             position: 'relative',
           }}
         >
-          {/* PODPLAYR play mark, top left corner, no backing card. */}
-          {playLogoDataUri && (
-            <div
+          {/* PODPLAYR Logo in top right corner */}
+          <div
+            style={{
+              position: 'absolute',
+              top: '20px',
+              right: '20px',
+              display: 'flex',
+            }}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={`${baseUrl}/podlogo.png`}
+              alt="PODPLAYR Logo"
+              width="80"
+              height="80"
               style={{
-                position: 'absolute',
-                top: '20px',
-                left: '20px',
-                display: 'flex',
+                width: '80px',
+                height: '80px',
+                objectFit: 'contain',
               }}
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={playLogoDataUri}
-                alt="PODPLAYR"
-                width="64"
-                height="64"
-                style={{
-                  width: '64px',
-                  height: '64px',
-                  objectFit: 'contain',
-                }}
-              />
-            </div>
-          )}
+            />
+          </div>
 
           {/* NFT Image with proper error handling */}
           {nftImage && (
@@ -292,12 +263,8 @@ export async function GET(request: NextRequest) {
         </div>
       ),
       {
-        // Farcaster Mini App embeds require a strict 3:2 image ratio.
-        // At 1200x630 (~1.91:1, the old OpenGraph standard) Warpcast
-        // center-crops the sides to force 3:2, which was clipping off
-        // our corner logo badges even though the raw image had them.
         width: 1200,
-        height: 800,
+        height: 630,
       }
     );
   } catch (error) {
