@@ -2593,10 +2593,11 @@ export const getFollowingUsers = async (currentUserFid: number): Promise<Followe
         username: data.username,
         display_name: data.display_name || data.username,
         pfp_url: data.pfp_url || `https://avatar.vercel.sh/${data.username}`,
-        timestamp: data.timestamp?.toDate() || new Date()
+        // Legacy docs use `followed_at`; anything with neither sorts as oldest.
+        timestamp: data.timestamp?.toDate() || data.followed_at?.toDate() || new Date(0)
       });
     });
-    
+
     // Sort by most recently followed first
     return followingUsers.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
   } catch (error) {
@@ -2698,10 +2699,11 @@ export const getFollowersCount = async (userFid: number): Promise<number> => {
 // Get all users that follow the current user
 export const getFollowers = async (userFid: number): Promise<FollowedUser[]> => {
   try {
+    // No orderBy — see subscribeToFollowingUsers for why (would silently
+    // drop legacy docs that lack a `timestamp` field).
     const followersRef = collection(db, 'users', userFid.toString(), 'followers');
-    const q = query(followersRef, orderBy('timestamp', 'desc'));
-    const snapshot = await getDocs(q);
-    
+    const snapshot = await getDocs(followersRef);
+
     const followers: FollowedUser[] = [];
     snapshot.forEach((doc) => {
       const data = doc.data();
@@ -2710,11 +2712,11 @@ export const getFollowers = async (userFid: number): Promise<FollowedUser[]> => 
         username: data.username,
         display_name: data.display_name || data.username,
         pfp_url: data.pfp_url || `https://avatar.vercel.sh/${data.username}`,
-        timestamp: data.timestamp?.toDate() || new Date()
+        timestamp: data.timestamp?.toDate() || data.followed_at?.toDate() || new Date(0)
       });
     });
-    
-    return followers;
+
+    return followers.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
   } catch (error) {
     console.error('Error getting followers:', error);
     return [];
@@ -2728,10 +2730,14 @@ export const subscribeToFollowingUsers = (currentUserFid: number, callback: (use
     return () => {}; // Return empty unsubscribe function
   }
   
+  // No orderBy here on purpose: Firestore silently excludes any document
+  // that lacks the field being ordered on, and some legacy-migrated docs
+  // only have `followed_at` instead of `timestamp` — they'd vanish from
+  // this list entirely even though they're real follows. Fetch everything
+  // and sort client-side instead so nothing gets silently hidden.
   const followingRef = collection(db, 'users', currentUserFid.toString(), 'following');
-  const q = query(followingRef, orderBy('timestamp', 'desc'));
   
-  return onSnapshot(q, (snapshot) => {
+  return onSnapshot(followingRef, (snapshot) => {
     const followingUsers: FollowedUser[] = [];
     
     snapshot.forEach((doc) => {
@@ -2741,10 +2747,12 @@ export const subscribeToFollowingUsers = (currentUserFid: number, callback: (use
         username: data.username,
         display_name: data.display_name || data.username,
         pfp_url: data.pfp_url || `https://avatar.vercel.sh/${data.username}`,
-        timestamp: data.timestamp?.toDate() || new Date()
+        // Legacy docs use `followed_at`; anything with neither sorts as oldest.
+        timestamp: data.timestamp?.toDate() || data.followed_at?.toDate() || new Date(0)
       });
     });
     
+    followingUsers.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
     callback(followingUsers);
   }, (error) => {
     console.error('Error subscribing to following users:', error);
@@ -2759,10 +2767,10 @@ export const subscribeToFollowers = (userFid: number, callback: (users: Followed
     return () => {}; // Return empty unsubscribe function
   }
   
+  // See subscribeToFollowingUsers above for why there's no orderBy here.
   const followersRef = collection(db, 'users', userFid.toString(), 'followers');
-  const q = query(followersRef, orderBy('timestamp', 'desc'));
   
-  return onSnapshot(q, (snapshot) => {
+  return onSnapshot(followersRef, (snapshot) => {
     const followers: FollowedUser[] = [];
     
     snapshot.forEach((doc) => {
@@ -2772,10 +2780,11 @@ export const subscribeToFollowers = (userFid: number, callback: (users: Followed
         username: data.username,
         display_name: data.display_name || data.username,
         pfp_url: data.pfp_url || `https://avatar.vercel.sh/${data.username}`,
-        timestamp: data.timestamp?.toDate() || new Date()
+        timestamp: data.timestamp?.toDate() || data.followed_at?.toDate() || new Date(0)
       });
     });
     
+    followers.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
     callback(followers);
   }, (error) => {
     console.error('Error subscribing to followers:', error);
