@@ -21,7 +21,11 @@ function handleOf(message: LiveChatMessage) {
 export function LiveChat({ online }: { online: boolean }) {
   const { fid } = useContext(UserFidContext);
   const { user } = useContext(UnifiedContext);
-  const [session, setSession] = useState<LiveChatSession>({ status: 'idle', activeSessionId: null });
+  const [session, setSession] = useState<LiveChatSession>({
+    status: 'idle',
+    activeSessionId: null,
+    showStartedAtMs: null,
+  });
   const [messages, setMessages] = useState<LiveChatMessage[]>([]);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
@@ -32,10 +36,14 @@ export function LiveChat({ online }: { online: boolean }) {
   const sawLiveRef = useRef(false);
   const liveSessionId = session.status === 'live' ? session.activeSessionId : null;
   const canSend = isRealFid(fid) && Boolean(liveSessionId);
-  const visibleMessages = useMemo(
-    () => (liveSessionId ? messages.filter((message) => message.sessionId === liveSessionId) : []),
-    [liveSessionId, messages]
-  );
+  const visibleMessages = useMemo(() => {
+    if (!liveSessionId) return [];
+    return messages.filter((message) => {
+      if (!message.sessionId || message.sessionId === liveSessionId) return true;
+      const created = message.createdAt?.toMillis?.() ?? 0;
+      return session.showStartedAtMs != null && created >= session.showStartedAtMs;
+    });
+  }, [liveSessionId, messages, session.showStartedAtMs]);
 
   useEffect(() => {
     const stopSession = subscribeLiveChatSession(setSession, () => {

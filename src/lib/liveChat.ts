@@ -33,6 +33,7 @@ export type LiveChatMessage = {
 export type LiveChatSession = {
   status: 'live' | 'idle';
   activeSessionId: string | null;
+  showStartedAtMs: number | null;
 };
 
 function sessionRef() {
@@ -54,6 +55,7 @@ export function subscribeLiveChatSession(
       onSession({
         status: data?.status === 'live' ? 'live' : 'idle',
         activeSessionId: typeof data?.activeSessionId === 'string' ? data.activeSessionId : null,
+        showStartedAtMs: data?.showStartedAt?.toMillis?.() ?? null,
       });
     },
     (error) => {
@@ -123,7 +125,18 @@ export async function syncLiveChatSession(isLive: boolean): Promise<string | nul
 
     if (isLive) {
       if (sessionIsCurrent(data, currentId)) {
-        tx.set(ref, { status: 'live', lastSeenLiveAt: now, endedAt: null }, { merge: true });
+        tx.set(
+          ref,
+          {
+            status: 'live',
+            lastSeenLiveAt: now,
+            endedAt: null,
+            ...(!data?.showStartedAt
+              ? { showStartedAt: Timestamp.fromMillis(Date.now() - 6 * 60 * 60 * 1000) }
+              : {}),
+          },
+          { merge: true }
+        );
         return currentId;
       }
       const nextId = `${Date.now()}`;
@@ -134,6 +147,7 @@ export async function syncLiveChatSession(isLive: boolean): Promise<string | nul
           activeSessionId: nextId,
           liveSince: now,
           lastSeenLiveAt: now,
+          showStartedAt: now,
           endedAt: null,
         },
         { merge: true }
