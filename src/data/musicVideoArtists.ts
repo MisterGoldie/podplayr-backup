@@ -8,10 +8,17 @@ export type MusicVideoArtist = {
   fid: number;
   /** Shown immediately while the Farcaster profile loads. */
   name: string;
+  /** Additional credited artists shown below the primary. */
+  collaborators?: Array<{ fid: number; name: string }>;
 };
 
 function artistKey(contract: string, tokenId: string | number): string {
   return `${normalizeContractAddress(contract)}:${toDecimalTokenId(tokenId)}`;
+}
+
+/** Fallback key for non-standard (e.g. pending) contracts with string token IDs. */
+function artistKeyRaw(contract: string, tokenId: string | number): string {
+  return `raw:${contract.toLowerCase()}:${String(tokenId)}`;
 }
 
 const LATASHA: MusicVideoArtist = { fid: 10914, name: 'LATASHÁ' };
@@ -42,11 +49,34 @@ const MUSIC_VIDEO_ARTISTS: Record<string, MusicVideoArtist> = {
     fid: 541225,
     name: 'XTincT',
   },
+  // I Asked My Friends A Serious Question — Mux-only featured (pending contract)
+  [artistKeyRaw('pending', 'iasked-friends-serious-question')]: {
+    fid: 14871,
+    name: 'Artist',
+    collaborators: [
+      { fid: 7472, name: 'Artist' },
+      { fid: 414859, name: 'Artist' },
+      { fid: 892616, name: 'Artist' },
+    ],
+  },
 };
 
 export function getMusicVideoArtist(
   nft: Pick<NFT, 'contract' | 'tokenId'> | null | undefined
 ): MusicVideoArtist | null {
   if (!nft?.contract || nft.tokenId === undefined || nft.tokenId === null) return null;
-  return MUSIC_VIDEO_ARTISTS[artistKey(nft.contract, nft.tokenId)] ?? null;
+  return (
+    MUSIC_VIDEO_ARTISTS[artistKey(nft.contract, nft.tokenId)] ??
+    MUSIC_VIDEO_ARTISTS[artistKeyRaw(nft.contract, nft.tokenId)] ??
+    null
+  );
+}
+
+/** Flattens a MusicVideoArtist into an ordered list of primary + collaborators. */
+export function getMusicVideoArtists(
+  nft: Pick<NFT, 'contract' | 'tokenId'> | null | undefined
+): Array<{ fid: number; name: string }> {
+  const primary = getMusicVideoArtist(nft);
+  if (!primary) return [];
+  return [{ fid: primary.fid, name: primary.name }, ...(primary.collaborators ?? [])];
 }

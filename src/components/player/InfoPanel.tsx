@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import Image from 'next/image';
 import { useNFTPlayCount } from '../../hooks/useNFTPlayCount';
 import { useNFTLikeState } from '../../hooks/useNFTLikeState';
 import { useNFTTopPlayed } from '../../hooks/useNFTTopPlayed';
@@ -13,9 +12,10 @@ import {
   normalizeNftChain,
   toDecimalTokenId,
 } from '../../utils/nftExplorerLinks';
-import { getMusicVideoArtist } from '../../data/musicVideoArtists';
-import { getArtistProfilePreview } from '../../lib/artistProfile';
+import { getMusicVideoArtists } from '../../data/musicVideoArtists';
+import { getArtistProfilePreviews, type ArtistProfilePreview } from '../../lib/artistProfile';
 import { NFTImage } from '../media/NFTImage';
+import ProfileAvatar from '../user/ProfileAvatar';
 
 interface InfoPanelProps {
   nft: NFT;
@@ -63,11 +63,9 @@ const InfoPanel: React.FC<InfoPanelProps> = ({ nft, onClose, isLiked = false, on
   const [isPlayCountAnimating, setIsPlayCountAnimating] = useState(false);
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [artistPfpUrl, setArtistPfpUrl] = useState('');
-  const [artistPfpFailed, setArtistPfpFailed] = useState(false);
+  const [artistPreviews, setArtistPreviews] = useState<Map<number, ArtistProfilePreview>>(new Map());
 
-  const mappedArtist = useMemo(() => getMusicVideoArtist(nft), [nft]);
-  const artistName = mappedArtist?.name || '';
+  const mappedArtists = useMemo(() => getMusicVideoArtists(nft), [nft.contract, nft.tokenId]);
 
   const imageSrc = nft.image || nft.metadata?.image || nft.collection?.image || '';
   const description = nft.description || nft.metadata?.description || '';
@@ -125,23 +123,17 @@ const InfoPanel: React.FC<InfoPanelProps> = ({ nft, onClose, isLiked = false, on
   }, [nft.contract, nft.tokenId]);
 
   useEffect(() => {
-    setArtistPfpUrl('');
-    setArtistPfpFailed(false);
-    if (!mappedArtist?.fid) return;
+    setArtistPreviews(new Map());
+    if (mappedArtists.length === 0) return;
     let cancelled = false;
-    void getArtistProfilePreview(mappedArtist.fid).then((preview) => {
-      if (!cancelled && preview.pfpUrl) setArtistPfpUrl(preview.pfpUrl);
+    void getArtistProfilePreviews(mappedArtists.map((a) => a.fid)).then((previews) => {
+      if (!cancelled) setArtistPreviews(previews);
     });
     return () => {
       cancelled = true;
     };
-  }, [mappedArtist?.fid]);
-
-  const handleArtistClick = () => {
-    if (!mappedArtist || !onOpenArtistProfile) return;
-    onOpenArtistProfile(mappedArtist.fid);
-    handleClose();
-  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nft.contract, nft.tokenId]);
 
   const handleCopyContract = async () => {
     if (!contract) return;
@@ -218,42 +210,36 @@ const InfoPanel: React.FC<InfoPanelProps> = ({ nft, onClose, isLiked = false, on
             )}
           </div>
 
-          {mappedArtist && artistName && (
-            <button
-              type="button"
-              onClick={handleArtistClick}
-              disabled={!onOpenArtistProfile}
-              className="mt-3 w-full flex items-center gap-3 rounded-2xl bg-black/40 border border-purple-400/15 px-3 py-2.5 text-left active:scale-[0.99] transition-transform disabled:active:scale-100"
-              aria-label={`Open ${artistName} profile`}
-            >
-              <div className="relative w-10 h-10 rounded-full overflow-hidden flex-shrink-0 ring-2 ring-purple-400/30 bg-purple-900/40">
-                {artistPfpUrl && !artistPfpFailed ? (
-                  <Image
-                    src={artistPfpUrl}
-                    alt={artistName}
-                    fill
-                    sizes="40px"
-                    className="object-cover"
-                    unoptimized
-                    onError={() => setArtistPfpFailed(true)}
-                  />
-                ) : (
-                  <span className="flex h-full w-full items-center justify-center text-sm font-medium text-purple-200">
-                    {artistName.charAt(0)}
-                  </span>
+          {mappedArtists.map((artist, idx) => {
+            const preview = artistPreviews.get(artist.fid);
+            const displayName = preview?.displayName || preview?.username || artist.name;
+            return (
+              <button
+                key={artist.fid}
+                type="button"
+                onClick={() => { if (onOpenArtistProfile) { onOpenArtistProfile(artist.fid); handleClose(); } }}
+                disabled={!onOpenArtistProfile}
+                className="mt-3 w-full flex items-center gap-3 rounded-2xl bg-black/40 border border-purple-400/15 px-3 py-2.5 text-left active:scale-[0.99] transition-transform disabled:active:scale-100"
+                aria-label={`Open ${displayName} profile`}
+              >
+                <ProfileAvatar
+                  src={preview?.pfpUrl}
+                  alt={displayName}
+                  size={40}
+                  className="flex-shrink-0 ring-2 ring-purple-400/30"
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="text-[10px] uppercase tracking-wider text-purple-300/80">{idx === 0 ? 'Artist' : 'Feat.'}</p>
+                  <p className="text-white text-sm font-medium truncate">{displayName}</p>
+                </div>
+                {onOpenArtistProfile && (
+                  <svg xmlns="http://www.w3.org/2000/svg" height="18" viewBox="0 -960 960 960" width="18" fill="currentColor" className="flex-shrink-0 text-purple-300/80">
+                    <path d="M504-480 320-664l56-56 240 240-240 240-56-56 184-184Z" />
+                  </svg>
                 )}
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-[10px] uppercase tracking-wider text-purple-300/80">Artist</p>
-                <p className="text-white text-sm font-medium truncate">{artistName}</p>
-              </div>
-              {onOpenArtistProfile && (
-                <svg xmlns="http://www.w3.org/2000/svg" height="18" viewBox="0 -960 960 960" width="18" fill="currentColor" className="flex-shrink-0 text-purple-300/80">
-                  <path d="M504-480 320-664l56-56 240 240-240 240-56-56 184-184Z" />
-                </svg>
-              )}
-            </button>
-          )}
+              </button>
+            );
+          })}
 
           <div className={`mt-4 grid gap-2 ${showTopPlayed ? 'grid-cols-3' : 'grid-cols-2'}`}>
             <div
