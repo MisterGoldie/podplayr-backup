@@ -147,8 +147,16 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Get the base URL for absolute image paths
-    const baseUrl = new URL(request.url).origin;
+    // Long NFT names (some run 60-80+ chars with "(OFFICIAL VIDEO)" suffixes
+    // etc) were overlapping the "Experience on PODPLAYR" line below at a
+    // fixed 72px — scale the title down as it gets longer so it always
+    // wraps to a size that leaves room for what comes after it.
+    const titleLength = nftTitle.length;
+    const titleFontSize =
+      titleLength > 70 ? 36 :
+      titleLength > 50 ? 44 :
+      titleLength > 32 ? 56 :
+      72;
 
     return new ImageResponse(
       (
@@ -167,28 +175,6 @@ export async function GET(request: NextRequest) {
             position: 'relative',
           }}
         >
-          {/* PODPLAYR Logo in top right corner */}
-          <div
-            style={{
-              position: 'absolute',
-              top: '20px',
-              right: '20px',
-              display: 'flex',
-            }}
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={`${baseUrl}/podlogo.png`}
-              alt="PODPLAYR Logo"
-              width="80"
-              height="80"
-              style={{
-                width: '80px',
-                height: '80px',
-                objectFit: 'contain',
-              }}
-            />
-          </div>
 
           {/* NFT Image with proper error handling */}
           {nftImage && (
@@ -237,11 +223,12 @@ export async function GET(request: NextRequest) {
           {/* NFT Title - now the largest text right below image */}
           <div
             style={{
-              fontSize: '72px',
+              fontSize: `${titleFontSize}px`,
+              lineHeight: 1.25,
               fontWeight: 'bold',
-              marginBottom: '20px',
+              marginBottom: '24px',
               textAlign: 'center',
-              maxWidth: '800px',
+              maxWidth: '900px',
               display: 'flex',
             }}
           >
@@ -263,8 +250,12 @@ export async function GET(request: NextRequest) {
         </div>
       ),
       {
+        // Farcaster Mini App embeds require a strict 3:2 image ratio — at
+        // 1200x630 (~1.91:1) Warpcast center-crops the sides to force 3:2,
+        // and it also just left less vertical room, which was part of why
+        // long titles ran into the text below them.
         width: 1200,
-        height: 630,
+        height: 800,
       }
     );
   } catch (error) {
