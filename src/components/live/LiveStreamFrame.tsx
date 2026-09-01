@@ -167,7 +167,7 @@ export function LiveStreamFrame() {
           </div>
         )}
       </button>
-      <LiveChat online={online} />
+      {online && <LiveChat online={online} />}
     </div>
   );
 }
