@@ -8,6 +8,7 @@ import {
   LIVE_POSTER_URL,
   LIVE_TITLE,
 } from '../../data/liveStream';
+import { LiveChat } from './LiveChat';
 
 async function isLiveManifestAvailable(): Promise<boolean> {
   try {
@@ -159,6 +160,7 @@ export function LiveStreamFrame() {
           </div>
         )}
       </button>
+      <LiveChat online={online} />
     </div>
   );
 }
