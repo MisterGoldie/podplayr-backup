@@ -442,9 +442,6 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
                       unoptimized
                     />
                   </div>
-                  <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 text-[9px] px-1.5 py-0.5 rounded-full bg-purple-500/90 text-white">
-                    {isThisPlaying ? 'Playing' : 'Play'}
-                  </span>
                 </div>
                 <p className="mt-2 text-xs text-white truncate">{nft.name}</p>
                 <p className="text-[10px] text-white/40 truncate">
