@@ -243,6 +243,7 @@ const DemoBase: React.FC = () => {
       : null;
 
     document.querySelectorAll('video').forEach((video) => {
+      if (video.dataset.podplayrLive === '1') return;
       if (video.id !== currentId && !video.paused) {
         try {
           video.pause();

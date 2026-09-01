@@ -130,9 +130,12 @@ export function LiveStreamFrame() {
         <video
           ref={videoRef}
           className="absolute inset-0 h-full w-full object-cover"
+          data-podplayr-live="1"
           playsInline
           poster={LIVE_POSTER_URL}
           controls={false}
+          onPlay={() => setNeedsTap(false)}
+          onPause={() => setNeedsTap(true)}
         />
         {!online && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/55">
