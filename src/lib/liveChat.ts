@@ -11,6 +11,7 @@ import {
   type Unsubscribe,
 } from 'firebase/firestore';
 import { db } from './firebase';
+import { censorChatText } from './chatCensor';
 import {
   LIVE_CHAT_COLLECTION,
   LIVE_CHAT_MAX_LEN,
@@ -178,7 +179,7 @@ export async function sendLiveChatMessage({
   text: string;
   sessionId: string;
 }): Promise<void> {
-  const trimmed = text.replace(/\s+/g, ' ').trim().slice(0, LIVE_CHAT_MAX_LEN);
+  const trimmed = censorChatText(text.replace(/\s+/g, ' ').trim()).slice(0, LIVE_CHAT_MAX_LEN);
   if (!fid || !trimmed || !sessionId) return;
 
   await addDoc(messagesRef(), {

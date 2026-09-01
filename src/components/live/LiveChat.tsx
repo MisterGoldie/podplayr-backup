@@ -11,6 +11,7 @@ import {
   type LiveChatMessage,
   type LiveChatSession,
 } from '../../lib/liveChat';
+import { censorChatText } from '../../lib/chatCensor';
 import { isRealFid } from '../../utils/platform';
 import ProfileAvatar from '../user/ProfileAvatar';
 
@@ -159,7 +160,7 @@ export function LiveChat({ online }: { online: boolean }) {
                   >
                     {handle}
                   </button>
-                  <span className="break-words">{message.text}</span>
+                  <span className="break-words">{censorChatText(message.text)}</span>
                 </p>
               </div>
             );
