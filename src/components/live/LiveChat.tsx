@@ -2,7 +2,7 @@
 
 import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { UnifiedContext, UserFidContext } from '../../app/providers';
-import { LIVE_CHAT_MAX_LEN, LIVE_CHAT_RATE_MS } from '../../data/liveStream';
+import { LIVE_CHAT_MAX_LEN, LIVE_CHAT_RATE_MS, LIVE_SESSION_END_MS } from '../../data/liveStream';
 import {
   sendLiveChatMessage,
   subscribeLiveChat,
@@ -59,10 +59,12 @@ export function LiveChat({ online }: { online: boolean }) {
       return;
     }
     if (!sawLiveRef.current) return;
-    sawLiveRef.current = false;
-    void syncLiveChatSession(false).catch(() => {
-      setError('Chat is unavailable right now');
-    });
+    const timer = window.setTimeout(() => {
+      void syncLiveChatSession(false).catch(() => {
+        setError('Chat is unavailable right now');
+      });
+    }, LIVE_SESSION_END_MS);
+    return () => window.clearTimeout(timer);
   }, [online]);
 
   useEffect(() => {

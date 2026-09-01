@@ -16,3 +16,5 @@ export const LIVE_CHAT_COLLECTION = 'live_chat';
 export const LIVE_CHAT_MAX_LEN = 200;
 export const LIVE_CHAT_PAGE_SIZE = 150;
 export const LIVE_CHAT_RATE_MS = 2_000;
+/** Only treat the show as over after Mux has been gone this long. Reconnects keep the same chat. */
+export const LIVE_SESSION_END_MS = 2 * 60 * 1000;

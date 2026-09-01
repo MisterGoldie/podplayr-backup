@@ -15,6 +15,7 @@ import {
   LIVE_CHAT_COLLECTION,
   LIVE_CHAT_MAX_LEN,
   LIVE_CHAT_PAGE_SIZE,
+  LIVE_SESSION_END_MS,
   LIVE_STREAM_ID,
 } from '../data/liveStream';
 
@@ -97,24 +98,42 @@ export function subscribeLiveChat(
   );
 }
 
-/** Open a new session when Mux goes live; mark idle when it ends. Does not delete messages. */
+function lastSeenMs(data: { lastSeenLiveAt?: { toMillis?: () => number } } | undefined): number {
+  return data?.lastSeenLiveAt?.toMillis?.() ?? 0;
+}
+
+function sessionIsCurrent(
+  data: { status?: string; lastSeenLiveAt?: { toMillis?: () => number } } | undefined,
+  sessionId: string | null
+): boolean {
+  if (!sessionId) return false;
+  const seen = lastSeenMs(data);
+  if (!seen) return data?.status === 'live';
+  return Date.now() - seen < LIVE_SESSION_END_MS;
+}
+
+/** Same chat for the whole show. New session only after the stream has actually been gone. */
 export async function syncLiveChatSession(isLive: boolean): Promise<string | null> {
   return runTransaction(db, async (tx) => {
     const ref = sessionRef();
     const snap = await tx.get(ref);
     const data = snap.data();
     const currentId = typeof data?.activeSessionId === 'string' ? data.activeSessionId : null;
-    const status = data?.status === 'live' ? 'live' : 'idle';
+    const now = Timestamp.now();
 
     if (isLive) {
-      if (status === 'live' && currentId) return currentId;
+      if (sessionIsCurrent(data, currentId)) {
+        tx.set(ref, { status: 'live', lastSeenLiveAt: now, endedAt: null }, { merge: true });
+        return currentId;
+      }
       const nextId = `${Date.now()}`;
       tx.set(
         ref,
         {
           status: 'live',
           activeSessionId: nextId,
-          liveSince: Timestamp.now(),
+          liveSince: now,
+          lastSeenLiveAt: now,
           endedAt: null,
         },
         { merge: true }
@@ -122,15 +141,9 @@ export async function syncLiveChatSession(isLive: boolean): Promise<string | nul
       return nextId;
     }
 
-    if (status === 'live') {
-      tx.set(
-        ref,
-        {
-          status: 'idle',
-          endedAt: Timestamp.now(),
-        },
-        { merge: true }
-      );
+    if (sessionIsCurrent(data, currentId)) return currentId;
+    if (data?.status === 'live') {
+      tx.set(ref, { status: 'idle', endedAt: now }, { merge: true });
     }
     return null;
   });
