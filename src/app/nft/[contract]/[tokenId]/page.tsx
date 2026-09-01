@@ -1,90 +1,89 @@
-import { Metadata } from 'next';
-import { getNFTMetadata } from '../../../../lib/nft';
+import type { Metadata } from 'next';
+import App from '~/app/app';
+import { getNftUrl, getServerAppUrl, miniAppMetadataTags } from '~/lib/miniapp';
+import { getNFTMetadata, isOnChainNftIdentity } from '~/lib/nft';
+import { findFeaturedNftByIdentity } from '~/data/featuredNfts';
 
 interface Props {
-  params: {
-    contract: string;
-    tokenId: string;
-  };
+  params: Promise<{ contract: string; tokenId: string }>;
+}
+
+type NftPreview = { name: string; description: string; image: string; isFeatured: boolean };
+
+async function resolveNftPreview(contract: string, tokenId: string): Promise<NftPreview | null> {
+  // Exact Featured match first, for ANY contract — some curated entries use a
+  // real contract with a placeholder hex tokenId that Alchemy misreads as a
+  // different token entirely (see findFeaturedNftByIdentity for details).
+  const featured = findFeaturedNftByIdentity(contract, tokenId);
+  if (featured) {
+    return {
+      name: featured.name || 'PODPLAYR',
+      description: featured.description || featured.metadata?.description || 'Listen on PODPLAYR',
+      image: featured.image || '',
+      isFeatured: true,
+    };
+  }
+
+  if (contract === 'pending' || !isOnChainNftIdentity(contract, tokenId)) return null;
+
+  for (const network of ['base', 'ethereum'] as const) {
+    try {
+      const nft = await getNFTMetadata(contract, tokenId, network);
+      return {
+        name: nft.name || 'PODPLAYR',
+        description: nft.description || 'Listen to this NFT on PODPLAYR',
+        image: nft.image || nft.metadata?.image || '',
+        isFeatured: false,
+      };
+    } catch {
+      // try next network
+    }
+  }
+  return null;
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
-  const { contract, tokenId } = params;
-  const nft = await getNFTMetadata(contract, tokenId);
-  const appUrl = process.env.NEXT_PUBLIC_URL;
-  const nftUrl = `${appUrl}/?contract=${contract}&tokenId=${tokenId}`;
+  const { contract, tokenId } = await params;
+  const appUrl = await getServerAppUrl();
+  const nftUrl = getNftUrl(contract, tokenId, appUrl);
 
-  const frame = {
-    version: 'vNext',
-    // Always use OpenGraph API - it has the robust image processing logic
-    image: `${appUrl}/api/og?contract=${contract}&tokenId=${tokenId}`,
-    title: nft.name || 'PODPLAYR',
-    description: nft.description || 'Listen to this NFT on PODPLAYR',
-    buttons: [{
-      label: '▶️ Play Now',
-      action: {
-        type: 'post_redirect',
-        target: nftUrl,
-      },
-    }],
-    postUrl: `${appUrl}/api/frame?contract=${contract}&tokenId=${tokenId}`,
-  };
+  const preview = await resolveNftPreview(contract, tokenId);
+  if (!preview) {
+    return {
+      title: 'PODPLAYR',
+      other: miniAppMetadataTags({
+        imageUrl: `${appUrl}/image.png`,
+        buttonTitle: 'Enter PODPLAYR',
+        launchUrl: appUrl,
+      }),
+    };
+  }
+
+  const ogImage = preview.isFeatured
+    ? preview.image || `${appUrl}/image.png`
+    : `${appUrl}/api/og?contract=${encodeURIComponent(contract)}&tokenId=${encodeURIComponent(tokenId)}`;
 
   return {
-    title: frame.title,
-    description: frame.description,
+    title: `${preview.name} on PODPLAYR`,
+    description: preview.description,
     openGraph: {
-      title: frame.title,
-      description: frame.description,
-      images: [frame.image],
+      title: preview.name,
+      description: preview.description,
+      images: [ogImage],
       url: nftUrl,
     },
-    other: {
-      'fc:frame': frame.version,
-      'fc:frame:image': frame.image,
-      'fc:frame:post_url': frame.postUrl,
-      'fc:frame:button:1': frame.buttons[0].label,
-      'fc:frame:button:1:action': 'post_redirect',
-      'fc:frame:button:1:target': frame.buttons[0].action.target,
-    },
+    other: miniAppMetadataTags({
+      imageUrl: ogImage,
+      buttonTitle: '▶️ Play Now',
+      launchUrl: nftUrl,
+    }),
   };
 }
 
-export default async function NFTFramePage({ params }: Props) {
-  const { contract, tokenId } = params;
-  const nft = await getNFTMetadata(contract, tokenId);
-  const appUrl = process.env.NEXT_PUBLIC_URL;
-
+export default function NFTPage() {
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center p-4">
-      <div className="max-w-lg w-full">
-        <img 
-          // Use OpenGraph API for consistent image processing
-          src={`${appUrl}/api/og?contract=${contract}&tokenId=${tokenId}`}
-          alt={nft.name || 'NFT Image'}
-          className="w-full h-auto rounded-lg shadow-lg"
-        />
-        <h1 className="text-2xl font-bold mt-4 text-purple-300">{nft.name}</h1>
-        {nft.description && (
-          <p className="mt-2 text-gray-400">{nft.description}</p>
-        )}
-        <div className="mt-6 flex gap-4">
-          <a
-            href={`${appUrl}/?contract=${contract}&tokenId=${tokenId}`}
-            className="flex-1 text-center bg-purple-500 text-black font-semibold py-3 px-6 rounded-lg hover:bg-purple-400 transition-colors"
-          >
-            ▶️ Play
-          </a>
-          <a
-            href={`https://warpcast.com/~/compose?embeds[]=${appUrl}/nft/${contract}/${tokenId}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex-1 text-center bg-purple-500 text-black font-semibold py-3 px-6 rounded-lg hover:bg-purple-400 transition-colors"
-          >
-            🔗 Share on Farcaster
-          </a>
-        </div>
-      </div>
-    </div>
+    <main>
+      <App />
+    </main>
   );
 }

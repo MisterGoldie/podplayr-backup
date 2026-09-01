@@ -111,7 +111,7 @@ type UseAudioPlayerReturn = {
   currentlyPlaying: string | null;
   audioProgress: number;
   audioDuration: number;
-  handlePlayAudio: (nft: NFT, context?: { queue?: NFT[]; queueType?: string }) => Promise<void>;
+  handlePlayAudio: (nft: NFT, context?: { queue?: NFT[]; queueType?: string; autoplay?: boolean }) => Promise<void>;
   handlePlayPause: () => void;
   handlePlayNext: () => void;
   handlePlayPrevious: () => void;
@@ -256,6 +256,13 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
           ) as HTMLVideoElement | null)
         : visualPlaybackRef.current;
 
+    playbackDebug('handlePlayPause:tap', {
+      isPlaying,
+      clockPaused: clock.paused,
+      clock: mediaDebugSnapshot(clock),
+      video: video && video !== clock ? mediaDebugSnapshot(video) : 'same-as-clock',
+    });
+
     if (isPlaying || !clock.paused) {
       clock.pause();
       if (video && video !== clock) video.pause();
@@ -264,6 +271,10 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       setIsPlaying(true);
       clock.play().catch((error) => {
         audioLogger.error('Error in handlePlayPause:', error);
+        playbackDebug('handlePlayPause:play-error', {
+          errorName: error instanceof Error ? error.name : undefined,
+          errorMessage: error instanceof Error ? error.message : String(error),
+        });
         setIsPlaying(false);
       });
       if (video && video !== clock) {
@@ -297,10 +308,16 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
   }, [cleanupBlobUrls]);
   
   // Define handlePlayAudio first, before it's used in other functions
-  const handlePlayAudio = useCallback(async (nft: NFT, context?: { queue?: NFT[], queueType?: string }) => {
+  const handlePlayAudio = useCallback(async (nft: NFT, context?: { queue?: NFT[], queueType?: string, autoplay?: boolean }) => {
 
     // Add mobile optimization
     const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    // Browsers block .play() without a real user gesture (e.g. loading a
+    // shared link on mount) — calling it anyway just throws NotAllowedError
+    // and leaves the media looking "frozen". Callers without a gesture (deep
+    // links) pass autoplay:false to load/prepare the track and let the
+    // user's first tap on the play button provide the gesture instead.
+    const shouldAutoplay = context?.autoplay !== false;
     
     // Always update queue context
     if (context?.queue) {
@@ -809,6 +826,11 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     };
 
     const kickPlay = () => {
+      if (!shouldAutoplay) {
+        playbackDebug('play:kick-skip-autoplay', { name: nft.name, media: mediaDebugSnapshot(media) });
+        return;
+      }
+      playbackDebug('play:kick', { name: nft.name, media: mediaDebugSnapshot(media) });
       setIsPlaying(true);
       const playPromise = media.play();
       if (!playPromise) {
@@ -822,6 +844,11 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
           // Re-parenting the shared <video> (cover enrich / player layout)
           // aborts the original play() — retry once if this click is still live.
           const src = media.currentSrc || media.src;
+          playbackDebug('play:abort-error', {
+            name: nft.name,
+            willRetry: Boolean(src && src !== window.location.href && media.paused),
+            media: mediaDebugSnapshot(media),
+          });
           if (src && src !== window.location.href && media.paused) {
             media.play().then(() => restorePageScroll()).catch(() => {});
           }
@@ -835,6 +862,14 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
               setTimeout(() => { media.muted = false; }, 300);
             })
             .catch((mutedErr) => {
+              playbackDebug('play:muted-retry-failed', {
+                name: nft.name,
+                errorName: mutedErr instanceof Error ? mutedErr.name : undefined,
+                errorMessage: mutedErr instanceof Error ? mutedErr.message : String(mutedErr),
+              });
+              // Autoplay is blocked outright — don't leave the button showing
+              // "pause" for media that never actually started.
+              setIsPlaying(false);
             });
           return;
         }
@@ -850,6 +885,9 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
           errorMessage: err instanceof Error ? err.message : String(err),
           media: mediaDebugSnapshot(media),
         });
+        // Same rule for every other rejection (e.g. desktop NotAllowedError
+        // with no muted-autoplay fallback) — isPlaying must reflect reality.
+        if (media.paused) setIsPlaying(false);
       });
     };
 
@@ -1094,9 +1132,15 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     };
 
     media.onplay = () => {
+      playbackDebug('event:onplay', { name: nft.name, media: mediaDebugSnapshot(media) });
       resumeHlsBuffering();
     };
     media.onpause = () => {
+      playbackDebug('event:onpause', {
+        name: nft.name,
+        skippedReason: playAttempt !== playAttemptRef.current ? 'stale-play-attempt' : switchingUrl ? 'switching-url' : media.ended ? 'ended' : null,
+        media: mediaDebugSnapshot(media),
+      });
       if (playAttempt !== playAttemptRef.current || switchingUrl) return;
       if (!media.ended) setIsPlaying(false);
       pauseHlsBuffering();

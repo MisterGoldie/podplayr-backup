@@ -22,10 +22,10 @@ import { UserDataLoader } from './data/UserDataLoader';
 import { logger } from '../utils/logger';
 import { isNftMediaDead, subscribeToDeadNftUpdates } from '../utils/deadNftRegistry';
 import { applyConfirmedPlayback, isPlayableMediaNFT } from '../utils/isMediaNFT';
-import { withFeaturedPlayback } from '../data/featuredNfts';
+import { withFeaturedPlayback, findFeaturedNftByIdentity } from '../data/featuredNfts';
 import { UserImageProvider } from '../contexts/UserImageContext';
 import { BaseAppSignIn } from './auth/BaseAppSignIn';
-import { parseProfileFid } from '../lib/miniapp';
+import { parseProfileFid, parseNftDeepLink } from '../lib/miniapp';
 import { restorePageScroll } from '../utils/pageScroll';
 import NFTNotification from './NFTNotification';
 import { useNFTNotification } from '../context/NFTNotificationContext';
@@ -108,9 +108,18 @@ const DemoBase: React.FC = () => {
 
   const [currentPage, setCurrentPage] = useState<PageState>(() => {
     if (typeof window === 'undefined') return HOME_PAGE;
-    return parseProfileFid(window.location.pathname, window.location.search)
-      ? { ...HOME_PAGE, isHome: false, isUserProfile: true }
-      : HOME_PAGE;
+    if (parseProfileFid(window.location.pathname, window.location.search)) {
+      return { ...HOME_PAGE, isHome: false, isUserProfile: true };
+    }
+    // Also hold off rendering HomeView for a shared-NFT deep link — it
+    // resolves asynchronously (Alchemy fetch for real contracts), and
+    // without this the home page fully renders behind the maximized player
+    // for that gap, causing a visible flash to the home page before the
+    // player pops up.
+    if (parseNftDeepLink(window.location.pathname, window.location.search)) {
+      return { ...HOME_PAGE, isHome: false };
+    }
+    return HOME_PAGE;
   });
   const [navigationSource, setNavigationSource] = useState<NavigationSource>({
     fromExplore: false,
@@ -524,6 +533,92 @@ const DemoBase: React.FC = () => {
     if (!profileFid) return;
     void loadProfileFromFid(profileFid);
   }, [loadProfileFromFid]);
+
+  const loadNftFromDeepLink = useCallback(async (contract: string, tokenId: string) => {
+    try {
+      // Exact Featured match first, for ANY contract — some curated entries
+      // use a real contract with a placeholder hex tokenId that Alchemy
+      // misreads as a different token entirely (see findFeaturedNftByIdentity).
+      let nft: NFT | null = findFeaturedNftByIdentity(contract, tokenId) || null;
+
+      if (!nft && contract !== 'pending') {
+        // URL alone doesn't carry network — try base first (most curated
+        // content lives there), then ethereum.
+        for (const network of ['base', 'ethereum'] as const) {
+          try {
+            const res = await fetch(
+              `/api/nft?contract=${encodeURIComponent(contract)}&tokenId=${encodeURIComponent(tokenId)}&network=${network}`,
+              { cache: 'no-store' }
+            );
+            if (res.ok) {
+              const data = (await res.json()) as NFT;
+              if (data?.contract) {
+                nft = data;
+                break;
+              }
+            }
+          } catch {
+            // try next network
+          }
+        }
+      }
+
+      if (!nft) {
+        demoLogger.warn('No NFT found for deep link:', contract, tokenId);
+        return;
+      }
+
+      const playable = withFeaturedPlayback(nft);
+      if (!isPlayableMediaNFT(playable)) {
+        demoLogger.warn('Deep-linked NFT is not playable:', contract, tokenId);
+        return;
+      }
+
+      // handlePlayAudio alone doesn't touch isPlayerMinimized (that's owned
+      // here in Demo.tsx and normally only unminimized by handlePlayNFT for
+      // the suggested-music-videos rail) — force it open for a shared link.
+      setIsPlayerMinimized(false);
+      // No user gesture at page-load time, so browsers block autoplay outright
+      // (NotAllowedError) — load the track paused and let the user's first
+      // tap on the play button provide the gesture instead of showing a
+      // stuck/"frozen" player.
+      void handlePlayAudio(playable, { autoplay: false });
+    } catch (error) {
+      demoLogger.error('Error loading NFT from deep link:', error);
+    } finally {
+      // We held HomeView back (currentPage.isHome=false, see the initial
+      // currentPage state) to avoid flashing the home page while this
+      // resolved. Restore it now so it sits behind the maximized player —
+      // or is simply visible on its own if the deep link didn't resolve.
+      setCurrentPage((prev) => (prev.isHome ? prev : HOME_PAGE));
+    }
+  }, [handlePlayAudio]);
+
+  // loadNftFromDeepLink's identity changes on every handlePlayAudio call
+  // (handlePlayAudio depends on currentlyPlaying/isPlaying, which it sets
+  // itself) — depending on it directly re-fires this effect forever: it
+  // starts playback, that changes currentlyPlaying, handlePlayAudio gets a
+  // new reference, the effect re-runs, sees the NFT already "playing" and
+  // calls handlePlayPause() to toggle it, isPlaying flips, another new
+  // reference, repeat. Grab the latest fn via a ref and run this exactly
+  // once per mount instead.
+  const loadNftFromDeepLinkRef = useRef(loadNftFromDeepLink);
+  loadNftFromDeepLinkRef.current = loadNftFromDeepLink;
+  const deepLinkHandledRef = useRef(false);
+
+  useEffect(() => {
+    if (deepLinkHandledRef.current) return;
+    const deepLink = parseNftDeepLink(window.location.pathname, window.location.search);
+    if (!deepLink) return;
+    deepLinkHandledRef.current = true;
+    // handlePlayAudio uses flushSync internally, which React forbids while
+    // still inside a lifecycle/commit phase (this effect). Defer to a fresh
+    // macrotask so it runs after React is done committing this render.
+    const timer = window.setTimeout(() => {
+      void loadNftFromDeepLinkRef.current(deepLink.contract, deepLink.tokenId);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     const onPopState = () => {

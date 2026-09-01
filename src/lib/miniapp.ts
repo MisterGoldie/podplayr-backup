@@ -48,6 +48,30 @@ export function parseProfileFid(pathname: string, search = ''): number | null {
   return Number.isInteger(fid) && fid !== 0 ? fid : null;
 }
 
+export function getNftUrl(contract: string, tokenId: string, appUrl = getAppUrl()): string {
+  return `${stripSlash(appUrl)}/nft/${encodeURIComponent(contract)}/${encodeURIComponent(tokenId)}`;
+}
+
+/** Matches `/nft/:contract/:tokenId` and, for older shared links, `?contract=&tokenId=`. */
+export function parseNftDeepLink(
+  pathname: string,
+  search = ''
+): { contract: string; tokenId: string } | null {
+  const pathMatch = pathname.match(/^\/nft\/([^/]+)\/([^/]+)\/?$/);
+  if (pathMatch) {
+    const contract = decodeURIComponent(pathMatch[1]);
+    const tokenId = decodeURIComponent(pathMatch[2]);
+    if (contract && tokenId) return { contract, tokenId };
+  }
+
+  const params = new URLSearchParams(search);
+  const contract = params.get('contract');
+  const tokenId = params.get('tokenId');
+  if (contract && tokenId) return { contract, tokenId };
+
+  return null;
+}
+
 type EmbedOptions = {
   imageUrl: string;
   buttonTitle: string;

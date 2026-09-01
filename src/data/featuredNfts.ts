@@ -78,6 +78,24 @@ export function findFeaturedNft(
   return findFeaturedByTitle(nft.name);
 }
 
+/**
+ * Exact (contract, tokenId) lookup against the curated Featured list — for
+ * ANY contract, not just `pending`. Deep-link/share resolution must check
+ * this before ever calling /api/nft: some Featured entries use a real
+ * contract but a placeholder hex tokenId (e.g. "I Found It" `50dc9fb449e1`)
+ * that Alchemy misreads as a giant decimal, returning a completely different
+ * token's shared collection PNG with no playable media (see
+ * isCuratedFeaturedCover above).
+ */
+export function findFeaturedNftByIdentity(contract: string, tokenId: string): NFT | undefined {
+  const c = contract?.toLowerCase();
+  const t = normalizeNftTokenId(tokenId);
+  if (!c || !t) return undefined;
+  return FEATURED_NFTS.find(
+    (featured) => featured.contract?.toLowerCase() === c && normalizeNftTokenId(featured.tokenId) === t
+  );
+}
+
 /** Display the curated Featured cover when this is the same track under another mint. */
 export function withFeaturedCover<T extends Pick<NFT, 'contract' | 'tokenId' | 'audio' | 'metadata' | 'image' | 'name'>>(
   nft: T

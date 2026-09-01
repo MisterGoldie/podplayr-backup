@@ -16,6 +16,7 @@ import {
 } from './openSeaMedia';
 import { getMediaKey } from './nftIdentity';
 import { isDangerousResourceUrl } from './nftSafety';
+import { playbackDebug } from './playbackDebug';
 
 export {
   rewriteLegacyOpenSeaMediaUrl,
@@ -1149,7 +1150,15 @@ export function adoptPlaybackVideoElement(
     }
     child.remove();
   }
-  if (video.parentElement !== host) {
+  const needsReparent = video.parentElement !== host;
+  if (needsReparent) {
+    playbackDebug('adopt:reparent', {
+      contract,
+      tokenId,
+      wasPaused: video.paused,
+      currentTime: video.currentTime,
+      previousParent: video.parentElement?.tagName ?? null,
+    });
     host.appendChild(video);
   }
   video.removeAttribute('data-podplayr-fallback');

@@ -2,10 +2,11 @@
  * TEMP PLAYBACK DEBUG — remove this file and every `playbackDebug` import
  * after the unplayable-audio issue is fixed.
  *
- * Off for now. Force on: window.__PODPLAYR_PLAYBACK_DEBUG = true
+ * ON while we chase the play/pause button flicker. Force off from the
+ * console: window.__PODPLAYR_PLAYBACK_DEBUG = false
  * Filter DevTools console by: PLAYBACK DEBUG
  */
-export const PLAYBACK_DEBUG_ENABLED = false;
+export const PLAYBACK_DEBUG_ENABLED = true;
 
 const PREFIX = '[PLAYBACK DEBUG — REMOVE]';
 
