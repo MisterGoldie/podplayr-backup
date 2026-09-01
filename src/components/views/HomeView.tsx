@@ -9,6 +9,7 @@ import { getMediaKey } from '../../utils/media';
 import { sameLikedTrack } from '../../utils/likeDedupe';
 import { logger } from '~/utils/logger';
 import { UserFidContext } from '~/app/providers';
+import { LiveStreamFrame } from '../live/LiveStreamFrame';
 
 const homeLogger = logger.getModuleLogger('homeView');
 
@@ -90,6 +91,9 @@ const HomeView: React.FC<HomeViewProps> = ({
   return (
     <>
       <div className="page-scroll space-y-6 pt-20 pb-40 bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082]">
+        <div className="px-4">
+          <LiveStreamFrame />
+        </div>
         {!isFidReady ? (
           <section className="w-full">
             <div className="container mx-auto px-4">

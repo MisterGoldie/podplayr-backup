@@ -24,6 +24,7 @@ import { getMediaKey } from '../../utils/media';
 import type { NFT } from '../../types/nft';
 import ProfileAvatar from '../user/ProfileAvatar';
 import { CommunityPills } from '../user/CommunityPills';
+import { LiveStreamFrame } from '../live/LiveStreamFrame';
 
 type ExploreFilter = 'all' | 'farcaster' | 'ens';
 
@@ -517,6 +518,12 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
             </div>
             {hasMoreSearch && <div ref={searchSentinelRef} className="h-8" aria-hidden="true" />}
           </section>
+        )}
+
+        {showDiscovery && filter !== 'ens' && (
+          <div className="px-4">
+            <LiveStreamFrame />
+          </div>
         )}
 
         {showDiscovery && featuredReady && (
