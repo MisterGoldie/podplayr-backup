@@ -6,7 +6,7 @@ export const POD_MEMBER_FIDS = [
 ];
 
 export const ACYL_FIDS = [
-  7472, 14871, 414859, 356115, 296462, 195864, 1020224, 1020659,
+  7472, 14871, 414859, 356115, 296462, 195864, 1020224, 1020659, 3349343,
 ];
 
 export function isPodMember(fid: number) {
