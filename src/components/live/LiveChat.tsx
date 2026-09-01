@@ -22,6 +22,7 @@ function handleOf(message: LiveChatMessage) {
 export function LiveChat({ online }: { online: boolean }) {
   const { fid } = useContext(UserFidContext);
   const { user } = useContext(UnifiedContext);
+  const [minimized, setMinimized] = useState(false);
   const [session, setSession] = useState<LiveChatSession>({
     status: 'idle',
     activeSessionId: null,
@@ -136,8 +137,18 @@ export function LiveChat({ online }: { online: boolean }) {
 
   return (
     <div className="mt-3 rounded-2xl border border-white/10 bg-black/35 overflow-hidden">
-      <p className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-[0.18em] text-white/45">Live chat</p>
-      <div
+      <div className="flex items-center justify-between px-3 pt-2 pb-1">
+        <p className="text-[10px] uppercase tracking-[0.18em] text-white/45">Live chat</p>
+        <button
+          type="button"
+          onClick={() => setMinimized((m) => !m)}
+          className="text-white/40 hover:text-white/70 touch-manipulation text-xs px-1"
+          aria-label={minimized ? 'Expand chat' : 'Minimize chat'}
+        >
+          {minimized ? '▲ Show' : '▼ Hide'}
+        </button>
+      </div>
+      {!minimized && <div
         ref={listRef}
         className="h-44 overflow-y-auto px-3 pt-1 pb-3 space-y-2 hide-scrollbar"
         onScroll={(event) => {
@@ -167,8 +178,8 @@ export function LiveChat({ online }: { online: boolean }) {
             );
           })
         )}
-      </div>
-      <form onSubmit={onSubmit} className="flex items-center gap-2 border-t border-white/10 p-2">
+      </div>}
+      {!minimized && <form onSubmit={onSubmit} className="flex items-center gap-2 border-t border-white/10 p-2">
         <input
           type="text"
           value={draft}
@@ -188,8 +199,8 @@ export function LiveChat({ online }: { online: boolean }) {
         >
           Send
         </button>
-      </form>
-      {error ? <p className="px-3 pb-2 text-[11px] text-red-300/80">{error}</p> : null}
+      </form>}
+      {!minimized && error ? <p className="px-3 pb-2 text-[11px] text-red-300/80">{error}</p> : null}
     </div>
   );
 }
