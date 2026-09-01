@@ -29,6 +29,7 @@ export function LiveChat({ online }: { online: boolean }) {
   const listRef = useRef<HTMLDivElement>(null);
   const lastSentRef = useRef(0);
   const stickToBottomRef = useRef(true);
+  const sawLiveRef = useRef(false);
   const liveSessionId = session.status === 'live' ? session.activeSessionId : null;
   const canSend = isRealFid(fid) && Boolean(liveSessionId);
   const visibleMessages = useMemo(
@@ -50,7 +51,16 @@ export function LiveChat({ online }: { online: boolean }) {
   }, []);
 
   useEffect(() => {
-    void syncLiveChatSession(online).catch(() => {
+    if (online) {
+      sawLiveRef.current = true;
+      void syncLiveChatSession(true).catch(() => {
+        setError('Chat is unavailable right now');
+      });
+      return;
+    }
+    if (!sawLiveRef.current) return;
+    sawLiveRef.current = false;
+    void syncLiveChatSession(false).catch(() => {
       setError('Chat is unavailable right now');
     });
   }, [online]);

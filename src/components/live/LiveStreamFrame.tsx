@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type Hls from 'hls.js';
 import {
   LIVE_HLS_URL,
+  LIVE_OFFLINE_POLLS,
   LIVE_POLL_MS,
   LIVE_POSTER_URL,
   LIVE_TITLE,
@@ -63,7 +64,7 @@ export function LiveStreamFrame() {
       hls.on(HlsLib.Events.ERROR, (_event, data) => {
         if (!data.fatal) return;
         destroyHls();
-        setOnline(false);
+        onlineRef.current = false;
       });
       hls.attachMedia(video);
       hls.on(HlsLib.Events.MEDIA_ATTACHED, () => {
@@ -83,20 +84,26 @@ export function LiveStreamFrame() {
 
   useEffect(() => {
     let cancelled = false;
+    let misses = 0;
 
     const poll = async () => {
       const live = await isLiveManifestAvailable();
       if (cancelled) return;
-      if (live && !onlineRef.current) {
-        onlineRef.current = true;
-        setOnline(true);
-        void attachLive();
-      } else if (!live && onlineRef.current) {
-        onlineRef.current = false;
-        setOnline(false);
-        setNeedsTap(false);
-        destroyHls();
+      if (live) {
+        misses = 0;
+        if (!onlineRef.current) {
+          onlineRef.current = true;
+          setOnline(true);
+          void attachLive();
+        }
+        return;
       }
+      misses += 1;
+      if (misses < LIVE_OFFLINE_POLLS || !onlineRef.current) return;
+      onlineRef.current = false;
+      setOnline(false);
+      setNeedsTap(false);
+      destroyHls();
     };
 
     void poll();

@@ -10,8 +10,9 @@ export const LIVE_POSTER_URL = `https://image.mux.com/${LIVE_PLAYBACK_ID}/thumbn
 
 export const LIVE_TITLE = 'PODPLAYR Live';
 export const LIVE_POLL_MS = 12_000;
+export const LIVE_OFFLINE_POLLS = 3;
 
 export const LIVE_CHAT_COLLECTION = 'live_chat';
 export const LIVE_CHAT_MAX_LEN = 200;
-export const LIVE_CHAT_PAGE_SIZE = 60;
+export const LIVE_CHAT_PAGE_SIZE = 150;
 export const LIVE_CHAT_RATE_MS = 2_000;
