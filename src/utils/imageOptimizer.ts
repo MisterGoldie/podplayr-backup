@@ -1,5 +1,5 @@
 import { isOpenSeaCdnHost, toOpenSeaCdnProxyUrl } from './openSeaMedia';
-import { isEthereumStoriesGifCoverUrl, sanitizeMediaUrl } from './media';
+import { sanitizeMediaUrl } from './media';
 
 interface OptimizedImage {
   file: File;
@@ -432,8 +432,6 @@ export function shouldPreserveAnimation(url: string): boolean {
   if (/\.(gif|apng)(?:\?|#|$)/i.test(lower)) return true;
   if (lower.includes('image/gif') || lower.includes('image%2fgif')) return true;
   if (/mypinata\.cloud/i.test(lower)) return true;
-  // These three CIDs are GIFs on gateway.pinata.cloud with no .gif extension.
-  if (isEthereumStoriesGifCoverUrl(url)) return true;
   return false;
 }
 

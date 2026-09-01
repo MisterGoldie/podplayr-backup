@@ -15,7 +15,7 @@ import {
 } from '../../utils/nftExplorerLinks';
 import { getMusicVideoArtist } from '../../data/musicVideoArtists';
 import { getArtistProfilePreview } from '../../lib/artistProfile';
-import { NftCoverImage } from '../media/NftCoverImage';
+import { NFTImage } from '../media/NFTImage';
 
 interface InfoPanelProps {
   nft: NFT;
@@ -69,6 +69,7 @@ const InfoPanel: React.FC<InfoPanelProps> = ({ nft, onClose, isLiked = false, on
   const mappedArtist = useMemo(() => getMusicVideoArtist(nft), [nft]);
   const artistName = mappedArtist?.name || '';
 
+  const imageSrc = nft.image || nft.metadata?.image || nft.collection?.image || '';
   const description = nft.description || nft.metadata?.description || '';
   const descriptionIsLong = description.length > DESCRIPTION_CLAMP_CHARS;
   const collectionName = nft.collection?.name;
@@ -168,11 +169,16 @@ const InfoPanel: React.FC<InfoPanelProps> = ({ nft, onClose, isLiked = false, on
         }`}
       >
         <div className="relative h-40 bg-gray-800 flex-shrink-0">
-          <NftCoverImage
+          <NFTImage
             nft={nft}
+            src={imageSrc}
+            alt={nft.name}
             className="w-full h-full object-cover"
+            width={400}
+            height={160}
             sizes="(max-width: 420px) 100vw, 384px"
             priority
+            loading="eager"
           />
           <div className="absolute inset-0 bg-gradient-to-t from-gray-900 via-gray-900/55 to-black/10" />
           <button

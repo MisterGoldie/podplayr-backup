@@ -1,7 +1,7 @@
 import type { NFT, NFTMetadata } from '../types/user';
 import { Alchemy, Network } from 'alchemy-sdk';
 import { createHash } from 'crypto';
-import { rewriteLegacyOpenSeaMediaUrl, nftHasSeaDnVideoAnimation, isFragileSeaDnPosterUrl, isOpenSeaHostedStillUrl } from '../utils/openSeaMedia';
+import { rewriteLegacyOpenSeaMediaUrl, nftHasSeaDnVideoAnimation, isFragileSeaDnPosterUrl } from '../utils/openSeaMedia';
 import {
   hasPlayableAudio,
   isPlayableMediaNFT,
@@ -969,13 +969,7 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
       // user, forever. Check the durable cover cache first — once we've
       // decided on a good still for a token, skip straight to it.
       const cachedCover = await getCachedNftCover(contractAddress, formattedTokenId, network);
-      const videoToken =
-        nft.isVideo ||
-        nft.coverIsVideo ||
-        nft.playbackMode === 'video-with-audio' ||
-        nft.playbackMode === 'video-plus-audio' ||
-        getNftPlaybackPlan(nft).mode !== 'audio-only';
-      if (cachedCover && !(videoToken && isOpenSeaHostedStillUrl(cachedCover))) {
+      if (cachedCover) {
         console.log(`${openSeaLogTag} durable cache HIT — reusing previously resolved cover`, {
           cover: cachedCover,
         });
@@ -995,11 +989,7 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
         // can't render that, so only accept it if it's actually a still.
         const openSeaImageIsAlsoVideo =
           !!openSeaMedia?.imageUrl && AUDIO_OR_VIDEO_EXT_RE.test(openSeaMedia.imageUrl);
-        if (
-          openSeaMedia?.imageUrl &&
-          !openSeaImageIsAlsoVideo &&
-          !(videoToken && isOpenSeaHostedStillUrl(openSeaMedia.imageUrl))
-        ) {
+        if (openSeaMedia?.imageUrl && !openSeaImageIsAlsoVideo) {
           console.log(`${openSeaLogTag} fallback SUCCEEDED`, {
             from: nft.image,
             to: openSeaMedia.imageUrl,
@@ -1009,10 +999,6 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
             nft.metadata.image = openSeaMedia.imageUrl;
             nft.metadata.image_url = openSeaMedia.imageUrl;
           }
-        } else if (videoToken && isOpenSeaHostedStillUrl(openSeaMedia?.imageUrl)) {
-          console.log(`${openSeaLogTag} fallback REJECTED — OpenSea still is shared collection i2c`, {
-            openSeaUrl: openSeaMedia?.imageUrl,
-          });
         } else if (openSeaImageIsAlsoVideo) {
           console.log(`${openSeaLogTag} fallback REJECTED — OpenSea also only has a raw video, no still`, {
             openSeaUrl: openSeaMedia?.imageUrl,
@@ -1024,11 +1010,7 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
         // Whatever we landed on (OpenSea still, or the pre-existing Alchemy
         // video/fetch still) is durable — remember it so the next request for
         // this exact token skips the OpenSea round-trip entirely.
-        if (
-          nft.image &&
-          !AUDIO_OR_VIDEO_EXT_RE.test(nft.image) &&
-          !(videoToken && isOpenSeaHostedStillUrl(nft.image))
-        ) {
+        if (nft.image && !AUDIO_OR_VIDEO_EXT_RE.test(nft.image)) {
           await setCachedNftCover(contractAddress, formattedTokenId, network, nft.image);
         }
       }

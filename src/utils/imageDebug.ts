@@ -1,11 +1,5 @@
 import type { NFT } from '../types/user';
-import {
-  pickImageCandidates,
-  sanitizeMediaUrl,
-  looksLikeStillImageUrl,
-  isSharedCollectionCoverUrl,
-  nftPrefersTokenVideoCover,
-} from './media';
+import { pickImageCandidates, sanitizeMediaUrl, looksLikeStillImageUrl } from './media';
 import {
   alchemyCoverIsPlaybackVideo,
   getCardThumbUrl,
@@ -14,16 +8,14 @@ import {
   isVideoMediaUrl,
   parseAlchemyCdnRef,
 } from './imageOptimizer';
-import { getNftCardCover } from './nftCardCover';
 
 /**
  * TEMP IMAGE / COVER DEBUG — remove after card-thumb issues are fixed.
  *
- * On for full-app NFT card / retrieval testing.
- * Force off: window.__PODPLAYR_IMAGE_DEBUG = false
- * Filter DevTools by: CARD-COVER  or  IMAGE DEBUG
+ * Off for now. Force on: window.__PODPLAYR_IMAGE_DEBUG = true
+ * Filter DevTools console by: IMAGE DEBUG
  */
-export const IMAGE_DEBUG_ENABLED = true;
+export const IMAGE_DEBUG_ENABLED = false;
 
 const PREFIX = '[IMAGE DEBUG — REMOVE]';
 
@@ -97,14 +89,10 @@ export function logNftCoverDebug(
 
   const coverIsPlaybackVideo = alchemyCoverIsPlaybackVideo(nft);
   const primary = sanitizeMediaUrl(nft.image || nft.metadata?.image || '') || '';
-  const collectionImage = sanitizeMediaUrl(nft.collection?.image) || '';
-  const prefersVideo = nftPrefersTokenVideoCover(nft);
-  const imageIsCollection = isSharedCollectionCoverUrl(primary, collectionImage);
-  const cardCover = getNftCardCover(nft);
-  const plannedThumb = coverIsPlaybackVideo || prefersVideo
+  const plannedThumb = coverIsPlaybackVideo
     ? getVideoCoverStillUrl(alchemyPeer || primary, size, { assumeVideo: true }) ||
-      getCardThumbUrl(cardCover.rawImageUrl || primary, size, { preferVideoStill: true })
-    : getCardThumbUrl(cardCover.rawImageUrl || primary, size);
+      getCardThumbUrl(primary, size, { preferVideoStill: true })
+    : getCardThumbUrl(primary, size);
 
   const summary = {
     reason,
@@ -112,45 +100,22 @@ export function logNftCoverDebug(
     contract: nft.contract,
     tokenId: nft.tokenId,
     network: nft.network,
-    isVideo: Boolean(nft.isVideo),
-    coverIsVideo: Boolean(nft.coverIsVideo),
-    playbackMode: nft.playbackMode || '',
-    prefersVideo,
-    imageIsCollection,
-    collectionImageMissing: !collectionImage,
-    collectionField: nft.collection
-      ? typeof nft.collection === 'string'
-        ? `string:${nft.collection}`
-        : `object:${nft.collection.name || ''}`
-      : 'missing',
     coverIsPlaybackVideo,
     primaryKind: classifyUrl(primary),
-    pickedKind: classifyUrl(cardCover.rawImageUrl),
     plannedThumbKind: classifyUrl(plannedThumb),
     primary: shortUrl(primary),
-    picked: shortUrl(cardCover.rawImageUrl),
     plannedThumb: shortUrl(plannedThumb),
     alchemyPeer: shortUrl(alchemyPeer),
     coverHash: coverHash ? `${coverHash.network}/${coverHash.hash}` : null,
     playHashes: playHashes.map((p) => (p ? `${p.network}/${p.hash}` : null)),
-    collectionImage: shortUrl(collectionImage),
+    collectionImage: shortUrl(nft.collection?.image),
     candidates: candidates.slice(0, 8).map((u) => ({
       kind: classifyUrl(u),
       still: looksLikeStillImageUrl(u),
       video: isVideoMediaUrl(u) || isLikelyTokenVideoCoverUrl(u),
-      collection: isSharedCollectionCoverUrl(u, collectionImage),
       url: shortUrl(u),
     })),
   };
-
-  console.log('[CARD-COVER]', nft.name, {
-    prefersVideo,
-    imageIsCollection,
-    collectionImageMissing: !collectionImage,
-    pickedKind: classifyUrl(cardCover.rawImageUrl),
-    picked: shortUrl(cardCover.rawImageUrl),
-    primary: shortUrl(primary),
-  });
 
   const label = `${PREFIX} cover:${reason} ${nft.name || 'untitled'} ${nft.contract?.slice(0, 10)}…#${nft.tokenId}`;
   console.log(label, summary);
