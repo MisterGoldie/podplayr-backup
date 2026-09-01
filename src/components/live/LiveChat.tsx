@@ -25,7 +25,7 @@ export function LiveChat({ online }: { online: boolean }) {
   const [session, setSession] = useState<LiveChatSession>({
     status: 'idle',
     activeSessionId: null,
-    showStartedAtMs: null,
+    strictSession: false,
   });
   const [messages, setMessages] = useState<LiveChatMessage[]>([]);
   const [draft, setDraft] = useState('');
@@ -39,12 +39,9 @@ export function LiveChat({ online }: { online: boolean }) {
   const canSend = isRealFid(fid) && Boolean(liveSessionId);
   const visibleMessages = useMemo(() => {
     if (!liveSessionId) return [];
-    return messages.filter((message) => {
-      if (!message.sessionId || message.sessionId === liveSessionId) return true;
-      const created = message.createdAt?.toMillis?.() ?? 0;
-      return session.showStartedAtMs != null && created >= session.showStartedAtMs;
-    });
-  }, [liveSessionId, messages, session.showStartedAtMs]);
+    if (!session.strictSession) return messages;
+    return messages.filter((message) => !message.sessionId || message.sessionId === liveSessionId);
+  }, [liveSessionId, messages, session.strictSession]);
 
   useEffect(() => {
     const stopSession = subscribeLiveChatSession(setSession, () => {
@@ -62,10 +59,14 @@ export function LiveChat({ online }: { online: boolean }) {
   useEffect(() => {
     if (online) {
       sawLiveRef.current = true;
-      void syncLiveChatSession(true).catch(() => {
-        setError('Chat is unavailable right now');
-      });
-      return;
+      const beat = () => {
+        void syncLiveChatSession(true).catch(() => {
+          setError('Chat is unavailable right now');
+        });
+      };
+      beat();
+      const id = window.setInterval(beat, 30_000);
+      return () => window.clearInterval(id);
     }
     if (!sawLiveRef.current) return;
     const timer = window.setTimeout(() => {

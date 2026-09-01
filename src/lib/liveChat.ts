@@ -34,7 +34,8 @@ export type LiveChatMessage = {
 export type LiveChatSession = {
   status: 'live' | 'idle';
   activeSessionId: string | null;
-  showStartedAtMs: number | null;
+  /** After a real stream end, only show the new show's messages. */
+  strictSession: boolean;
 };
 
 function sessionRef() {
@@ -56,7 +57,7 @@ export function subscribeLiveChatSession(
       onSession({
         status: data?.status === 'live' ? 'live' : 'idle',
         activeSessionId: typeof data?.activeSessionId === 'string' ? data.activeSessionId : null,
-        showStartedAtMs: data?.showStartedAt?.toMillis?.() ?? null,
+        strictSession: data?.strictSession === true,
       });
     },
     (error) => {
@@ -105,36 +106,29 @@ function lastSeenMs(data: { lastSeenLiveAt?: { toMillis?: () => number } } | und
   return data?.lastSeenLiveAt?.toMillis?.() ?? 0;
 }
 
-function sessionIsCurrent(
-  data: { status?: string; lastSeenLiveAt?: { toMillis?: () => number } } | undefined,
-  sessionId: string | null
-): boolean {
-  if (!sessionId) return false;
+function recentlyLive(data: { lastSeenLiveAt?: { toMillis?: () => number } } | undefined): boolean {
   const seen = lastSeenMs(data);
-  if (!seen) return data?.status === 'live';
-  return Date.now() - seen < LIVE_SESSION_END_MS;
+  return seen > 0 && Date.now() - seen < LIVE_SESSION_END_MS;
 }
 
-/** Same chat for the whole show. New session only after the stream has actually been gone. */
+/** Same chat while Mux is live. Refresh / reconnect never opens a new thread. */
 export async function syncLiveChatSession(isLive: boolean): Promise<string | null> {
   return runTransaction(db, async (tx) => {
     const ref = sessionRef();
     const snap = await tx.get(ref);
     const data = snap.data();
     const currentId = typeof data?.activeSessionId === 'string' ? data.activeSessionId : null;
+    const status = data?.status === 'live' ? 'live' : 'idle';
     const now = Timestamp.now();
 
     if (isLive) {
-      if (sessionIsCurrent(data, currentId)) {
+      if (currentId && (status === 'live' || recentlyLive(data))) {
         tx.set(
           ref,
           {
             status: 'live',
             lastSeenLiveAt: now,
             endedAt: null,
-            ...(!data?.showStartedAt
-              ? { showStartedAt: Timestamp.fromMillis(Date.now() - 6 * 60 * 60 * 1000) }
-              : {}),
           },
           { merge: true }
         );
@@ -148,16 +142,16 @@ export async function syncLiveChatSession(isLive: boolean): Promise<string | nul
           activeSessionId: nextId,
           liveSince: now,
           lastSeenLiveAt: now,
-          showStartedAt: now,
           endedAt: null,
+          strictSession: status === 'idle' && Boolean(currentId),
         },
         { merge: true }
       );
       return nextId;
     }
 
-    if (sessionIsCurrent(data, currentId)) return currentId;
-    if (data?.status === 'live') {
+    if (recentlyLive(data)) return currentId;
+    if (status === 'live') {
       tx.set(ref, { status: 'idle', endedAt: now }, { merge: true });
     }
     return null;
