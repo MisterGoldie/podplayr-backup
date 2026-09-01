@@ -139,7 +139,7 @@ export function LiveChat({ online }: { online: boolean }) {
       <p className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-[0.18em] text-white/45">Live chat</p>
       <div
         ref={listRef}
-        className="h-44 overflow-y-auto px-3 space-y-2 hide-scrollbar"
+        className="h-44 overflow-y-auto px-3 pt-1 pb-3 space-y-2 hide-scrollbar"
         onScroll={(event) => {
           const el = event.currentTarget;
           stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
