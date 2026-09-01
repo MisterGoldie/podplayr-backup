@@ -63,8 +63,10 @@ export function LiveStreamFrame() {
       hlsRef.current = hls;
       hls.on(HlsLib.Events.ERROR, (_event, data) => {
         if (!data.fatal) return;
-        destroyHls();
         onlineRef.current = false;
+        setOnline(false);
+        setNeedsTap(false);
+        destroyHls();
       });
       hls.attachMedia(video);
       hls.on(HlsLib.Events.MEDIA_ATTACHED, () => {
