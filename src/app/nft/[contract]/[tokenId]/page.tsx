@@ -8,6 +8,13 @@ interface Props {
   params: Promise<{ contract: string; tokenId: string }>;
 }
 
+// Farcaster/Warpcast proxy+cache embed images by URL, independent of our
+// own Cache-Control headers — a metadata "refresh" in their dev tools often
+// only re-scans the HTML tags, not the underlying cached image bytes. Bump
+// this whenever the /api/og visual output changes so the URL is new and
+// their cache can't keep serving a stale render.
+const OG_IMAGE_VERSION = 'v7';
+
 type NftPreview = { name: string; description: string; image: string; isFeatured: boolean };
 
 async function resolveNftPreview(contract: string, tokenId: string): Promise<NftPreview | null> {
@@ -61,7 +68,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   const ogImage = preview.isFeatured
     ? preview.image || `${appUrl}/image.png`
-    : `${appUrl}/api/og?contract=${encodeURIComponent(contract)}&tokenId=${encodeURIComponent(tokenId)}`;
+    : `${appUrl}/api/og?contract=${encodeURIComponent(contract)}&tokenId=${encodeURIComponent(tokenId)}&ogv=${OG_IMAGE_VERSION}`;
 
   return {
     title: `${preview.name} on PODPLAYR`,
