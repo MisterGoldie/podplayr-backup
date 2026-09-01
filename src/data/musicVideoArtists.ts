@@ -49,6 +49,32 @@ const MUSIC_VIDEO_ARTISTS: Record<string, MusicVideoArtist> = {
     fid: 541225,
     name: 'XTincT',
   },
+  // I Found It
+  [artistKey('0x27430c3ef4b04f7d223df7f280ae8fc0b3a407b7', '50dc9fb449e1')]: {
+    fid: 1020224,
+    name: 'Artist',
+  },
+  // ACYL RADIO - Topia Hour
+  [artistKey('0xA59Fa4555264B256fD43cd51B5794348F859dA51', '8')]: {
+    fid: 10914,
+    name: 'Artist',
+  },
+  // ACYL RADIO - WILL01
+  [artistKey('0xA59Fa4555264B256fD43cd51B5794348F859dA51', '3')]: {
+    fid: 414859,
+    name: 'Artist',
+  },
+  // ACYL RADIO - Chili Sounds
+  [artistKey('0xA59Fa4555264B256fD43cd51B5794348F859dA51', '5')]: {
+    fid: 14871,
+    name: 'Artist',
+  },
+  // NFT Podcast with Logik (Julian Gilliam) — Mux-only featured (pending contract)
+  [artistKeyRaw('pending', 'logik-ep1')]: {
+    fid: 7472,
+    name: 'Artist',
+    collaborators: [{ fid: 336067, name: 'Artist' }],
+  },
   // I Asked My Friends A Serious Question — Mux-only featured (pending contract)
   [artistKeyRaw('pending', 'iasked-friends-serious-question')]: {
     fid: 14871,
