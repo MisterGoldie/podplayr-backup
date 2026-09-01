@@ -126,6 +126,11 @@ const PLAYBACK_OVERRIDES: Record<string, { mobile: string; desktop?: string }> =
     mobile: muxHls('B00glZFc67CoWhE4KHC00cFRKnEt5D7yR2yhl013gvwnT8'),
     desktop: muxHls('B00glZFc67CoWhE4KHC00cFRKnEt5D7yR2yhl013gvwnT8'),
   },
+  // I Asked My Friends A Serious Question — Mux-only
+  '1C023gIJ9baWRdDavLYzKqB02iBPUHeO00wfTaL2AnGp00s': {
+    mobile: muxHls('1C023gIJ9baWRdDavLYzKqB02iBPUHeO00wfTaL2AnGp00s'),
+    desktop: muxHls('1C023gIJ9baWRdDavLYzKqB02iBPUHeO00wfTaL2AnGp00s'),
+  },
   // NFT Podcast with Logik (Julian Gilliam) — Mux-only until Manifold mint
   '8VjskmcBC3w6R01xpsgLHUKb31wjrhKch23uZBjmJuOQ': {
     mobile: muxHls('8VjskmcBC3w6R01xpsgLHUKb31wjrhKch23uZBjmJuOQ'),

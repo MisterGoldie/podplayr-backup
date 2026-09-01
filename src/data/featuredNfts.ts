@@ -161,6 +161,22 @@ export const FEATURED_NFTS: NFT[] = [
     },
   },
   {
+    name: 'I Asked My Friends A Serious Question',
+    image:
+      'https://image.mux.com/1C023gIJ9baWRdDavLYzKqB02iBPUHeO00wfTaL2AnGp00s/thumbnail.jpg?time=10',
+    contract: 'pending',
+    tokenId: 'iasked-friends-serious-question',
+    network: 'base',
+    audio: 'https://stream.mux.com/1C023gIJ9baWRdDavLYzKqB02iBPUHeO00wfTaL2AnGp00s.m3u8',
+    isVideo: true,
+    playbackMode: 'video-with-audio',
+    metadata: {
+      animation_url: 'https://stream.mux.com/1C023gIJ9baWRdDavLYzKqB02iBPUHeO00wfTaL2AnGp00s.m3u8',
+      mimeType: 'video/mp4',
+      description: 'I Asked My Friends A Serious Question',
+    },
+  },
+  {
     name: 'I Found It',
     image: 'https://arweave.net/Wvad7CgtidFMH3mOBjRHOeV5_bKvvAR9zZH2BhQSl7M',
     contract: '0x27430c3ef4b04f7d223df7f280ae8fc0b3a407b7',
@@ -175,25 +191,6 @@ export const FEATURED_NFTS: NFT[] = [
       description: 'A Charles Fox Film (ACYL)',
       attributes: [
         { trait_type: 'Director', value: 'Charles Fox' },
-      ],
-    },
-  },
-  {
-    name: 'Seasoning with Sazón - COD Zombies Terminus EP1',
-    image: 'https://arweave.net/HvZ4oE2mDf6G1o1rX9Y_lkqegYA_0ZsRyY1JxQpL2v0',
-    contract: '0x27430c3ef4b04f7d223df7f280ae8fc0b3a407b7',
-    tokenId: '50dc9fb449e0',
-    network: 'base',
-    audio: 'https://arweave.net/noYvGupxQyo2P7C2GMNNUseml29HEN6HLyvXOBD7jYQ',
-    isVideo: true,
-    playbackMode: 'video-with-audio',
-    metadata: {
-      animation_url: 'https://arweave.net/noYvGupxQyo2P7C2GMNNUseml29HEN6HLyvXOBD7jYQ',
-      mimeType: 'video/mp4',
-      description: 'Seasoning with Sazón, Call of Duty Black Ops 6 - Zombies - Terminus Episode 1 of 5 | @themrsazon',
-      attributes: [
-        { trait_type: 'Game', value: 'Call of Duty Black Ops 6' },
-        { trait_type: 'Map', value: 'Terminus' },
       ],
     },
   },
