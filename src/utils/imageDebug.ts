@@ -15,7 +15,7 @@ import {
  * Off for now. Force on: window.__PODPLAYR_IMAGE_DEBUG = true
  * Filter DevTools console by: IMAGE DEBUG
  */
-export const IMAGE_DEBUG_ENABLED = false;
+export const IMAGE_DEBUG_ENABLED = true;
 
 const PREFIX = '[IMAGE DEBUG — REMOVE]';
 
@@ -40,6 +40,7 @@ function shortUrl(url?: string | null, max = 120): string {
 function classifyUrl(url?: string | null): string {
   if (!url) return 'empty';
   if (url.includes('default-nft.png')) return 'fallback-png';
+  if (url.startsWith('/') && !url.startsWith('//')) return 'local-public';
   if (/thumbnailv2/i.test(url)) return 'alchemy-thumbnailv2';
   if (/alchemyapi\/video\/fetch/i.test(url)) return 'alchemy-video-fetch';
   if (/alchemyapi\/image\/(?:fetch|upload)/i.test(url)) return 'alchemy-image-transform';

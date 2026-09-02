@@ -59,8 +59,11 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     };
   }
 
+  const resolveOgImage = (img: string) =>
+    img.startsWith('/') ? `${appUrl}${img}` : img;
+
   const ogImage = preview.isFeatured
-    ? preview.image || `${appUrl}/image.png`
+    ? resolveOgImage(preview.image) || `${appUrl}/image.png`
     : `${appUrl}/api/og?contract=${encodeURIComponent(contract)}&tokenId=${encodeURIComponent(tokenId)}`;
 
   return {

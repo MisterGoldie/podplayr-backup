@@ -816,6 +816,11 @@ export const processMediaUrl = (url: string, fallbackUrl: string = '/default-nft
   if (!url || typeof url !== 'string') return fallbackUrl;
   url = sanitizeMediaUrl(url);
   if (!url) return fallbackUrl;
+
+  // Static assets from /public — return as-is (no CDN rewrite).
+  if (url.startsWith('/') && !url.startsWith('//')) {
+    return url;
+  }
   
   // Rewrite dead IPFS gateway hosts (cloudflare-ipfs.com DNS no longer resolves)
   if ((url.startsWith('http://') || url.startsWith('https://')) && (url.includes('/ipfs/') || /\.ipfs\./i.test(url))) {

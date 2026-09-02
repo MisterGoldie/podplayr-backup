@@ -122,12 +122,18 @@ const getNextIPFSUrl = (url: string, currentIndex: number): { url: string; nextI
  * Validate a URL string properly
  * SECURITY: This function uses URL parsing to validate URLs safely
  */
+const isLocalPublicPath = (url: string): boolean =>
+  url.startsWith('/') && !url.startsWith('//');
+
 const validateUrl = (url: string): boolean => {
   if (!url || typeof url !== 'string') return false;
   url = sanitizeMediaUrl(url);
   
   // Check for empty or placeholder strings
   if (url === '' || url === 'undefined' || url === 'null') return false;
+
+  // Curated covers from /public (e.g. /sazonsfeatured.png)
+  if (isLocalPublicPath(url)) return true;
   
   try {
     // Attempt to parse as a URL - this will catch malformed URLs
@@ -1884,6 +1890,8 @@ export const NFTImage: React.FC<NFTImageProps> = ({
         source === '') {
       return false;
     }
+
+    if (isLocalPublicPath(source)) return true;
     
     try {
       // Try to parse as URL to catch malformed URLs
@@ -1939,6 +1947,7 @@ export const NFTImage: React.FC<NFTImageProps> = ({
           isVideoMediaUrl(src) ||
           alchemyCdnAsVideoCover.has(originalUrlRef.current || ''))));
   const useNativeImg =
+    isLocalPublicPath(finalSrc) ||
     isArweave ||
     isAnimated ||
     isBrowserFriendlyCdnUrl(finalSrc) ||

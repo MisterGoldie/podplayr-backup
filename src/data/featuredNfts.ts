@@ -180,8 +180,7 @@ export const FEATURED_NFTS: NFT[] = [
   },
   {
     name: 'I Asked My Friends A Serious Question',
-    image:
-      'https://image.mux.com/1C023gIJ9baWRdDavLYzKqB02iBPUHeO00wfTaL2AnGp00s/thumbnail.jpg?time=11',
+    image: '/sazonsfeatured.png',
     contract: 'pending',
     tokenId: 'iasked-friends-serious-question',
     network: 'base',
