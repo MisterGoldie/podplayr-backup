@@ -6,7 +6,7 @@
  * console: window.__PODPLAYR_PLAYBACK_DEBUG = false
  * Filter DevTools console by: PLAYBACK DEBUG
  */
-export const PLAYBACK_DEBUG_ENABLED = true;
+export const PLAYBACK_DEBUG_ENABLED = false;
 
 const PREFIX = '[PLAYBACK DEBUG — REMOVE]';
 

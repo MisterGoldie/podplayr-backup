@@ -15,7 +15,7 @@ import {
  * Off for now. Force on: window.__PODPLAYR_IMAGE_DEBUG = true
  * Filter DevTools console by: IMAGE DEBUG
  */
-export const IMAGE_DEBUG_ENABLED = true;
+export const IMAGE_DEBUG_ENABLED = false;
 
 const PREFIX = '[IMAGE DEBUG — REMOVE]';
 
