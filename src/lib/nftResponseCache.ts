@@ -32,7 +32,9 @@ const REDIS_TTL_SECONDS = 60 * 60 * 24; // 24 hours — media is durable, but re
 // Bump this whenever the shape of the cached NFT response changes in a way
 // that matters to already-cached entries (e.g. new fields like `coverIsVideo`)
 // — old keys just age out on their own TTL instead of serving stale shapes.
-const CACHE_SCHEMA_VERSION = 'v2';
+// v3: animation extraction now also reads OpenSea-shaped `original_animation_url` /
+// `display_animation_url`. Entries cached before that resolved with empty media.
+const CACHE_SCHEMA_VERSION = 'v3';
 
 function responseCacheKey(contract: string, tokenId: string, network: 'base' | 'ethereum'): string {
   return `PODPLAYR:nft-full:${CACHE_SCHEMA_VERSION}:${network}:${contract.toLowerCase()}:${tokenId.trim()}`;

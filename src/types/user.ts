@@ -52,7 +52,13 @@ export interface NFTMetadata {
   image?: string;
   image_url?: string;
   display_image_url?: string;
+  /** OpenSea-shaped metadata: the untranscoded origin behind display_image_url. */
+  original_image_url?: string;
   animation_url?: string;
+  /** OpenSea-shaped metadata. On these tokens `animation_url` is often null and
+   * the real media lives only in these two fields (see BETTY!, asdo-labs). */
+  display_animation_url?: string;
+  original_animation_url?: string;
   animation_url_alternative?: string;
   audio?: string;
   audio_url?: string;

@@ -14,6 +14,7 @@ import { getOpenSeaNftMedia } from './opensea';
 import { getCachedNftCover, setCachedNftCover } from './nftCoverCache';
 import { getCachedNftResponse, setCachedNftResponse } from './nftResponseCache';
 import { getCachedAnimationProbe, setCachedAnimationProbe } from './nftAnimationProbeCache';
+import { normalizeNftTokenId } from '../utils/nftIdentity';
 
 const PINATA_IPFS = 'https://gateway.pinata.cloud/ipfs/';
 
@@ -724,6 +725,11 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
         fileVideoUri,
         rawMeta.properties?.video,
         rawMeta.properties?.animation_url,
+        // OpenSea-shaped metadata leaves animation_url null and puts the real
+        // media here. Without these a deep link to such a token resolves with
+        // no playable media and bounces back to the home page.
+        rawMeta.original_animation_url,
+        rawMeta.display_animation_url,
         // Only the video-typed image origin — never a JPEG display_image_url.
         videoFromImage,
       ]) ||
@@ -1553,6 +1559,9 @@ export const fetchOwnedNftsFromAlchemy = async (address: string): Promise<NFT[]>
             (meta as NFTMetadata).content?.uri,
             meta.properties?.video,
             meta.properties?.animation_url,
+            // See getNFTMetadata — OpenSea-shaped tokens carry playback only here.
+            (meta as NFTMetadata).original_animation_url,
+            (meta as NFTMetadata).display_animation_url,
             fromMedia?.gateway,
             fromMedia?.raw,
           ]) || '';
@@ -1616,7 +1625,7 @@ export const fetchOwnedNftsFromAlchemy = async (address: string): Promise<NFT[]>
             ''
         );
 
-        const tokenId = nft.id?.tokenId?.toString()?.replace(/^0x/, '') || nft.tokenId?.toString()?.replace(/^0x/, '');
+        const tokenId = normalizeNftTokenId(nft.id?.tokenId) || normalizeNftTokenId(nft.tokenId);
         if (!tokenId) {
           console.warn('Missing tokenId for NFT:', nft);
           return null;
@@ -1716,7 +1725,7 @@ export const fetchOwnedNftsFromAlchemy = async (address: string): Promise<NFT[]>
     return processedNFTs.map((nft) => ({
       ...nft,
       contract: nft.contract.toLowerCase(),
-      tokenId: nft.tokenId.toString().replace(/^0x/, ''),
+      tokenId: normalizeNftTokenId(nft.tokenId) || nft.tokenId.toString(),
       image: nft.image || '',
       animationUrl: nft.videoUrl || nft.audio || nft.animationUrl || '',
       audio: nft.audio || '',

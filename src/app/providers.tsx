@@ -138,58 +138,82 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
 
         if (isInMiniApp) {
           const { sdk } = await import('@farcaster/miniapp-sdk');
+
+          // Applies a resolved sdk.context payload to React state. Pulled out
+          // so a context that arrives AFTER our fast-path timeout below can
+          // still be applied later instead of being silently discarded — on
+          // a cold miniapp launch (e.g. tapping a shared NFT cast for the
+          // first time) the host can easily take longer than the timeout to
+          // deliver context, and losing it means losing location.embed too,
+          // which is what deep-link routing falls back on.
+          const applyContext = (context: Awaited<typeof sdk.context> | null) => {
+            const clientFid = context?.client?.clientFid;
+            const hostedByBase = isCoinbaseWalletClientFid(clientFid) || isBaseAppBrowser();
+
+            if (hostedByBase) {
+              setIsFarcaster(false);
+              setIsMiniKit(true);
+              setEnvironment('coinbase');
+              applyMiniKitUser();
+              return;
+            }
+
+            setIsFarcaster(true);
+            setEnvironment('farcaster');
+
+            const sdkUser = context?.user;
+            if (context && sdkUser && isRealFid(sdkUser.fid)) {
+              setFid(sdkUser.fid);
+              const user = sdkUser as any;
+              setUserContext({
+                fid: sdkUser.fid,
+                username: user.username,
+                displayName: user.displayName,
+                pfp: user.pfpUrl,
+                bio: user.bio,
+                location: user.location
+              });
+
+              if (context.client) {
+                setClientContext({
+                  clientFid: context.client.clientFid,
+                  added: context.client.added,
+                  safeAreaInsets: context.client.safeAreaInsets,
+                  notificationDetails: context.client.notificationDetails
+                });
+              }
+
+              if (context.location) {
+                const sdkLocation = context.location as any;
+                setLocationContext({
+                  type: sdkLocation.type,
+                  embed: sdkLocation.embed,
+                  cast: sdkLocation.cast
+                });
+              }
+            } else if (context) {
+              console.warn('⚠️ No FID found in Farcaster context');
+            }
+          };
+
+          const contextPromise = sdk.context;
           const context = await Promise.race([
-            sdk.context,
+            contextPromise,
             new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500)),
           ]);
 
-          const clientFid = context?.client?.clientFid;
-          const hostedByBase = isCoinbaseWalletClientFid(clientFid) || isBaseAppBrowser();
-
-          if (hostedByBase) {
-            setIsFarcaster(false);
-            setIsMiniKit(true);
-            setEnvironment('coinbase');
-            applyMiniKitUser();
-            setIsFidReady(true);
-            return;
-          }
-
-          setIsFarcaster(true);
-          setEnvironment('farcaster');
-
-          const sdkUser = context?.user;
-          if (context && sdkUser && isRealFid(sdkUser.fid)) {
-            setFid(sdkUser.fid);
-            const user = sdkUser as any;
-            setUserContext({
-              fid: sdkUser.fid,
-              username: user.username,
-              displayName: user.displayName,
-              pfp: user.pfpUrl,
-              bio: user.bio,
-              location: user.location
-            });
-
-            if (context.client) {
-              setClientContext({
-                clientFid: context.client.clientFid,
-                added: context.client.added,
-                safeAreaInsets: context.client.safeAreaInsets,
-                notificationDetails: context.client.notificationDetails
-              });
-            }
-
-            if (context.location) {
-              const sdkLocation = context.location as any;
-              setLocationContext({
-                type: sdkLocation.type,
-                embed: sdkLocation.embed,
-                cast: sdkLocation.cast
-              });
-            }
+          if (context) {
+            applyContext(context);
           } else {
-            console.warn('⚠️ No FID found in Farcaster context');
+            // Timed out — don't block the UI on it, but keep listening in
+            // the background and hydrate state the moment it does resolve.
+            contextPromise
+              .then((lateContext) => {
+                if (lateContext) applyContext(lateContext);
+              })
+              .catch(() => {
+                // Host never delivered context — nothing more to do.
+              });
           }
 
           setIsFidReady(true);

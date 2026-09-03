@@ -20,7 +20,12 @@ export function normalizeNftContract(contract?: string | null): string {
 /** Decimal string for EVM ids (`5`, `0x5`, `0x05`, 64-char padded hex → `5`). Leave Solana mints alone. */
 export function normalizeNftTokenId(tokenId?: string | number | null): string {
   if (tokenId === undefined || tokenId === null || tokenId === '') return '';
-  const raw = String(tokenId).trim();
+  // Collapse any repeated "0x" prefixes (e.g. "0x0xccf50ef6" → "0xccf50ef6") —
+  // seen in the wild from a stale upstream double-prefix bug. Without this,
+  // the value fails the hex regex below (stray "x" mid-string) and falls
+  // through unnormalized, silently corrupting every identity/mediaKey
+  // derived from it (this is exactly how "Music Mondays" got orphaned).
+  const raw = String(tokenId).trim().replace(/^(0x){2,}/i, '0x');
   if (/^0x[0-9a-f]+$/i.test(raw)) {
     try {
       return BigInt(raw).toString(10);
