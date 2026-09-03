@@ -48,6 +48,11 @@ export async function GET(request: NextRequest) {
     const profile = await fetchProfile(fid);
     const displayName = profile.displayName || 'PODPLAYR user';
     const username = profile.username ? `@${profile.username}` : `fid:${fid}`;
+    const nameSize =
+      displayName.length > 28 ? 56 :
+      displayName.length > 18 ? 68 :
+      84;
+    const pfp = 420;
 
     const image = new ImageResponse(
       (
@@ -62,15 +67,16 @@ export async function GET(request: NextRequest) {
             background: 'linear-gradient(180deg, #1E1525 0%, #2D1B69 50%, #4B0082 100%)',
             color: 'white',
             fontFamily: 'sans-serif',
+            padding: '48px 56px',
           }}
         >
           <div
             style={{
               display: 'flex',
-              fontSize: 28,
-              letterSpacing: 4,
+              fontSize: 36,
+              letterSpacing: 6,
               opacity: 0.8,
-              marginBottom: 36,
+              marginBottom: 28,
             }}
           >
             PODPLAYR
@@ -79,25 +85,25 @@ export async function GET(request: NextRequest) {
             <img
               src={profile.pfpUrl}
               alt=""
-              width={220}
-              height={220}
+              width={pfp}
+              height={pfp}
               style={{
-                width: 220,
-                height: 220,
-                borderRadius: 110,
+                width: pfp,
+                height: pfp,
+                borderRadius: pfp / 2,
                 objectFit: 'cover',
-                border: '6px solid rgba(255,255,255,0.25)',
-                marginBottom: 28,
+                border: '8px solid rgba(255,255,255,0.25)',
+                marginBottom: 32,
               }}
             />
           ) : (
             <div
               style={{
-                width: 220,
-                height: 220,
-                borderRadius: 110,
+                width: pfp,
+                height: pfp,
+                borderRadius: pfp / 2,
                 background: 'rgba(255,255,255,0.12)',
-                marginBottom: 28,
+                marginBottom: 32,
                 display: 'flex',
               }}
             />
@@ -105,10 +111,11 @@ export async function GET(request: NextRequest) {
           <div
             style={{
               display: 'flex',
-              fontSize: 64,
+              fontSize: nameSize,
               fontWeight: 700,
-              maxWidth: 1000,
+              maxWidth: 1040,
               textAlign: 'center',
+              lineHeight: 1.15,
             }}
           >
             {displayName}
@@ -116,9 +123,9 @@ export async function GET(request: NextRequest) {
           <div
             style={{
               display: 'flex',
-              fontSize: 32,
+              fontSize: 42,
               opacity: 0.7,
-              marginTop: 12,
+              marginTop: 16,
             }}
           >
             {username}

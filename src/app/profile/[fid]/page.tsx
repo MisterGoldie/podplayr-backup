@@ -70,10 +70,10 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       : 'Listen to media NFTs on PODPLAYR',
     openGraph: {
       title,
-      images: [`${appUrl}/api/og/profile?fid=${fid}`],
+      images: [`${appUrl}/api/og/profile?fid=${fid}&ogv=pfp2`],
     },
     other: miniAppMetadataTags({
-      imageUrl: `${appUrl}/api/og/profile?fid=${fid}`,
+      imageUrl: `${appUrl}/api/og/profile?fid=${fid}&ogv=pfp2`,
       buttonTitle: 'Open profile',
       launchUrl: profileUrl,
     }),
