@@ -26,6 +26,8 @@ import { withFeaturedPlayback, findFeaturedNftByIdentity } from '../data/feature
 import { UserImageProvider } from '../contexts/UserImageContext';
 import { BaseAppSignIn } from './auth/BaseAppSignIn';
 import { parseProfileFid, parseNftDeepLink } from '../lib/miniapp';
+import { firstNonNull, readNftBootstrap } from '../lib/nftBootstrap';
+import { normalizeNftTokenId } from '../utils/nftIdentity';
 import { restorePageScroll } from '../utils/pageScroll';
 import NFTNotification from './NFTNotification';
 import { useNFTNotification } from '../context/NFTNotificationContext';
@@ -546,32 +548,38 @@ const DemoBase: React.FC = () => {
       // misreads as a different token entirely (see findFeaturedNftByIdentity).
       let nft: NFT | null = findFeaturedNftByIdentity(contract, normalizedTokenId) || null;
 
+      // The NFT page already resolved this on the server (same request as
+      // generateMetadata). Reuse it so we don't wait on /api/nft again.
+      if (!nft) {
+        const boot = readNftBootstrap();
+        if (
+          boot &&
+          boot.contract?.toLowerCase() === contract.toLowerCase() &&
+          (normalizeNftTokenId(boot.tokenId) === normalizeNftTokenId(normalizedTokenId) ||
+            String(boot.tokenId) === normalizedTokenId)
+        ) {
+          nft = withFeaturedPlayback(boot);
+        }
+      }
+
       if (!nft && contract !== 'pending') {
-        // URL alone doesn't carry network — try base first (most curated
-        // content lives there), then ethereum.
-        for (const network of ['base', 'ethereum'] as const) {
+        // URL alone doesn't carry network — race Base and Ethereum and take
+        // the first playable result instead of waiting on them in series.
+        const fetchNetwork = async (network: 'base' | 'ethereum'): Promise<NFT | null> => {
           try {
             const res = await fetch(
-              `/api/nft?contract=${encodeURIComponent(contract)}&tokenId=${encodeURIComponent(normalizedTokenId)}&network=${network}`,
-              { cache: 'no-store' }
+              `/api/nft?contract=${encodeURIComponent(contract)}&tokenId=${encodeURIComponent(normalizedTokenId)}&network=${network}`
             );
-            if (res.ok) {
-              const data = (await res.json()) as NFT;
-              // Accept this result only if the NFT actually has playable media —
-              // the same contract+tokenId can exist on multiple chains with
-              // different metadata (e.g. a Base version with no audio vs. the
-              // real Ethereum version). Without this guard the loop breaks on
-              // the first 200 and never reaches the correct network.
-              const enriched = withFeaturedPlayback(data);
-              if (data?.contract && isPlayableMediaNFT(enriched)) {
-                nft = enriched;
-                break;
-              }
-            }
+            if (!res.ok) return null;
+            const data = (await res.json()) as NFT;
+            const enriched = withFeaturedPlayback(data);
+            if (data?.contract && isPlayableMediaNFT(enriched)) return enriched;
           } catch {
-            // try next network
+            // try the other network
           }
-        }
+          return null;
+        };
+        nft = await firstNonNull([fetchNetwork('base'), fetchNetwork('ethereum')]);
       }
 
       if (!nft) {
@@ -593,14 +601,14 @@ const DemoBase: React.FC = () => {
       // (NotAllowedError) — load the track paused and let the user's first
       // tap on the play button provide the gesture instead of showing a
       // stuck/"frozen" player.
-      void handlePlayAudio(playable, { autoplay: false });
+      await handlePlayAudio(playable, { autoplay: false });
     } catch (error) {
       demoLogger.error('Error loading NFT from deep link:', error);
     } finally {
       // We held HomeView back (currentPage.isHome=false, see the initial
       // currentPage state) to avoid flashing the home page while this
-      // resolved. Restore it now so it sits behind the maximized player —
-      // or is simply visible on its own if the deep link didn't resolve.
+      // resolved. Restore it after the player is queued so HomeView (live
+      // stream poll, featured rails) doesn't compete for bandwidth first.
       setCurrentPage((prev) => (prev.isHome ? prev : HOME_PAGE));
     }
   }, [handlePlayAudio]);
