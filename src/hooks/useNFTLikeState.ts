@@ -154,14 +154,24 @@ export const useNFTLikeState = (
   const toggleLike = async () => {
     if (!nft || !fid || !mediaKeyRef.current) return;
 
+    const previousLiked = isLiked;
+    const optimisticLiked = !previousLiked;
+    setIsLiked(optimisticLiked);
+    setLikesCount((prev) => Math.max(0, prev + (optimisticLiked ? 1 : -1)));
+    setLastUpdated(Date.now());
+
     try {
       const { toggleLikeNFT } = await import('../lib/firebase/likes');
       const newIsLiked = await toggleLikeNFT(nft, fid);
       setIsLiked(newIsLiked);
-      setLikesCount((prev) => Math.max(0, prev + (newIsLiked ? 1 : -1)));
+      if (newIsLiked !== optimisticLiked) {
+        setLikesCount((prev) => Math.max(0, prev + (newIsLiked ? 1 : -1)));
+      }
       setLastUpdated(Date.now());
       return newIsLiked;
     } catch (error) {
+      setIsLiked(previousLiked);
+      setLikesCount((prev) => Math.max(0, prev + (previousLiked ? 1 : -1)));
       likeStateLogger.error('Error toggling like state:', error);
     }
   };

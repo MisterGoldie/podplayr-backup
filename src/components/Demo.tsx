@@ -310,30 +310,46 @@ const DemoBase: React.FC = () => {
       throw new Error('No FID available for like toggle');
     }
 
+    const wasLiked = likedNFTs.some((likedNFT) => sameLikedTrack(likedNFT, nft));
+    const likedAt = Date.now();
+    const likedNft: NFT = {
+      ...nft,
+      mediaKey: getMediaKey(nft),
+      likedTimestamp: likedAt,
+      likedAt: new Date(likedAt).toISOString(),
+    };
+
+    // Flip local state first — toggleLikeNFT waits on several Firestore
+    // round-trips (legacy merge, variant lookup, writes, then verify reads)
+    // so the heart used to sit unchanged until that finished.
+    if (wasLiked) {
+      setLikedNFTs((prev) => prev.filter((likedNFT) => !sameLikedTrack(likedNFT, nft)));
+    } else if (isPlayableMediaNFT(nft)) {
+      setLikedNFTs((prev) => [
+        likedNft,
+        ...prev.filter((existing) => !sameLikedTrack(existing, nft)),
+      ]);
+    }
+
     try {
-      const wasLiked = likedNFTs.some((likedNFT) => sameLikedTrack(likedNFT, nft));
-
       const newLikeState = await toggleLikeNFT(nft, fid);
-
-      if (newLikeState) {
-        if (!wasLiked && isPlayableMediaNFT(nft)) {
-          const likedAt = Date.now();
-          const likedNft: NFT = {
-            ...nft,
-            mediaKey: getMediaKey(nft),
-            likedTimestamp: likedAt,
-            likedAt: new Date(likedAt).toISOString(),
-          };
-          setLikedNFTs((prev) => [
-            likedNft,
-            ...prev.filter((existing) => !sameLikedTrack(existing, nft))
-          ]);
+      setLikedNFTs((prev) => {
+        if (newLikeState) {
+          if (!isPlayableMediaNFT(nft)) return prev;
+          if (prev.some((likedNFT) => sameLikedTrack(likedNFT, nft))) return prev;
+          return [likedNft, ...prev];
         }
-      } else {
-        setLikedNFTs((prev) => prev.filter((likedNFT) => !sameLikedTrack(likedNFT, nft)));
-      }
+        return prev.filter((likedNFT) => !sameLikedTrack(likedNFT, nft));
+      });
       return newLikeState;
     } catch (likeError) {
+      setLikedNFTs((prev) => {
+        if (wasLiked) {
+          if (prev.some((likedNFT) => sameLikedTrack(likedNFT, nft))) return prev;
+          return [likedNft, ...prev];
+        }
+        return prev.filter((likedNFT) => !sameLikedTrack(likedNFT, nft));
+      });
       demoLogger.error('Error toggling like:', likeError);
       throw likeError;
     }
@@ -420,13 +436,14 @@ const DemoBase: React.FC = () => {
   }, [closeUserProfile]);
 
   const handlePlayerLikeToggle = useCallback(async (nft: NFT) => {
+    const nextLiked = !isNFTLiked(nft);
+    showNotification(nextLiked ? 'like' : 'unlike', nft);
     try {
-      const nowLiked = await onLikeToggle(nft);
-      showNotification(nowLiked ? 'like' : 'unlike', nft);
+      await onLikeToggle(nft);
     } catch {
-      // Logged inside onLikeToggle; skip the header banner on failure.
+      // Logged inside onLikeToggle; heart already reverted on failure.
     }
-  }, [onLikeToggle, showNotification]);
+  }, [onLikeToggle, showNotification, isNFTLiked]);
 
   const handleDirectUserSelect = useCallback(async (user: FarcasterUser) => {
     try {
