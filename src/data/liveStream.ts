@@ -39,7 +39,8 @@ export const LIVE_STREAM_ID = ACTIVE_STREAMER.streamId;
 export const LIVE_PLAYBACK_ID = ACTIVE_STREAMER.playbackId;
 
 export const LIVE_HLS_URL = `https://stream.mux.com/${LIVE_PLAYBACK_ID}.m3u8`;
-export const LIVE_POSTER_URL = `https://image.mux.com/${LIVE_PLAYBACK_ID}/thumbnail.jpg`;
+/** Branded 16:9 art shown while the stream is offline — never Mux's last-frame thumbnail. */
+export const LIVE_POSTER_URL = '/livedefault.png';
 
 export const LIVE_TITLE = 'PODPLAYR Live';
 export const LIVE_POLL_MS = 12_000;

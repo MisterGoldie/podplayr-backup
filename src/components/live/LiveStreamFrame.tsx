@@ -139,7 +139,7 @@ export function LiveStreamFrame() {
       >
         <video
           ref={videoRef}
-          className="absolute inset-0 h-full w-full object-cover"
+          className={`absolute inset-0 h-full w-full object-cover ${online ? '' : 'invisible'}`}
           data-podplayr-live="1"
           playsInline
           poster={LIVE_POSTER_URL}
@@ -148,12 +148,22 @@ export function LiveStreamFrame() {
           onPause={() => setNeedsTap(true)}
         />
         {!online && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/55">
-            <span className="rounded-full border border-white/20 bg-white/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-white/60">
-              Offline
-            </span>
-            <p className="mt-2 text-xs text-white/40">Stream starts when we go live</p>
-          </div>
+          <>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={LIVE_POSTER_URL}
+              alt=""
+              className="absolute inset-0 h-full w-full object-cover"
+            />
+            <div className="absolute inset-0 bg-black/55">
+              <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-white/60">
+                Offline
+              </span>
+              <p className="absolute bottom-8 left-0 right-0 text-center text-xs text-white/40">
+                Stream starts when we go live
+              </p>
+            </div>
+          </>
         )}
         {online && (
           <span className="absolute left-3 top-3 flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-white">
