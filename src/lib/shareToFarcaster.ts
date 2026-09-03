@@ -44,7 +44,10 @@ export async function shareNftToFarcaster({
   tokenId: string;
   name?: string;
 }): Promise<void> {
-  const url = getNftUrl(contract, tokenId);
+  // Normalize malformed tokenIds (e.g. "0x0xccf50ef6" → "0xccf50ef6") before
+  // encoding into the URL so the deep-link resolver can always find the NFT.
+  const cleanTokenId = tokenId.replace(/^(0x){2,}/i, '0x');
+  const url = getNftUrl(contract, cleanTokenId);
   const title = name ? `"${name}"` : 'this';
   const text = `Check out ${title} on @podplayr`;
   await composeCastWithFallback(text, url);

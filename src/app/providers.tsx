@@ -55,6 +55,8 @@ export interface FarcasterClientContext {
 
 export interface FarcasterLocationContext {
   type: string;
+  /** The embed URL that triggered this launch (present when type === 'cast_embed'). */
+  embed?: string;
   cast?: {
     fid: number;
     hash: string;
@@ -182,6 +184,7 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
               const sdkLocation = context.location as any;
               setLocationContext({
                 type: sdkLocation.type,
+                embed: sdkLocation.embed,
                 cast: sdkLocation.cast
               });
             }

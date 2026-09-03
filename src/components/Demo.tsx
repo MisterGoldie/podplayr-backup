@@ -536,10 +536,15 @@ const DemoBase: React.FC = () => {
 
   const loadNftFromDeepLink = useCallback(async (contract: string, tokenId: string) => {
     try {
+      // Normalize malformed tokenIds from the URL (e.g. "0x0xccf50ef6" → "0xccf50ef6").
+      // These arise when the on-chain hex tokenId already has a 0x prefix and the
+      // app's owned-NFT pipeline accidentally prepends another one.
+      const normalizedTokenId = tokenId.replace(/^(0x){2,}/i, '0x');
+
       // Exact Featured match first, for ANY contract — some curated entries
       // use a real contract with a placeholder hex tokenId that Alchemy
       // misreads as a different token entirely (see findFeaturedNftByIdentity).
-      let nft: NFT | null = findFeaturedNftByIdentity(contract, tokenId) || null;
+      let nft: NFT | null = findFeaturedNftByIdentity(contract, normalizedTokenId) || null;
 
       if (!nft && contract !== 'pending') {
         // URL alone doesn't carry network — try base first (most curated
@@ -547,13 +552,19 @@ const DemoBase: React.FC = () => {
         for (const network of ['base', 'ethereum'] as const) {
           try {
             const res = await fetch(
-              `/api/nft?contract=${encodeURIComponent(contract)}&tokenId=${encodeURIComponent(tokenId)}&network=${network}`,
+              `/api/nft?contract=${encodeURIComponent(contract)}&tokenId=${encodeURIComponent(normalizedTokenId)}&network=${network}`,
               { cache: 'no-store' }
             );
             if (res.ok) {
               const data = (await res.json()) as NFT;
-              if (data?.contract) {
-                nft = data;
+              // Accept this result only if the NFT actually has playable media —
+              // the same contract+tokenId can exist on multiple chains with
+              // different metadata (e.g. a Base version with no audio vs. the
+              // real Ethereum version). Without this guard the loop breaks on
+              // the first 200 and never reaches the correct network.
+              const enriched = withFeaturedPlayback(data);
+              if (data?.contract && isPlayableMediaNFT(enriched)) {
+                nft = enriched;
                 break;
               }
             }
@@ -608,17 +619,34 @@ const DemoBase: React.FC = () => {
 
   useEffect(() => {
     if (deepLinkHandledRef.current) return;
-    const deepLink = parseNftDeepLink(window.location.pathname, window.location.search);
+
+    // Primary source: window.location (works when Farcaster loads the app at
+    // the exact embed URL, which is the spec behaviour for launch_miniapp).
+    let deepLink = parseNftDeepLink(window.location.pathname, window.location.search);
+
+    // Fallback: sdk.context.location.embed (present when the client loads the
+    // app at homeUrl but passes the embed URL via the SDK location context
+    // instead, e.g. Warpcast warm-state resume or clients that don't honour
+    // the action.url path).
+    if (!deepLink && farcasterLocation?.embed) {
+      try {
+        const embedUrl = new URL(farcasterLocation.embed);
+        deepLink = parseNftDeepLink(embedUrl.pathname, embedUrl.search);
+      } catch {
+        // malformed embed URL — ignore
+      }
+    }
+
     if (!deepLink) return;
     deepLinkHandledRef.current = true;
     // handlePlayAudio uses flushSync internally, which React forbids while
     // still inside a lifecycle/commit phase (this effect). Defer to a fresh
     // macrotask so it runs after React is done committing this render.
     const timer = window.setTimeout(() => {
-      void loadNftFromDeepLinkRef.current(deepLink.contract, deepLink.tokenId);
+      void loadNftFromDeepLinkRef.current(deepLink!.contract, deepLink!.tokenId);
     }, 0);
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [farcasterLocation]);
 
   useEffect(() => {
     const onPopState = () => {
