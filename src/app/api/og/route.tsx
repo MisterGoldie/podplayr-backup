@@ -147,16 +147,16 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Long NFT names (some run 60-80+ chars with "(OFFICIAL VIDEO)" suffixes
-    // etc) were overlapping the "Experience on PODPLAYR" line below at a
-    // fixed 72px — scale the title down as it gets longer so it always
-    // wraps to a size that leaves room for what comes after it.
+    // Canvas is 1200x800 (Farcaster 3:2). Keep a large square thumbnail
+    // and put the same gap between image → title and title → tagline.
     const titleLength = nftTitle.length;
     const titleFontSize =
-      titleLength > 70 ? 36 :
-      titleLength > 50 ? 44 :
-      titleLength > 32 ? 56 :
-      72;
+      titleLength > 70 ? 32 :
+      titleLength > 50 ? 36 :
+      titleLength > 32 ? 42 :
+      48;
+    const thumb = 520;
+    const gap = 40;
 
     return new ImageResponse(
       (
@@ -168,10 +168,10 @@ export async function GET(request: NextRequest) {
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
-            justifyContent: 'center',
+            justifyContent: 'flex-start',
             fontFamily: 'Inter, sans-serif',
             color: 'white',
-            padding: '40px',
+            padding: '76px 48px 28px 48px',
             position: 'relative',
           }}
         >
@@ -180,13 +180,14 @@ export async function GET(request: NextRequest) {
           {nftImage && (
             <div
               style={{
-                width: '300px',
-                height: '300px',
-                borderRadius: '16px',
+                width: `${thumb}px`,
+                height: `${thumb}px`,
+                borderRadius: '24px',
                 overflow: 'hidden',
-                marginBottom: '30px',
                 display: 'flex',
-                border: '3px solid rgba(255,255,255,0.2)',
+                flexShrink: 0,
+                boxSizing: 'border-box',
+                border: '4px solid rgba(255,255,255,0.2)',
                 backgroundColor: 'rgba(255,255,255,0.1)',
               }}
             >
@@ -194,11 +195,11 @@ export async function GET(request: NextRequest) {
               <img
                 src={nftImage}
                 alt="NFT"
-                width="300"
-                height="300"
+                width={thumb}
+                height={thumb}
                 style={{
-                  width: '300px',
-                  height: '300px',
+                  width: `${thumb}px`,
+                  height: `${thumb}px`,
                   objectFit: 'cover',
                 }}
               />
@@ -219,30 +220,57 @@ export async function GET(request: NextRequest) {
               🖼️ No image found for this NFT
             </div>
           )}
-          
-          {/* NFT Title - now the largest text right below image */}
+
+          <div
+            style={{
+              display: 'flex',
+              width: '100%',
+              height: `${gap}px`,
+              fontSize: `${gap}px`,
+              lineHeight: 1,
+              color: 'transparent',
+              flexShrink: 0,
+            }}
+          >
+            .
+          </div>
+
           <div
             style={{
               fontSize: `${titleFontSize}px`,
-              lineHeight: 1.25,
+              lineHeight: 1.15,
               fontWeight: 'bold',
-              marginBottom: '24px',
               textAlign: 'center',
-              maxWidth: '900px',
+              maxWidth: '1100px',
               display: 'flex',
+              flexShrink: 0,
             }}
           >
             {nftTitle}
           </div>
-          
-          {/* Always show "Experience on PODPLAYR" below the title */}
+
           <div
             style={{
-              fontSize: '24px',
+              display: 'flex',
+              width: '100%',
+              height: `${gap}px`,
+              fontSize: `${gap}px`,
+              lineHeight: 1,
+              color: 'transparent',
+              flexShrink: 0,
+            }}
+          >
+            .
+          </div>
+
+          <div
+            style={{
+              fontSize: '28px',
               opacity: 0.8,
               textAlign: 'center',
-              maxWidth: '600px',
+              maxWidth: '720px',
               display: 'flex',
+              flexShrink: 0,
             }}
           >
             Experience on PODPLAYR

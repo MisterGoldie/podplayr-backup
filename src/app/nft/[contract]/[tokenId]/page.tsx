@@ -64,7 +64,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   const ogImage = preview.isFeatured
     ? resolveOgImage(preview.image) || `${appUrl}/image.png`
-    : `${appUrl}/api/og?contract=${encodeURIComponent(contract)}&tokenId=${encodeURIComponent(tokenId)}`;
+    : `${appUrl}/api/og?contract=${encodeURIComponent(contract)}&tokenId=${encodeURIComponent(tokenId)}&ogv=thumb7`;
 
   return {
     title: `${preview.name} on PODPLAYR`,
