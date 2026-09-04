@@ -56,9 +56,12 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     authLogger.error('Firebase custom token failed:', error);
     const message = error instanceof Error ? error.message : 'Auth failed';
-    const missingAdmin = message.includes('FIREBASE_');
+    const missingAdmin = message.includes('Firebase Admin is missing');
     return NextResponse.json(
-      { error: missingAdmin ? 'Firebase Admin is not configured' : 'Auth failed' },
+      {
+        error: missingAdmin ? 'Firebase Admin is not configured' : 'Auth failed',
+        missing: missingAdmin ? message.replace('Firebase Admin is missing ', '').split(', ') : undefined,
+      },
       { status: missingAdmin ? 503 : 500 }
     );
   }

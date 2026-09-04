@@ -40,6 +40,10 @@ export async function signInToFirebaseWithQuickAuth(expectedFid: number): Promis
 
     if (!response.ok) {
       const details = await response.text().catch(() => '');
+      if (response.status === 503) {
+        authLogger.error('Firebase Admin is not configured on the server:', details);
+        return null;
+      }
       throw new Error(`Firebase session exchange failed (${response.status}): ${details}`);
     }
 
