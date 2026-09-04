@@ -1098,6 +1098,18 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@farcaster/quick-auth@npm:^0.0.8":
+  version: 0.0.8
+  resolution: "@farcaster/quick-auth@npm:0.0.8"
+  dependencies:
+    jose: "npm:^5.8.0"
+    zod: "npm:^3.25.1"
+  peerDependencies:
+    typescript: 5.8.3
+  checksum: 10c0/c811d515644454dc710bc11f9e7af8cd5c4802dccf12f68803d37789df0176c66a19895d022d9cc3d7581e06c35513a8636e4d83b6e3a7d533b834d26f9c41cd
+  languageName: node
+  linkType: hard
+
 "@fastify/busboy@npm:^3.0.0":
   version: 3.2.1
   resolution: "@fastify/busboy@npm:3.2.1"
@@ -9505,7 +9517,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"jose@npm:^5.2.3":
+"jose@npm:^5.2.3, jose@npm:^5.8.0":
   version: 5.10.0
   resolution: "jose@npm:5.10.0"
   checksum: 10c0/e20d9fc58d7e402f2e5f04e824b8897d5579aae60e64cb88ebdea1395311c24537bf4892f7de413fab1acf11e922797fb1b42269bc8fc65089a3749265ccb7b0
@@ -11127,6 +11139,7 @@ __metadata:
     "@farcaster/core": "npm:^0.15.6"
     "@farcaster/miniapp-node": "npm:^0.1.11"
     "@farcaster/miniapp-sdk": "npm:^0.1.10"
+    "@farcaster/quick-auth": "npm:^0.0.8"
     "@firebase/app": "npm:^0.11.0"
     "@firebase/firestore": "npm:^4.7.7"
     "@heroicons/react": "npm:^2.2.0"

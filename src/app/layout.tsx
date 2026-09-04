@@ -41,6 +41,7 @@ export default function RootLayout({
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
         {/* Warm up DNS/TLS to the media gateways NFTs are most commonly hosted on,
             so the very first request to each doesn't pay the full handshake cost. */}
+        <link rel="preconnect" href="https://auth.farcaster.xyz" />
         <link rel="preconnect" href="https://arweave.net" crossOrigin="anonymous" />
         <link rel="preconnect" href="https://turbo-gateway.com" crossOrigin="anonymous" />
         <link rel="preconnect" href="https://permagate.io" crossOrigin="anonymous" />

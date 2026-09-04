@@ -21,6 +21,7 @@
     "@farcaster/core": "^0.15.6",
     "@farcaster/miniapp-node": "^0.1.11",
     "@farcaster/miniapp-sdk": "^0.1.10",
+    "@farcaster/quick-auth": "^0.0.8",
     "@firebase/app": "^0.11.0",
     "@firebase/firestore": "^4.7.7",
     "@heroicons/react": "^2.2.0",
