@@ -10,11 +10,10 @@ import { BottomNav } from './navigation/BottomNav';
 import HomeView from './views/HomeView';
 import {
   trackUserSearch,
-  getLikedNFTs,
   searchUsers,
-  toggleLikeNFT,
   subscribeToRecentSearches
 } from '../lib/firebase';
+import { getLikedNFTs, toggleLikeNFT } from '../lib/firebase/likes';
 import type { NFT, FarcasterUser, SearchedUser } from '../types/user';
 import { usePlayer } from '../contexts/PlayerContext';
 import { useTopPlayedNFTs } from '../hooks/useTopPlayedNFTs';

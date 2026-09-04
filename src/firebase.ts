@@ -1,25 +1,9 @@
-import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getFirestore, doc, setDoc } from 'firebase/firestore';
+import { doc, setDoc } from 'firebase/firestore';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { app, db } from './lib/firebase/config';
 
-// Your web app's Firebase configuration
-const firebaseConfig = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
-  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID
-};
-
-// Initialize Firebase
-// `src/lib/firebase.ts` and `src/lib/firebase/config.ts` also register the
-// default Firebase app — whichever of the three runs second throws
-// `app/duplicate-app` (especially easy to hit via Next.js Fast Refresh
-// re-executing this module). Reuse the existing app instead of re-creating it.
-const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
-export const db = getFirestore(app);
-// Initialize Firebase Storage with custom settings
+export { db };
+// Profile backgrounds use the dedicated storage bucket, not the default one.
 export const storage = getStorage(app, 'gs://podplayr2.firebasestorage.app');
 
 

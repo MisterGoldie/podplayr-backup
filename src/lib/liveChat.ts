@@ -10,7 +10,7 @@ import {
   Timestamp,
   type Unsubscribe,
 } from 'firebase/firestore';
-import { db } from './firebase';
+import { db } from './firebase/config';
 import { censorChatText } from './chatCensor';
 import {
   LIVE_CHAT_COLLECTION,
