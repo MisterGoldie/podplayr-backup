@@ -32,6 +32,7 @@ import { uniqueLikedNfts } from '../../utils/likeDedupe';
 import { applyConfirmedPlayback, hydrateNftPlayback, restoreStoredAnimationUrl, isPlayableMediaNFT } from '../../utils/isMediaNFT';
 import { stampNftLikeTime, sortLikedNewestFirst, getNftLikedTime, snapshotCreateMillis, fetchLikeCreateTimes } from '../../utils/likeTime';
 import { consolidateUserLikes, findExistingUserLikeIds, mergeLegacyLikeCounts } from '../consolidateUserLikes';
+import { likesDebug } from '../../utils/likesDebug';
 
 
 
@@ -792,9 +793,15 @@ export const toggleLikeNFT = async (nft: NFT, fidOrWalletAddress: number | strin
       if (globalLikeDoc.exists()) {
         const globalData = globalLikeDoc.data();
         const currentCount = typeof globalData?.likeCount === 'number' ? globalData.likeCount : 0;
-        
+        likesDebug.log('unlike decrement global_likes, not deleting', {
+          path: globalLikeRef.path,
+          currentCount,
+        });
         if (currentCount <= 1) {
-          batch.delete(globalLikeRef);
+          batch.update(globalLikeRef, {
+            likeCount: 0,
+            lastUnliked: serverTimestamp()
+          });
         } else {
           batch.update(globalLikeRef, {
             likeCount: increment(-1),
@@ -883,52 +890,35 @@ export const toggleLikeNFT = async (nft: NFT, fidOrWalletAddress: number | strin
     
     // AUTO-RECOVERY: If collections are out of sync, fix it with another batch
     if (finalLikeStatus && (!globalExists || globalLikeCount <= 0)) {
-      // User has it liked but global is missing or count is 0 - fix global
-      
-      const recoveryBatch = writeBatch(db);
-      const globalLikeRef = doc(db, 'global_likes', mediaKey);
-      
-      // Recreate or fix the global record
-      recoveryBatch.set(globalLikeRef, {
-        likeCount: 1,
-        contract: nft.contract,
-        tokenId: nft.tokenId,
-        name: nft.name || 'Untitled',
-        metadata: nft.metadata || {},
-        imageUrl: nft.image || '',
-        audioUrl: nft.audio || '',
-        firstLiked: serverTimestamp(),
-        lastLiked: serverTimestamp(),
+      const restored = await mergeLegacyLikeCounts(db, nft, mediaKey);
+      likesDebug.log('like with empty global_likes — restored from user likes', {
         mediaKey,
-        syncFixed: true,
-        syncFixedAt: serverTimestamp()
+        restored,
       });
-      
-      await recoveryBatch.commit();
-    } else if (!finalLikeStatus && globalExists && globalLikeCount > 0) {
-      // User unliked but global still shows likes - check if other users have it liked
-      
-      const otherUsersQuery = query(
-        collectionGroup(db, 'likes'),
-        where('mediaKey', '==', mediaKey),
-        limit(5)
-      );
-      
-      const otherLikesSnapshot = await getDocs(otherUsersQuery);
-      const otherLikesCount = otherLikesSnapshot.size;
-      
-      
-      // If no other users have it liked, but global count is > 0, fix global
-      if (otherLikesCount === 0 && globalLikeCount > 0) {
-        
+      if (restored <= 0) {
         const recoveryBatch = writeBatch(db);
         const globalLikeRef = doc(db, 'global_likes', mediaKey);
-        
-        // Delete the global record since no users have it liked
-        recoveryBatch.delete(globalLikeRef);
-        
+        recoveryBatch.set(globalLikeRef, {
+          likeCount: 1,
+          contract: nft.contract,
+          tokenId: nft.tokenId,
+          name: nft.name || 'Untitled',
+          metadata: nft.metadata || {},
+          imageUrl: nft.image || '',
+          audioUrl: nft.audio || '',
+          firstLiked: serverTimestamp(),
+          lastLiked: serverTimestamp(),
+          mediaKey,
+          syncFixed: true,
+          syncFixedAt: serverTimestamp()
+        });
         await recoveryBatch.commit();
       }
+    } else if (!finalLikeStatus && globalExists && globalLikeCount > 0) {
+      likesDebug.log('unlike left global_likes in place (old-key likes may still exist)', {
+        mediaKey,
+        globalLikeCount,
+      });
     }
     
     // Final verification after potential fixes

@@ -1531,68 +1531,23 @@ export const toggleLikeNFT = async (nft: NFT, fid: number, forceUnlike: boolean 
       firebaseLogger.info(`Removed ${nft.name} (${mediaKey}) from likes for user ${fid}`);
       
       if (globalLikeDoc.exists()) {
-        try {
-          // Get accurate count of users who currently like this NFT without using collection group query
-          firebaseLogger.info('Finding other users who like this NFT...');
-          let actualLikeCount = 0;
-          
-          // Query all users collections to check who has this mediaKey in their likes
-          const usersRef = collection(db, 'users');
-          const usersSnapshot = await getDocs(usersRef);
-          
-          // Check each user's likes collection for this mediaKey
-          const checkLikePromises = [];
-          for (const userDoc of usersSnapshot.docs) {
-            // Skip the current user as we're already removing their like
-            if (userDoc.id === fid.toString()) continue;
-            
-            const checkLikePromise = (async () => {
-              try {
-                const userLikeDocRef = doc(db, 'users', userDoc.id, 'likes', mediaKey);
-                const userLikeSnapshot = await getDoc(userLikeDocRef);
-                if (userLikeSnapshot.exists()) {
-                  return true;
-                }
-                return false;
-              } catch (e) {
-                firebaseLogger.error(`Error checking like for user ${userDoc.id}:`, e);
-                return false;
-              }
-            })();
-            
-            checkLikePromises.push(checkLikePromise);
-          }
-          
-          // Wait for all checks to complete and count likes
-          const userLikeResults = await Promise.all(checkLikePromises);
-          actualLikeCount = userLikeResults.filter(Boolean).length;
-          
-          firebaseLogger.info(`Actual users liking this NFT (excluding current user): ${actualLikeCount}`);
-          if (actualLikeCount <= 0) {
-            // If no other users like this NFT, delete the global document
-            firebaseLogger.info('No other users like this NFT, deleting global document');
-            batch.delete(globalLikeRef);
-          } else {
-            // Otherwise update with the accurate count
-            firebaseLogger.info('Updating global like count to:', actualLikeCount);
-            batch.update(globalLikeRef, {
-              likeCount: actualLikeCount,
-              lastUnliked: serverTimestamp()
-            });
-          }
-        } catch (error) {
-          firebaseLogger.error('Error counting other user likes:', error);
-          // Safer fallback: decrement count by 1
-          const globalData = globalLikeDoc.data();
-          const currentCount = globalData?.likeCount || 1;
-          if (currentCount <= 1) {
-            batch.delete(globalLikeRef);
-          } else {
-            batch.update(globalLikeRef, {
-              likeCount: currentCount - 1,
-              lastUnliked: serverTimestamp()
-            });
-          }
+        const currentCount = typeof globalLikeDoc.data()?.likeCount === 'number'
+          ? globalLikeDoc.data().likeCount
+          : 1;
+        firebaseLogger.info('Unlike: decrementing global like count, not deleting leftover likes', {
+          path: globalLikeRef.path,
+          currentCount,
+        });
+        if (currentCount <= 1) {
+          batch.update(globalLikeRef, {
+            likeCount: 0,
+            lastUnliked: serverTimestamp()
+          });
+        } else {
+          batch.update(globalLikeRef, {
+            likeCount: increment(-1),
+            lastUnliked: serverTimestamp()
+          });
         }
       }
 

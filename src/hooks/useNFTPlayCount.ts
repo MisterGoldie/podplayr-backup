@@ -94,28 +94,23 @@ export const useNFTPlayCount = (nft: NFT | null, shouldFetch: boolean = true) =>
       );
     };
 
-    const foldThenListen = async () => {
-      const source = nftRef.current;
-      // Rematch until we recover more than a leftover 0/1 doc. A prior
-      // session-cache hit after a failed fold is why WILL01 stayed at 1.
-      const alreadyFolded = mergedPlayKeys.has(mediaKey);
-      if (source && !alreadyFolded) {
-        try {
-          const total = await mergeLegacyPlayCounts(db, source, mediaKey);
-          if (total > 1) mergedPlayKeys.add(mediaKey);
-          if (!cancelled && total > 0) {
-            previousCountRef.current = total;
-            setPlayCount(total);
-            setLoading(false);
-          }
-        } catch (error) {
-          playCountLogger.error('Error folding leftover play counts:', error);
-        }
-      }
-      listen();
-    };
+    listen();
 
-    void foldThenListen();
+    void (async () => {
+      const source = nftRef.current;
+      if (!source || mergedPlayKeys.has(mediaKey)) return;
+      try {
+        const total = await mergeLegacyPlayCounts(db, source, mediaKey);
+        if (total > 1) mergedPlayKeys.add(mediaKey);
+        if (!cancelled && total > previousCountRef.current) {
+          previousCountRef.current = total;
+          setPlayCount(total);
+          setLoading(false);
+        }
+      } catch (error) {
+        playCountLogger.error('Error folding leftover play counts:', error);
+      }
+    })();
 
     return () => {
       cancelled = true;

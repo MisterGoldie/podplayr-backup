@@ -3,6 +3,7 @@ import {
   QueryDocumentSnapshot,
   DocumentSnapshot,
   collection,
+  collectionGroup,
   doc,
   getDoc,
   getDocs,
@@ -19,6 +20,8 @@ import {
   type NftKeySource,
 } from '../utils/nftIdentity';
 import { findFeaturedNft } from '../data/featuredNfts';
+import { getLikeDedupeKey, sameLikedTrack } from '../utils/likeDedupe';
+import { likesDebug } from '../utils/likesDebug';
 import { originUrlFromMuxPlayback } from './mediaCdn';
 
 function uniqueStrings(values: Array<string | undefined | null>): string[] {
@@ -114,10 +117,23 @@ async function queryMintField(
   const pending = getDocs(query(collection(db, collectionName), where(field, '==', value)))
     .then((snap) => {
       if (snap.docs.length === 0) mintQueryCache.delete(key);
+      if (collectionName === 'global_likes') {
+        likesDebug.log('global_likes field query', {
+          field,
+          value,
+          size: snap.size,
+          ids: snap.docs.slice(0, 20).map((d) => d.id),
+        });
+      }
       return snap.docs;
     })
-    .catch(() => {
+    .catch((error) => {
       mintQueryCache.delete(key);
+      likesDebug.error('count-doc field query FAILED', error, {
+        collectionName,
+        field,
+        value,
+      });
       return [] as QueryDocumentSnapshot[];
     });
   mintQueryCache.set(key, pending);
@@ -236,6 +252,160 @@ export async function peakFromNftPlayEvents(
   return Math.max(peak, events);
 }
 
+const missingGroupIndex = new Set<string>();
+
+function indexUrlFromError(error: unknown): string {
+  const message =
+    error && typeof error === 'object' && 'message' in error
+      ? String((error as { message?: string }).message)
+      : String(error);
+  return message.match(/https:\/\/console\.firebase\.google\.com[^\s]*/)?.[0] || message;
+}
+
+async function queryLikesGroup(
+  db: Firestore,
+  field: string,
+  value: string | number
+): Promise<QueryDocumentSnapshot[]> {
+  likesDebug.log('collectionGroup likes query', { field, value });
+  try {
+    const snap = await getDocs(query(collectionGroup(db, 'likes'), where(field, '==', value)));
+    likesDebug.log('collectionGroup likes result', {
+      field,
+      value,
+      size: snap.size,
+      paths: snap.docs.slice(0, 25).map((d) => d.ref.path),
+    });
+    return snap.docs;
+  } catch (error) {
+    if (!missingGroupIndex.has(field)) {
+      missingGroupIndex.add(field);
+      likesDebug.log('collectionGroup index missing (not fatal)', {
+        field,
+        url: indexUrlFromError(error),
+      });
+    }
+    return [];
+  }
+}
+
+async function queryUserLikesCollection(
+  db: Firestore,
+  field: string,
+  value: string
+): Promise<QueryDocumentSnapshot[]> {
+  likesDebug.log('user_likes collection query', { field, value });
+  try {
+    const snap = await getDocs(query(collection(db, 'user_likes'), where(field, '==', value)));
+    likesDebug.log('user_likes collection result', {
+      field,
+      value,
+      size: snap.size,
+      ids: snap.docs.slice(0, 25).map((d) => d.id),
+    });
+    return snap.docs;
+  } catch (error) {
+    likesDebug.error('user_likes collection query FAILED', error, { field, value });
+    return [];
+  }
+}
+
+/** Count remaining user like docs for this track, including old mediaKey ids. */
+export async function peakFromUserLikes(
+  db: Firestore,
+  nft: NftKeySource
+): Promise<number> {
+  const featured = featuredForCount(nft);
+  const ids = new Set<string>();
+  for (const source of countMergeSources(nft)) {
+    for (const id of getLegacyMediaKeyCandidates(source)) ids.add(id);
+  }
+
+  const names = uniqueStrings([(nft as { name?: string }).name, featured?.name]);
+  const canonical = getMediaKey(nft);
+
+  likesDebug.log('peakFromUserLikes start', {
+    name: (nft as { name?: string }).name,
+    contract: nft.contract,
+    tokenId: nft.tokenId,
+    canonical,
+    featured: featured
+      ? { name: featured.name, contract: featured.contract, tokenId: featured.tokenId }
+      : null,
+    nftDedupeKey: getLikeDedupeKey(nft as { name?: string }),
+    featuredDedupeKey: featured ? getLikeDedupeKey(featured) : '',
+    candidateIds: [...ids],
+    names,
+  });
+
+  const seen = new Set<string>();
+  const rejected: Array<Record<string, unknown>> = [];
+  const consider = (docSnap: DocumentSnapshot) => {
+    if (!docSnap.exists() || seen.has(docSnap.ref.path)) return;
+    const data = docSnap.data();
+    const nested =
+      data.nft && typeof data.nft === 'object'
+        ? (data.nft as Record<string, unknown>)
+        : {};
+    const row = {
+      contract: (data.contract || data.nftContract || nested.contract) as string,
+      tokenId: (data.tokenId ?? nested.tokenId) as string | number,
+      name: String(data.name || nested.name || ''),
+      image: String(data.image || nested.image || ''),
+      audio: String(data.audioUrl || nested.audio || ''),
+      metadata: (data.metadata || nested.metadata) as { animation_url?: string } | undefined,
+      mediaKey: String(data.mediaKey || docSnap.id),
+    };
+    const idHit = ids.has(docSnap.id) || ids.has(row.mediaKey);
+    const trackHit = sameLikedTrack(row, nft) || (featured ? sameLikedTrack(row, featured) : false);
+    if (trackHit || idHit) {
+      seen.add(docSnap.ref.path);
+      if (seen.size <= 20) {
+        likesDebug.log('like doc ACCEPTED', {
+          path: docSnap.ref.path,
+          id: docSnap.id,
+          reason: trackHit ? 'sameLikedTrack' : 'candidate-id',
+          row,
+          dedupeKey: getLikeDedupeKey(row),
+        });
+      }
+      return;
+    }
+    if (rejected.length < 30) {
+      rejected.push({
+        path: docSnap.ref.path,
+        id: docSnap.id,
+        row,
+        dedupeKey: getLikeDedupeKey(row),
+      });
+    }
+  };
+
+  const hashedIds = [...ids].filter((id) => /^[a-f0-9]{32}$/i.test(id));
+  likesDebug.log('collectionGroup mediaKey ids that look like hashes', hashedIds);
+
+  const lookups: Array<Promise<QueryDocumentSnapshot[]>> = [
+    ...hashedIds.map((id) => queryLikesGroup(db, 'mediaKey', id)),
+    ...names.map((name) => queryLikesGroup(db, 'name', name)),
+    ...hashedIds.map((id) => queryUserLikesCollection(db, 'mediaKey', id)),
+    ...names.map((name) => queryUserLikesCollection(db, 'name', name)),
+  ];
+
+  const results = await Promise.all(lookups);
+  const rawHits = results.reduce((sum, docs) => sum + docs.length, 0);
+  for (const docs of results) {
+    docs.forEach(consider);
+  }
+
+  likesDebug.log('peakFromUserLikes done', {
+    rawHits,
+    accepted: seen.size,
+    acceptedPaths: [...seen],
+    rejectedSample: rejected,
+  });
+  return seen.size;
+}
+
 export async function mergeLegacyCountDocs(
   db: Firestore,
   collectionName: 'global_plays' | 'global_likes',
@@ -244,21 +414,54 @@ export async function mergeLegacyCountDocs(
   canonical = getMediaKey(nft)
 ): Promise<number> {
   if (!canonical) return 0;
+  const debugLikes = collectionName === 'global_likes';
 
   const ids = new Set<string>();
   for (const source of countMergeSources(nft)) {
     for (const id of getLegacyMediaKeyCandidates(source)) ids.add(id);
   }
 
+  if (debugLikes) {
+    likesDebug.log('mergeLegacyCountDocs start', {
+      collectionName,
+      canonical,
+      name: (nft as { name?: string }).name,
+      contract: nft.contract,
+      tokenId: nft.tokenId,
+      candidateIds: [...ids],
+    });
+  }
+
+  const missingIds: string[] = [];
+  const presentDocs: Array<{ id: string; likeCount: number }> = [];
   const snaps = await Promise.all(
     [...ids].map(async (id) => {
       try {
-        return await getDoc(doc(db, collectionName, id));
-      } catch {
+        const snap = await getDoc(doc(db, collectionName, id));
+        if (debugLikes) {
+          if (snap.exists()) {
+            presentDocs.push({
+              id,
+              likeCount: readStoredCount(snap.data() as Record<string, unknown>, countField),
+            });
+          } else {
+            missingIds.push(id);
+          }
+        }
+        return snap;
+      } catch (error) {
+        if (debugLikes) likesDebug.error('global_likes getDoc FAILED', error, { id });
         return null;
       }
     })
   );
+  if (debugLikes) {
+    likesDebug.log('global_likes getDoc summary', {
+      present: presentDocs,
+      missingCount: missingIds.length,
+      missingIds,
+    });
+  }
   const byMint = await findCountDocsByMint(db, collectionName, nft);
   const seen = new Set<string>();
   const existing = [...snaps, ...byMint].filter(isExistingCountSnap).filter((snap) => {
@@ -268,6 +471,8 @@ export async function mergeLegacyCountDocs(
   });
   const eventPeak =
     collectionName === 'global_plays' ? await peakFromNftPlayEvents(db, nft) : 0;
+  const likePeak =
+    collectionName === 'global_likes' ? await peakFromUserLikes(db, nft) : 0;
 
   const canonicalSnap = existing.find((snap) => snap.id === canonical) || null;
   let best = 0;
@@ -286,15 +491,48 @@ export async function mergeLegacyCountDocs(
       extras += 1;
     }
   }
-  best = Math.max(best, eventPeak);
-
-  if (best <= 0 && existing.length === 0) return 0;
+  best = Math.max(best, eventPeak, likePeak);
 
   const currentCanonical = canonicalSnap
     ? readStoredCount(canonicalSnap.data() as Record<string, unknown>, countField)
     : 0;
+
+  if (debugLikes) {
+    likesDebug.log('mergeLegacyCountDocs totals', {
+      existingIds: existing.map((snap) => ({
+        id: snap.id,
+        likeCount: readStoredCount(snap.data() as Record<string, unknown>, countField),
+      })),
+      extras,
+      likePeak,
+      eventPeak,
+      best,
+      currentCanonical,
+      canonicalExists: Boolean(canonicalSnap?.exists()),
+    });
+  }
+
+  if (best <= 0 && existing.length === 0) {
+    if (debugLikes) likesDebug.log('mergeLegacyCountDocs skip — no docs and peak is 0');
+    return 0;
+  }
+
   if (extras === 0 && canonicalSnap?.exists() && best <= currentCanonical) {
+    if (debugLikes) {
+      likesDebug.log('mergeLegacyCountDocs skip write — canonical already has best', {
+        currentCanonical,
+        best,
+      });
+    }
     return currentCanonical;
+  }
+
+  if (debugLikes) {
+    likesDebug.log('mergeLegacyCountDocs WRITE global_likes', {
+      canonical,
+      likeCount: best,
+      extrasDeleted: extras,
+    });
   }
 
   batch.set(doc(db, collectionName, canonical), {

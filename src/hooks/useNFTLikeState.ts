@@ -2,25 +2,9 @@ import { useState, useEffect, useRef } from 'react';
 import { getFirestore, doc, getDoc, onSnapshot } from 'firebase/firestore';
 import type { Unsubscribe } from 'firebase/firestore';
 import type { NFT } from '../types/user';
-import { isPlaybackActive, getMediaKey } from '../utils/media';
+import { getMediaKey } from '../utils/media';
+import { likesDebug } from '../utils/likesDebug';
 import { findExistingUserLikeIds, mergeLegacyLikeCounts } from '../lib/consolidateUserLikes';
-
-const mergedLikeKeys = new Set<string>();
-
-const likeStateLogger = {
-  debug: (message: string, ...args: any[]) => {
-    if (!isPlaybackActive()) {
-      console.debug(`[LikeState] ${message}`, ...args);
-    }
-  },
-  info: (message: string, ...args: any[]) => {
-    if (!isPlaybackActive()) {
-      console.info(`[LikeState] ${message}`, ...args);
-    }
-  },
-  warn: (message: string, ...args: any[]) => console.warn(`[LikeState] ${message}`, ...args),
-  error: (message: string, ...args: any[]) => console.error(`[LikeState] ${message}`, ...args),
-};
 
 export interface UseNFTLikeStateOptions {
   /** Subscribe to the user's own like state for this NFT. Skip when the caller
@@ -51,9 +35,14 @@ export const useNFTLikeState = (
 
   const mediaKeyRef = useRef<string>('');
   const isSubscribedRef = useRef<boolean>(false);
+  const nftRef = useRef(nft);
+  nftRef.current = nft;
+  const previousCountRef = useRef<number>(0);
+
+  const mediaKey = nft ? getMediaKey(nft) : '';
 
   useEffect(() => {
-    if (!nft) {
+    if (!nft || !mediaKey) {
       setIsLiked(false);
       setLikesCount(0);
       setIsLoading(false);
@@ -61,16 +50,29 @@ export const useNFTLikeState = (
       return;
     }
 
-    const mediaKey = getMediaKey(nft);
     mediaKeyRef.current = mediaKey;
+    previousCountRef.current = 0;
     setIsLoading(true);
+    if (watchCount) {
+      likesDebug.log('useNFTLikeState subscribe', {
+        mediaKey,
+        fid,
+        watchIsLiked,
+        liveCount,
+        watchCount,
+        name: nft.name,
+        contract: nft.contract,
+        tokenId: nft.tokenId,
+        alreadyMerged: false,
+      });
+    }
 
     const db = getFirestore();
     let cancelled = false;
     let unsubscribeUserLike: Unsubscribe | null = null;
     let unsubscribeCount: Unsubscribe | null = null;
 
-    const listen = (foldedCount?: number) => {
+    const listen = () => {
       if (cancelled) return;
 
       if (watchIsLiked && fid) {
@@ -83,7 +85,7 @@ export const useNFTLikeState = (
             setLastUpdated(Date.now());
           },
           (error) => {
-            likeStateLogger.error('User like listener failed:', error);
+            likesDebug.error('user like listener failed', error, { fid, mediaKey });
             if (!cancelled && !watchCount) setIsLoading(false);
           }
         );
@@ -91,21 +93,55 @@ export const useNFTLikeState = (
 
       const globalLikeRef = doc(db, 'global_likes', mediaKey);
       if (watchCount) {
-        if (typeof foldedCount === 'number' && foldedCount > 0) {
-          setLikesCount(foldedCount);
-        }
         if (liveCount) {
           unsubscribeCount = onSnapshot(globalLikeRef, (snap) => {
             if (cancelled) return;
-            setLikesCount(snap.exists() ? (snap.data()?.likeCount || 0) : 0);
+            const next = snap.exists() ? snap.data()?.likeCount || 0 : 0;
+            likesDebug.log('global_likes snapshot', {
+              path: globalLikeRef.path,
+              exists: snap.exists(),
+              fromCache: snap.metadata.fromCache,
+              hasPendingWrites: snap.metadata.hasPendingWrites,
+              likeCount: snap.exists() ? snap.data()?.likeCount : null,
+              previous: previousCountRef.current,
+            });
+            if (snap.metadata.fromCache && !snap.exists()) return;
+            if (!snap.exists()) {
+              if (previousCountRef.current > 0) {
+                likesDebug.log('global_likes missing — keeping recovered count', {
+                  previous: previousCountRef.current,
+                });
+                return;
+              }
+              setLikesCount(0);
+              setIsLoading(false);
+              return;
+            }
+            if (snap.metadata.fromCache && next < previousCountRef.current) {
+              likesDebug.log('global_likes cache stale — ignoring lower count', {
+                next,
+                previous: previousCountRef.current,
+              });
+              return;
+            }
+            previousCountRef.current = Math.max(previousCountRef.current, next);
+            setLikesCount(previousCountRef.current);
             setIsLoading(false);
+          }, (error) => {
+            likesDebug.error('global_likes listener failed', error, { mediaKey });
           });
         } else {
           getDoc(globalLikeRef).then((snap) => {
             if (cancelled) return;
+            likesDebug.log('global_likes getDoc', {
+              path: globalLikeRef.path,
+              exists: snap.exists(),
+              likeCount: snap.exists() ? snap.data()?.likeCount : null,
+            });
             setLikesCount(snap.exists() ? (snap.data()?.likeCount || 0) : 0);
             setIsLoading(false);
-          }).catch(() => {
+          }).catch((error) => {
+            likesDebug.error('global_likes getDoc failed', error, { mediaKey });
             if (!cancelled) {
               setLikesCount(0);
               setIsLoading(false);
@@ -117,28 +153,28 @@ export const useNFTLikeState = (
       }
     };
 
+    listen();
+
     void (async () => {
-      let folded = 0;
       try {
-        if (watchCount && !mergedLikeKeys.has(mediaKey)) {
-          mergedLikeKeys.add(mediaKey);
-          try {
-            folded = await mergeLegacyLikeCounts(db, nft, mediaKey);
-          } catch (error) {
-            mergedLikeKeys.delete(mediaKey);
-            throw error;
+        if (watchCount && nftRef.current) {
+          likesDebug.log('mergeLegacyLikeCounts start', { mediaKey });
+          const folded = await mergeLegacyLikeCounts(db, nftRef.current, mediaKey);
+          likesDebug.log('mergeLegacyLikeCounts done', { mediaKey, folded, cancelled });
+          if (!cancelled && folded > 0) {
+            previousCountRef.current = Math.max(previousCountRef.current, folded);
+            setLikesCount(previousCountRef.current);
           }
         }
-        if (watchIsLiked && fid) {
-          const existing = await findExistingUserLikeIds(db, String(fid), nft);
+        if (watchIsLiked && fid && nftRef.current) {
+          const existing = await findExistingUserLikeIds(db, String(fid), nftRef.current);
           if (!cancelled && existing.length > 0) {
             setIsLiked(true);
           }
         }
       } catch (error) {
-        likeStateLogger.error('Error folding leftover like counts:', error);
+        likesDebug.error('Error folding leftover like counts', error, { mediaKey });
       }
-      listen(folded);
     })();
 
     isSubscribedRef.current = true;
@@ -149,7 +185,7 @@ export const useNFTLikeState = (
       unsubscribeCount?.();
       isSubscribedRef.current = false;
     };
-  }, [nft, fid, watchIsLiked, liveCount, watchCount]);
+  }, [mediaKey, fid, watchIsLiked, liveCount, watchCount]);
 
   const toggleLike = async () => {
     if (!nft || !fid || !mediaKeyRef.current) return;
@@ -172,7 +208,7 @@ export const useNFTLikeState = (
     } catch (error) {
       setIsLiked(previousLiked);
       setLikesCount((prev) => Math.max(0, prev + (previousLiked ? 1 : -1)));
-      likeStateLogger.error('Error toggling like state:', error);
+      likesDebug.error('Error toggling like state', error, { mediaKey: mediaKeyRef.current, fid });
     }
   };
 
