@@ -251,20 +251,18 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
     initializeEnvironmentContext();
   }, [miniKitContext]);
   
-  // Ensure user follows PODPlayr whenever they have a valid FID.
-  // Keyed on fid only (not environment) — the environment label can flip
-  // from a transient MiniKit false-positive to the correct Farcaster result
-  // moments later without the fid actually changing, and we don't want to
-  // re-run this (and its Firestore read/write) for the same fid twice.
+  // Follow writes users/{fid}/following and another user's followers doc.
+  // Those paths require request.auth.uid == fid, so wait for the Firebase
+  // session. Keyed on fid so a transient environment flip does not re-run it.
   const followedFidRef = useRef<number | undefined>(undefined);
   useEffect(() => {
-    if (fid && followedFidRef.current !== fid) {
-      followedFidRef.current = fid;
-      ensurePodplayrFollow(fid).catch(error => {
-        console.error('Error ensuring PODPlayr follow:', error);
-      });
-    }
-  }, [fid]);
+    if (!fid || firebaseUid !== String(fid)) return;
+    if (followedFidRef.current === fid) return;
+    followedFidRef.current = fid;
+    ensurePodplayrFollow(fid).catch(error => {
+      console.error('Error ensuring PODPlayr follow:', error);
+    });
+  }, [fid, firebaseUid]);
 
   useEffect(() => {
     if (!isFidReady) return;
