@@ -10,104 +10,96 @@ service cloud.firestore {
       return signedIn() && request.auth.uid == fid;
     }
 
-    function isOwnSearchFid(fidValue) {
-      return signedIn() && string(fidValue) == request.auth.uid;
+    // Farcaster mini-app sessions can only write their own user docs.
+    // Web / Base / no-profile clients have no auth and must still like,
+    // play, follow, and cache — same as before this lock.
+    function ownerOrUnsigned(fid) {
+      return isUid(fid) || !signedIn();
     }
 
-    // User-owned tree. Followers docs are owned by the follower (doc id),
-    // not the profile being followed.
+    function ownSearchOrUnsigned(fidValue) {
+      return !signedIn() || string(fidValue) == request.auth.uid;
+    }
+
     match /users/{fid} {
       allow read: if true;
-      allow write: if isUid(fid);
+      allow write: if ownerOrUnsigned(fid);
 
       match /followers/{followerFid} {
         allow read: if true;
-        allow write: if isUid(followerFid);
+        allow write: if ownerOrUnsigned(followerFid);
       }
 
       match /likes/{likeId} {
         allow read: if true;
-        allow write: if isUid(fid);
+        allow write: if ownerOrUnsigned(fid);
       }
 
       match /playHistory/{playId} {
         allow read: if true;
-        allow write: if isUid(fid);
+        allow write: if ownerOrUnsigned(fid);
       }
 
       match /following/{targetFid} {
         allow read: if true;
-        allow write: if isUid(fid);
+        allow write: if ownerOrUnsigned(fid);
       }
     }
 
-    // Written when anyone searches a user (including ENS). Auth required;
-    // not owner-only, or NFT lookup cache would break.
+    // Shared caches and play/like counts — no Farcaster login required.
     match /wallet_cache/{fid} {
-      allow read: if true;
-      allow write: if signedIn();
+      allow read, write: if true;
     }
 
-    // Profile cache + follow/search counts. Search and follow still merge
-    // other users' docs from the client, so this is signed-in rather than
-    // owner-only. Anonymous writes are denied.
     match /searchedusers/{fid} {
-      allow read: if true;
-      allow write: if signedIn();
+      allow read, write: if true;
     }
 
     match /user_searches/{searchId} {
       allow read: if true;
-      allow create: if isOwnSearchFid(request.resource.data.searching_fid);
+      allow create: if ownSearchOrUnsigned(request.resource.data.searching_fid);
       allow update: if false;
-      allow delete: if isOwnSearchFid(resource.data.searching_fid);
+      allow delete: if ownSearchOrUnsigned(resource.data.searching_fid);
     }
 
-    // Shared counters. Any signed-in user can increment; counting logic
-    // stays on the client.
     match /global_likes/{id} {
-      allow read: if true;
-      allow write: if signedIn();
+      allow read, write: if true;
     }
 
     match /global_plays/{id} {
-      allow read: if true;
-      allow write: if signedIn();
+      allow read, write: if true;
     }
 
     match /top_played/{id} {
-      allow read: if true;
-      allow write: if signedIn();
+      allow read, write: if true;
     }
 
     match /nfts/{id} {
-      allow read: if true;
-      allow write: if signedIn();
+      allow read, write: if true;
     }
 
     match /nft_plays/{id} {
-      allow read: if true;
-      allow write: if signedIn();
+      allow read, write: if true;
     }
 
     match /nft_details/{id} {
-      allow read: if true;
-      allow write: if signedIn();
+      allow read, write: if true;
     }
 
     match /user_likes/{id} {
-      allow read: if true;
-      allow write: if signedIn();
+      allow read, write: if true;
     }
 
     match /likes/{id} {
-      allow read: if true;
-      allow write: if signedIn();
+      allow read, write: if true;
+    }
+
+    match /search_interactions/{id} {
+      allow read, write: if true;
     }
 
     match /{document=**} {
-      allow read: if true;
-      allow write: if false;
+      allow read, write: if true;
     }
   }
 }

@@ -251,18 +251,18 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
     initializeEnvironmentContext();
   }, [miniKitContext]);
   
-  // Follow writes users/{fid}/following and another user's followers doc.
-  // Those paths require request.auth.uid == fid, so wait for the Firebase
-  // session. Keyed on fid so a transient environment flip does not re-run it.
+  // Farcaster follow writes are owner-checked once a Firebase session exists,
+  // so wait for that uid. Web and Base have no session and still follow.
   const followedFidRef = useRef<number | undefined>(undefined);
   useEffect(() => {
-    if (!fid || firebaseUid !== String(fid)) return;
+    if (!fid) return;
+    if (environment === 'farcaster' && firebaseUid !== String(fid)) return;
     if (followedFidRef.current === fid) return;
     followedFidRef.current = fid;
     ensurePodplayrFollow(fid).catch(error => {
       console.error('Error ensuring PODPlayr follow:', error);
     });
-  }, [fid, firebaseUid]);
+  }, [fid, firebaseUid, environment]);
 
   useEffect(() => {
     if (!isFidReady) return;
