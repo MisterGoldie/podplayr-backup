@@ -3,7 +3,7 @@
 import React, { useContext, useEffect } from 'react';
 import { NFTCard } from '../nft/NFTCard';
 import type { NFT } from '~/types/nft';
-import FeaturedSection, { FEATURED_NFTS } from '../sections/FeaturedSection';
+import FeaturedSection from '../sections/FeaturedSection';
 import RecentlyPlayed from '../RecentlyPlayed';
 import { getMediaKey } from '../../utils/media';
 import { sameLikedTrack } from '../../utils/likeDedupe';
@@ -50,7 +50,8 @@ const HomeView: React.FC<HomeViewProps> = ({
       if (featuredNFTsInitialized) return;
 
       try {
-        const { ensureFeaturedNFTsExist } = await import('../../lib/firebase/nfts');
+        const { ensureFeaturedNFTsExist } = await import('../../lib/firebase');
+        const { FEATURED_NFTS } = await import('../sections/FeaturedSection');
         await ensureFeaturedNFTsExist(FEATURED_NFTS);
         featuredNFTsInitialized = true;
       } catch (error) {
@@ -58,21 +59,7 @@ const HomeView: React.FC<HomeViewProps> = ({
       }
     };
 
-    let idleId: number | undefined;
-    let timer: number | undefined;
-    if (typeof requestIdleCallback === 'function') {
-      idleId = requestIdleCallback(() => {
-        void initializeFeaturedNFTs();
-      }, { timeout: 4000 });
-    } else {
-      timer = window.setTimeout(() => {
-        void initializeFeaturedNFTs();
-      }, 2000);
-    }
-    return () => {
-      if (idleId !== undefined) cancelIdleCallback(idleId);
-      if (timer !== undefined) window.clearTimeout(timer);
-    };
+    void initializeFeaturedNFTs();
   }, []);
 
   const checkDirectlyLiked = (nftToCheck: NFT): boolean => {

@@ -3,7 +3,7 @@ import Image from 'next/image';
 import { FarcasterUser } from '../../types/user';
 import { createENSUser } from '../../types/ens';
 import { UserFidContext } from '../../app/providers';
-import { trackENSUserSearch } from '../../lib/firebase/user';
+import { trackENSUserSearch } from '../../lib/firebase';
 import { resolveEnsAddress, getEnsProfile } from '../../lib/ens';
 import { logger } from '../../utils/logger';
 import { officialAccountDisplayName } from '../../constants/community';
@@ -69,7 +69,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onSearch, isSearching, han
           if (requestId !== requestIdRef.current) return;
 
           if (address) {
-            const { searchUsersByAddress } = await import('../../lib/firebase/user');
+            const { searchUsersByAddress } = await import('../../lib/firebase');
             const farcasterUsers = await searchUsersByAddress(address);
             if (requestId !== requestIdRef.current) return;
 

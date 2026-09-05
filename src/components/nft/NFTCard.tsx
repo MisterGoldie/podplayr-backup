@@ -26,7 +26,6 @@ interface NFTCardProps {
   smallCard?: boolean;
   /** Extra "In Library" marker for liked NFTs on another user's profile. */
   showLibraryBadge?: boolean;
-  imagePriority?: boolean;
 }
 
 const NFTCardInner: React.FC<NFTCardProps> = ({ 
@@ -38,7 +37,6 @@ const NFTCardInner: React.FC<NFTCardProps> = ({
   animationDelay = 0,
   smallCard,
   showLibraryBadge = false,
-  imagePriority,
 }) => {
   const { fid } = useFarcasterContext();
   // Use userFid prop if available, otherwise fall back to context fid
@@ -129,7 +127,7 @@ const NFTCardInner: React.FC<NFTCardProps> = ({
               className="w-full h-full object-cover"
               width={smallCard ? 160 : 180}
               height={smallCard ? 160 : 180}
-              priority={imagePriority ?? !smallCard}
+              priority={!smallCard}
             />
           ) : (
             <NFTImage

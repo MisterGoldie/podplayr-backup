@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { NFT } from '../types/user';
-import { subscribeToRecentPlays } from '../lib/firebase/plays';
+import { subscribeToRecentPlays } from '../lib/firebase';
 import { logger } from '../utils/logger';
 import { NFTCard } from './nft/NFTCard';
 import { getMediaKey, getNftIdentityKey } from '../utils/media';

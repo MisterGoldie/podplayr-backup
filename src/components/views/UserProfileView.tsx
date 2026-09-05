@@ -2,24 +2,23 @@
 
 import React, { useEffect, useState, useRef, useMemo } from 'react';
 import Image from 'next/image';
-import dynamic from 'next/dynamic';
 import type { NFT, FarcasterUser } from '../../types/user';
-import { getFollowCounts, isUserFollowed, toggleFollowUser } from '../../lib/firebase/follows';
+import { getFollowersCount, getFollowingCount, isUserFollowed, toggleFollowUser, getUserTotalPlays, getUserLikedNFTsCount } from '../../lib/firebase';
+import FollowsModal from '../FollowsModal';
 import FollowNotification from '../FollowNotification';
 import { useFollowNotification } from '../../hooks/useFollowNotification';
 import { filterPlayableMediaNFTs } from '../../utils/isMediaNFT';
 import { withFeaturedPlayback } from '../../data/featuredNfts';
 import { clearHiddenNfts, getHiddenNftCount, isNftHidden, subscribeToHiddenNfts } from '../../utils/hiddenNfts';
 import { VirtualizedNFTGrid } from '../nft/VirtualizedNFTGrid';
+import { logger } from '../../utils/logger';
 import { useUserProfileBackground } from '../../hooks/useUserProfileBackground';
+import UserInfoPanel from '../user/UserInfoPanel';
 import { isENSUserObject } from '../../utils/ensUtils';
 import { officialAccountDisplayName } from '../../constants/community';
 import { CommunityPills } from '../user/CommunityPills';
 import { getBioText } from '../../utils/format';
 import { ShareProfileButton } from '../ShareProfileButton';
-
-const FollowsModal = dynamic(() => import('../FollowsModal'), { ssr: false });
-const UserInfoPanel = dynamic(() => import('../user/UserInfoPanel'), { ssr: false });
 
 interface UserProfileViewProps {
   user: FarcasterUser;
@@ -36,6 +35,9 @@ interface UserProfileViewProps {
   isNFTLiked?: (nft: NFT) => boolean;
 }
 
+// Create logger for NFT filtering in profile view
+const nftLogger = logger.getModuleLogger('ProfileNFTs');
+
 function formatCount(value?: number) {
   if (!value) return '0';
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
@@ -43,44 +45,17 @@ function formatCount(value?: number) {
   return String(value);
 }
 
-type UserProfileCache = {
+let userProfileDataCache = new Map<string, {
+  userData: FarcasterUser;
   followerCount: number;
   followingCount: number;
-  countsReady: boolean;
-  isFollowed: boolean;
-  followReady: boolean;
   totalPlays: number;
   likedNFTsCount: number;
-  statsReady: boolean;
+  isFollowed: boolean;
   timestamp: number;
-};
+}>();
 
-let userProfileDataCache = new Map<number, UserProfileCache>();
-
-const USER_PROFILE_CACHE_DURATION = 5 * 60 * 1000;
-
-function getCachedProfile(fid: number) {
-  const cached = userProfileDataCache.get(fid);
-  if (!cached) return null;
-  if (Date.now() - cached.timestamp >= USER_PROFILE_CACHE_DURATION) return null;
-  return cached;
-}
-
-function writeProfileCache(fid: number, patch: Partial<UserProfileCache>) {
-  const existing = userProfileDataCache.get(fid);
-  userProfileDataCache.set(fid, {
-    followerCount: existing?.followerCount ?? 0,
-    followingCount: existing?.followingCount ?? 0,
-    countsReady: existing?.countsReady ?? false,
-    isFollowed: existing?.isFollowed ?? false,
-    followReady: existing?.followReady ?? false,
-    totalPlays: existing?.totalPlays ?? 0,
-    likedNFTsCount: existing?.likedNFTsCount ?? 0,
-    statsReady: existing?.statsReady ?? false,
-    ...patch,
-    timestamp: Date.now(),
-  });
-}
+const USER_PROFILE_CACHE_DURATION = 3 * 60 * 1000; // 3 minutes
 
 const UserProfileView: React.FC<UserProfileViewProps> = ({
   user,
@@ -96,12 +71,11 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
   onLikeToggle,
   isNFTLiked
 }) => {
-  const initialCache = user?.fid ? getCachedProfile(user.fid) : null;
-  const [appFollowerCount, setAppFollowerCount] = useState<number>(initialCache?.followerCount ?? 0);
-  const [appFollowingCount, setAppFollowingCount] = useState<number>(initialCache?.followingCount ?? 0);
-  const [totalPlays, setTotalPlays] = useState<number>(initialCache?.totalPlays ?? 0);
-  const [likedNFTsCount, setLikedNFTsCount] = useState<number>(initialCache?.likedNFTsCount ?? 0);
-  const [isFollowed, setIsFollowed] = useState<boolean>(initialCache?.isFollowed ?? false);
+  const [appFollowerCount, setAppFollowerCount] = useState<number>(0);
+  const [appFollowingCount, setAppFollowingCount] = useState<number>(0);
+  const [totalPlays, setTotalPlays] = useState<number>(0);
+  const [likedNFTsCount, setLikedNFTsCount] = useState<number>(0);
+  const [isFollowed, setIsFollowed] = useState<boolean>(false);
   const [isFollowingLoading, setIsFollowingLoading] = useState<boolean>(false);
   const [showInfoPanel, setShowInfoPanel] = useState<boolean>(false);
   const { notification, showNotification } = useFollowNotification();
@@ -125,6 +99,8 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
   const prevUserFidRef = useRef<number | null>(null);
   const [scrollRoot, setScrollRoot] = useState<HTMLDivElement | null>(null);
   
+  // Add loading state for user data
+  const [isUserStatsLoading, setIsUserStatsLoading] = useState<boolean>(false);
   const [isNFTsLoading, setIsNFTsLoading] = useState<boolean>(false);
   // Track if we've completed at least one full load cycle
   const [hasCompletedInitialLoad, setHasCompletedInitialLoad] = useState<boolean>(false);
@@ -136,29 +112,39 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
   const filteredNFTs = useMemo(() => {
     if (!nfts || nfts.length === 0) return [];
     const hydrated = nfts.map((n) => withFeaturedPlayback(n));
-    return filterPlayableMediaNFTs(hydrated).filter((nft) => !isNftHidden(nft));
+    const filtered = filterPlayableMediaNFTs(hydrated).filter((nft) => !isNftHidden(nft));
+    nftLogger.info(`Showing ${filtered.length} media NFTs out of ${nfts.length} total NFTs on profile`);
+    return filtered;
   }, [nfts, hiddenRevision]);
   const hiddenCount = getHiddenNftCount();
   
   // Use a ref to track the current user FID for cancellation
   const currentLoadingFidRef = useRef<number | null>(null);
   
+  // Reset state when user changes
   useEffect(() => {
-    const nextFid = user?.fid || null;
-    if (nextFid === prevUserFidRef.current) return;
-
-    prevUserFidRef.current = nextFid;
-    currentLoadingFidRef.current = nextFid;
+    // Set both loading states when user changes
+    setIsUserStatsLoading(true);
     setIsNFTsLoading(true);
-    setHasCompletedInitialLoad(false);
-
-    const cached = nextFid ? getCachedProfile(nextFid) : null;
-    setAppFollowerCount(cached?.followerCount ?? 0);
-    setAppFollowingCount(cached?.followingCount ?? 0);
-    setTotalPlays(cached?.totalPlays ?? 0);
-    setLikedNFTsCount(cached?.likedNFTsCount ?? 0);
-    setIsFollowed(cached?.isFollowed ?? false);
-  }, [user?.fid]);
+    
+    // If user FID changed, reset all state values
+    if (user?.fid !== prevUserFidRef.current) {
+      // Store the new FID
+      prevUserFidRef.current = user?.fid || null;
+      
+      // Update the current loading FID to the new user
+      currentLoadingFidRef.current = user?.fid || null;
+      
+      // Reset all counts and states
+      setAppFollowerCount(0);
+      setAppFollowingCount(0);
+      setTotalPlays(0);
+      setLikedNFTsCount(0);
+      setIsFollowed(false);
+      
+ 
+    }
+  }, [user?.fid, user?.username]);
 
   // Handle NFTs loading completion
   useEffect(() => {
@@ -188,107 +174,105 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
     return () => clearTimeout(timer);
   }, [nfts, nftsLoading, user?.fid, user?.username]);
 
+  // Load follower and following counts
   useEffect(() => {
+    // Store the current FID we're loading for
     const targetFid = user?.fid;
     if (!targetFid) return;
-
+    
+    // Update the current loading FID
     currentLoadingFidRef.current = targetFid;
-    const cached = getCachedProfile(targetFid);
-    const stillCurrent = () => targetFid === currentLoadingFidRef.current;
-
+    
+    // Set user stats loading state
+    setIsUserStatsLoading(true);
+    
     const loadFollowCounts = async () => {
-      if (cached?.countsReady) {
-        setAppFollowerCount(cached.followerCount);
-        setAppFollowingCount(cached.followingCount);
+      // If the user has changed since we started loading, abort
+      if (targetFid !== currentLoadingFidRef.current) {
         return;
       }
-
+      
       try {
-        const { followers, following } = await getFollowCounts(targetFid);
-        if (!stillCurrent()) return;
-        setAppFollowerCount(followers);
-        setAppFollowingCount(following);
-        writeProfileCache(targetFid, {
-          followerCount: followers,
-          followingCount: following,
-          countsReady: true,
-          timestamp: Date.now(),
-        });
+        // getFollowersCount now reads a cached counter (O(1) after the first
+        // computation) for every user, PODPlayr included — no more special-cased
+        // full recount on every profile view.
+        const followerCount = await getFollowersCount(targetFid);
+        
+        // Check if user changed during this async operation
+        if (targetFid !== currentLoadingFidRef.current) {
+          return;
+        }
+        
+        const followingCount = await getFollowingCount(targetFid);
+        
+        // Check if user changed during this async operation
+        if (targetFid !== currentLoadingFidRef.current) {
+          return;
+        }
+        
+        // Get the user's total play count and liked NFTs count
+        const plays = await getUserTotalPlays(targetFid);
+        
+        // Check if user changed during this async operation
+        if (targetFid !== currentLoadingFidRef.current) {
+          return;
+        }
+        
+        const liked = await getUserLikedNFTsCount(targetFid);
+        
+        // Final check if user changed during any async operation
+        if (targetFid !== currentLoadingFidRef.current) {
+          return;
+        }
+        
+        // Only update state if this is still the current user
+        setAppFollowerCount(followerCount);
+        setAppFollowingCount(followingCount);
+        setTotalPlays(plays);
+        setLikedNFTsCount(liked);
+        
       } catch (error) {
-        if (stillCurrent()) {
+        // Only show error if this is still the current user
+        if (targetFid === currentLoadingFidRef.current) {
           console.error(`Error loading follow counts for ${user?.username} (FID: ${targetFid}):`, error);
+        }
+      } finally {
+        // Only update loading state if this is still the current user
+        if (targetFid === currentLoadingFidRef.current) {
+          setIsUserStatsLoading(false);
         }
       }
     };
 
+    // Check if current user follows this user
     const checkFollowStatus = async () => {
-      if (!currentUserFid || currentUserFid === targetFid) return;
-      if (cached?.followReady) {
-        setIsFollowed(cached.isFollowed);
-        return;
-      }
-
+      const targetFid = user?.fid;
+      if (!currentUserFid || !targetFid || currentUserFid === targetFid) return;
+      
       try {
+        // Check if user changed during this async operation
+        if (targetFid !== currentLoadingFidRef.current) {
+          return;
+        }
+        
         const followed = await isUserFollowed(currentUserFid, targetFid);
-        if (!stillCurrent()) return;
-        setIsFollowed(followed);
-        writeProfileCache(targetFid, {
-          isFollowed: followed,
-          followReady: true,
-        });
+        
+        // Only update state if this is still the current user
+        if (targetFid === currentLoadingFidRef.current) {
+          setIsFollowed(followed);
+        }
       } catch (error) {
-        if (stillCurrent()) {
+        // Only show error if this is still the current user
+        if (targetFid === currentLoadingFidRef.current) {
           console.error(`Error checking follow status for ${user?.username} (FID: ${targetFid}):`, error);
         }
       }
     };
 
-    void loadFollowCounts();
-    void checkFollowStatus();
+    // Start loading data
+    loadFollowCounts();
+    checkFollowStatus();
   }, [user?.fid, currentUserFid, user?.username]);
-
-  useEffect(() => {
-    const targetFid = user?.fid;
-    if (!showInfoPanel || !targetFid) return;
-
-    const cached = getCachedProfile(targetFid);
-    if (cached?.statsReady) {
-      setTotalPlays(cached.totalPlays);
-      setLikedNFTsCount(cached.likedNFTsCount);
-      return;
-    }
-
-    let cancelled = false;
-    const loadInfoStats = async () => {
-      try {
-        const [{ getUserTotalPlays }, { getUserLikedNFTsCount }] = await Promise.all([
-          import('../../lib/firebase/plays'),
-          import('../../lib/firebase/likes'),
-        ]);
-        const [plays, liked] = await Promise.all([
-          getUserTotalPlays(targetFid),
-          getUserLikedNFTsCount(targetFid),
-        ]);
-        if (cancelled || targetFid !== currentLoadingFidRef.current) return;
-        setTotalPlays(plays);
-        setLikedNFTsCount(liked);
-        writeProfileCache(targetFid, {
-          totalPlays: plays,
-          likedNFTsCount: liked,
-          statsReady: true,
-        });
-      } catch (error) {
-        if (!cancelled) {
-          console.error(`Error loading profile stats for ${user?.username} (FID: ${targetFid}):`, error);
-        }
-      }
-    };
-
-    void loadInfoStats();
-    return () => {
-      cancelled = true;
-    };
-  }, [showInfoPanel, user?.fid, user?.username]);
 
   // Handle follow/unfollow
   const handleFollowToggle = async () => {
@@ -298,16 +282,9 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
     try {
       const newStatus = await toggleFollowUser(currentUserFid, user);
       setIsFollowed(newStatus);
-      setAppFollowerCount(prev => {
-        const next = newStatus ? prev + 1 : Math.max(0, prev - 1);
-        writeProfileCache(user.fid, {
-          isFollowed: newStatus,
-          followReady: true,
-          followerCount: next,
-          countsReady: true,
-        });
-        return next;
-      });
+      
+      // Update follower count immediately in UI
+      setAppFollowerCount(prev => newStatus ? prev + 1 : Math.max(0, prev - 1));
       
       if (newStatus) {
         showNotification(`Now following @${user.username}`);
@@ -324,20 +301,14 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
 
   // Handle follow status changes from follows modal
   const handleFollowStatusChange = (newStatus: boolean, targetFid: number) => {
+    // Update follower count if this is the viewed user
     if (user?.fid === targetFid) {
-      setAppFollowerCount(prev => {
-        const next = newStatus ? prev + 1 : Math.max(0, prev - 1);
-        writeProfileCache(targetFid, { followerCount: next, countsReady: true });
-        return next;
-      });
+      setAppFollowerCount(prev => newStatus ? prev + 1 : Math.max(0, prev - 1));
     }
-
+    
+    // If the current user is viewed, update their following count
     if (currentUserFid === user?.fid) {
-      setAppFollowingCount(prev => {
-        const next = newStatus ? prev + 1 : Math.max(0, prev - 1);
-        writeProfileCache(user.fid, { followingCount: next, countsReady: true });
-        return next;
-      });
+      setAppFollowingCount(prev => newStatus ? prev + 1 : Math.max(0, prev - 1));
     }
   };
 
@@ -365,6 +336,17 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
         />
       )}
       
+      {/* Loading Overlay - show when either user stats OR NFTs are loading */}
+      {(isUserStatsLoading || isNFTsLoading) && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center">
+          <div className="flex flex-col items-center">
+            <div className="w-16 h-16 border-t-4 border-l-4 border-purple-500 rounded-full animate-spin"></div>
+            <p className="mt-4 text-purple-300 font-mono">
+              Loading {isNFTsLoading ? 'NFTs' : 'profile'}...
+            </p>
+          </div>
+        </div>
+      )}
       <div ref={setScrollRoot} className="page-scroll pt-16 pb-48 bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082]">
         <div className="relative w-full h-[200px] sm:h-[240px] overflow-hidden">
           <div

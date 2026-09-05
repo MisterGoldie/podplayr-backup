@@ -326,24 +326,22 @@ export const fetchUserNFTs = async (fid: number): Promise<NFT[]> => {
 // Store featured NFTs in Firebase if they don't exist
 export const ensureFeaturedNFTsExist = async (nfts: NFT[]): Promise<void> => {
   try {
-    const refs = nfts.map((nft) => doc(db, 'nfts', `${nft.contract}-${nft.tokenId}`));
-    const snaps = await Promise.all(refs.map((nftRef) => getDoc(nftRef)));
     const batch = writeBatch(db);
-    let writes = 0;
-
-    snaps.forEach((nftDoc, index) => {
-      if (nftDoc.exists()) return;
-      const nft = nfts[index];
-      batch.set(refs[index], {
-        ...nft,
-        likes: 0,
-        plays: 0,
-        timestamp: serverTimestamp()
-      });
-      writes += 1;
-    });
-
-    if (writes === 0) return;
+    
+    for (const nft of nfts) {
+      const nftRef = doc(db, 'nfts', `${nft.contract}-${nft.tokenId}`);
+      const nftDoc = await getDoc(nftRef);
+      
+      if (!nftDoc.exists()) {
+        batch.set(nftRef, {
+          ...nft,
+          likes: 0,
+          plays: 0,
+          timestamp: serverTimestamp()
+        });
+      }
+    }
+    
     await batch.commit();
     firebaseLogger.info('Featured NFTs stored in Firebase');
   } catch (error) {

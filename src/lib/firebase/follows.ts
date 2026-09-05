@@ -425,30 +425,6 @@ export const recomputeFollowerCount = async (userFid: number): Promise<number> =
   }
 };
 
-export const getFollowCounts = async (
-  userFid: number
-): Promise<{ followers: number; following: number }> => {
-  if (!userFid) return { followers: 0, following: 0 };
-  return deduplicateCall(`followCounts-${userFid}`, async () => {
-    try {
-      const userDoc = await getDoc(doc(db, 'searchedusers', userFid.toString()));
-      const data = userDoc.exists() ? userDoc.data() : {};
-      const followers =
-        typeof data.followerCount === 'number'
-          ? data.followerCount
-          : await recomputeFollowerCount(userFid);
-      const following =
-        typeof data.followingCount === 'number'
-          ? data.followingCount
-          : await recomputeFollowingCount(userFid);
-      return { followers, following };
-    } catch (error) {
-      console.error('Error getting follow counts:', error);
-      return { followers: 0, following: 0 };
-    }
-  });
-};
-
 // Get the count of users that the current user is following
 export const getFollowingCount = async (userFid: number): Promise<number> => {
   if (!userFid) return 0;

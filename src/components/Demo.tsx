@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback, useContext, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { FarcasterContext, UserFidContext } from '~/app/providers';
-import { usePrerollAd } from '../hooks/usePrerollAd';
+import { PlayerWithAds, usePrerollAd } from './player/PlayerWithAds';
 import { getMediaKey } from '~/utils/media';
 import { sameLikedTrack } from '../utils/likeDedupe';
 import { BottomNav } from './navigation/BottomNav';
@@ -12,7 +12,7 @@ import {
   trackUserSearch,
   searchUsers,
   subscribeToRecentSearches
-} from '../lib/firebase/user';
+} from '../lib/firebase';
 import { getLikedNFTs, toggleLikeNFT } from '../lib/firebase/likes';
 import type { NFT, FarcasterUser, SearchedUser } from '../types/user';
 import { usePlayer } from '../contexts/PlayerContext';
@@ -44,45 +44,6 @@ interface PageState {
 interface NavigationSource {
   fromExplore: boolean;
   fromProfile: boolean;
-}
-
-const LIKED_NFTS_CACHE_KEY = 'podplayr_liked_nfts_v1';
-
-function readLikedNftsCache(): NFT[] | null {
-  try {
-    const raw = localStorage.getItem(LIKED_NFTS_CACHE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as NFT[];
-    if (!Array.isArray(parsed) || parsed.length === 0) return null;
-    const playable = parsed.filter(isPlayableMediaNFT);
-    return playable.length > 0 ? playable : null;
-  } catch {
-    return null;
-  }
-}
-
-function writeLikedNftsCache(nfts: NFT[]) {
-  try {
-    const slim = nfts.map((nft) => ({
-      mediaKey: nft.mediaKey,
-      contract: nft.contract,
-      tokenId: nft.tokenId,
-      name: nft.name,
-      image: nft.image,
-      audio: nft.audio,
-      videoUrl: nft.videoUrl,
-      isVideo: nft.isVideo,
-      playbackMode: nft.playbackMode,
-      metadata: nft.metadata,
-      collection: nft.collection,
-      network: nft.network,
-      likedAt: nft.likedAt,
-      likedTimestamp: nft.likedTimestamp,
-    }));
-    localStorage.setItem(LIKED_NFTS_CACHE_KEY, JSON.stringify(slim));
-  } catch {
-    // Ignore quota / private-mode failures
-  }
 }
 
 const HOME_PAGE: PageState = {
@@ -122,14 +83,6 @@ const UserProfileView = dynamic(() => import('./views/UserProfileView'), {
   ssr: false,
   loading: TabLoading,
 });
-const PlayerWithAds = dynamic(
-  () => import('./player/PlayerWithAds').then((mod) => mod.PlayerWithAds),
-  { ssr: false }
-);
-
-function prefetchPlayerChunk() {
-  void import('./player/PlayerWithAds');
-}
 
 const deduplicateNFTsByMediaKey = (nfts: NFT[]): NFT[] => {
   const uniqueNFTs = new Map<string, NFT>();
@@ -185,7 +138,6 @@ const DemoBase: React.FC = () => {
 
   const isLoadingLikedNFTsRef = useRef(false);
   const skipEmptyLikeCacheWrite = useRef(true);
-  const nftPlaybackConfirmRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { topPlayed: topPlayedNFTs, loading: topPlayedLoading } = useTopPlayedNFTs();
   const {
@@ -210,37 +162,16 @@ const DemoBase: React.FC = () => {
       void import('./views/ProfileView');
       void import('./views/UserProfileView');
     };
-    let idleId: number | undefined;
-    let timer: number | undefined;
-    const start = () => {
-      if (typeof requestIdleCallback === 'function') {
-        idleId = requestIdleCallback(prefetchTabs, { timeout: 5000 });
-        return;
-      }
-      timer = window.setTimeout(prefetchTabs, 3500);
-    };
-    if (document.readyState === 'complete') {
-      start();
-    } else {
-      window.addEventListener('load', start, { once: true });
+    if (typeof requestIdleCallback === 'function') {
+      const id = requestIdleCallback(prefetchTabs, { timeout: 2500 });
+      return () => cancelIdleCallback(id);
     }
-    return () => {
-      window.removeEventListener('load', start);
-      if (idleId !== undefined && typeof cancelIdleCallback === 'function') {
-        cancelIdleCallback(idleId);
-      }
-      if (timer !== undefined) window.clearTimeout(timer);
-    };
+    const timer = window.setTimeout(prefetchTabs, 1500);
+    return () => window.clearTimeout(timer);
   }, []);
 
   useEffect(() => {
     try {
-      const cachedNfts = readLikedNftsCache();
-      if (cachedNfts) {
-        setLikedNFTs(cachedNfts);
-        setLikedNFTsLoaded(true);
-        return;
-      }
       const cachedLikes = localStorage.getItem('podplayr_liked_media_keys');
       if (!cachedLikes) return;
       const mediaKeys = JSON.parse(cachedLikes) as string[];
@@ -275,16 +206,11 @@ const DemoBase: React.FC = () => {
       }
 
       isLoadingLikedNFTsRef.current = true;
+      setLikedNFTsLoaded(false);
       try {
         const liked = (await getLikedNFTs(fid)).filter(isPlayableMediaNFT);
         setLikedNFTs(liked);
-        writeLikedNftsCache(liked);
-        const confirmPlayback = () => applyConfirmedPlayback(liked, setLikedNFTs);
-        if (typeof requestIdleCallback === 'function') {
-          requestIdleCallback(confirmPlayback, { timeout: 4000 });
-        } else {
-          window.setTimeout(confirmPlayback, 1500);
-        }
+        applyConfirmedPlayback(liked, setLikedNFTs);
       } catch (error) {
         demoLogger.error('Error loading liked NFTs:', error);
       } finally {
@@ -312,14 +238,14 @@ const DemoBase: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (!fid || !currentPage.isExplore) return;
+    if (!fid) return;
 
     const unsubscribe = subscribeToRecentSearches(fid, (searches) => {
       setRecentSearches(searches);
     });
 
     return unsubscribe;
-  }, [fid, currentPage.isExplore]);
+  }, [fid]);
 
   const releaseVideoResources = useCallback(() => {
     const currentId = currentPlayingNFT
@@ -348,13 +274,7 @@ const DemoBase: React.FC = () => {
     const unique = deduplicateNFTsByMediaKey(nfts.map((n) => withFeaturedPlayback(n)));
     setUserNFTs(unique);
     setUserNftsLoading(false);
-    if (nftPlaybackConfirmRef.current != null) {
-      window.clearTimeout(nftPlaybackConfirmRef.current);
-    }
-    nftPlaybackConfirmRef.current = window.setTimeout(() => {
-      applyConfirmedPlayback(unique, setUserNFTs);
-      nftPlaybackConfirmRef.current = null;
-    }, 2500);
+    applyConfirmedPlayback(unique, setUserNFTs);
   }, []);
 
   const handleUserDataError = useCallback((loadError: string) => {
@@ -435,7 +355,6 @@ const DemoBase: React.FC = () => {
   }, [fid, likedNFTs]);
 
   const handlePlayNFT = useCallback(async (nft: NFT, context?: { queue?: NFT[]; queueType?: string }) => {
-    prefetchPlayerChunk();
     const sameTrack = currentPlayingNFT
       ? getMediaKey(currentPlayingNFT) === getMediaKey(nft)
       : currentlyPlaying === `${nft.contract}-${nft.tokenId}`;
@@ -693,7 +612,6 @@ const DemoBase: React.FC = () => {
       // handlePlayAudio alone doesn't touch isPlayerMinimized (that's owned
       // here in Demo.tsx and normally only unminimized by handlePlayNFT for
       // the suggested-music-videos rail) — force it open for a shared link.
-      prefetchPlayerChunk();
       setIsPlayerMinimized(false);
       // No user gesture at page-load time, so browsers block autoplay outright
       // (NotAllowedError) — load the track paused and let the user's first

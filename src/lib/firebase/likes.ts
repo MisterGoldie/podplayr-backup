@@ -303,81 +303,6 @@ const getGlobalLikedNFTs = async (fid: number): Promise<NFT[]> => {
   }
 };
 
-const likesCleanupStarted = new Set<number>();
-
-function scheduleLikesCleanup(fid: number) {
-  if (likesCleanupStarted.has(fid)) return;
-  likesCleanupStarted.add(fid);
-  const later = typeof setTimeout === 'function' ? setTimeout : null;
-  if (!later) {
-    void cleanupLikes(fid).catch((err) =>
-      firebaseLogger.error(`Background cleanup failed for user ${fid}:`, err)
-    );
-    return;
-  }
-  later(() => {
-    cleanupLikes(fid).catch((err) =>
-      firebaseLogger.error(`Background cleanup failed for user ${fid}:`, err)
-    );
-  }, 2500);
-}
-
-async function likedNftsFromLikeDocs(
-  userId: string,
-  likeDocs: QueryDocumentSnapshot<DocumentData>[]
-): Promise<NFT[]> {
-  const needsCreateTimes = likeDocs.some((docSnap) => {
-    const data = docSnap.data();
-    return !getNftLikedTime(data) && !snapshotCreateMillis(docSnap);
-  });
-  const createTimes = needsCreateTimes
-    ? await fetchLikeCreateTimes(userId)
-    : new Map<string, number>();
-
-  const likedNFTs = likeDocs.map((docSnap) => {
-    const data = docSnap.data();
-    const nested = data.nft && typeof data.nft === 'object' ? data.nft : {};
-    const collectionSource = data.collection || nested.collection;
-    const animationUrl = restoreStoredAnimationUrl(data);
-    const nft = {
-      mediaKey: docSnap.id,
-      contract: data.contract || data.nftContract || nested.contract,
-      tokenId: data.tokenId || nested.tokenId,
-      name: data.name || nested.name || 'Untitled',
-      description: data.description || nested.description || '',
-      image: data.image || data.imageUrl || nested.image || '',
-      audio: data.audioUrl || data.audio || nested.audio || '',
-      videoUrl: data.videoUrl || nested.videoUrl || undefined,
-      isVideo: Boolean(data.isVideo || nested.isVideo),
-      playbackMode: data.playbackMode || nested.playbackMode || undefined,
-      network: data.network || nested.network,
-      metadata: {
-        ...(nested.metadata || {}),
-        ...(data.metadata || {}),
-        animation_url: animationUrl || data.metadata?.animation_url || nested.metadata?.animation_url,
-        ...(data.mediaMime ? { mimeType: data.mediaMime } : {}),
-      },
-      collection: collectionSource
-        ? {
-            name:
-              typeof collectionSource === 'string'
-                ? collectionSource
-                : collectionSource.name || 'Unknown Collection',
-            image: typeof collectionSource === 'string' ? undefined : collectionSource.image,
-          }
-        : undefined,
-    } as NFT;
-    hydrateNftPlayback(nft);
-    stampNftLikeTime(nft, {
-      ...data,
-      createTime: snapshotCreateMillis(docSnap) || createTimes.get(docSnap.id) || 0,
-    });
-    return nft;
-  });
-
-  return uniqueLikedNfts(sortLikedNewestFirst(likedNFTs.filter(isPlayableMediaNFT)));
-}
-
 // Get liked NFTs for a user using mediaKey-based approach
 // Updated to support both wallet addresses (string) and FIDs (number)
 export const getLikedNFTs = async (userIdOrWallet: number | string): Promise<NFT[]> => {
@@ -395,30 +320,301 @@ export const getLikedNFTs = async (userIdOrWallet: number | string): Promise<NFT
     
     // Convert to string for Firestore path
     const userId = userIdOrWallet.toString();
-
+    
+    // Run cleanup to ensure all likes are in mediaKey format (only for FIDs)
+    if (typeof userIdOrWallet === 'number') {
+      await cleanupLikes(userIdOrWallet);
+    }
+    
+    // Get likes from user's subcollection using mediaKey as document ID
     const likesRef = collection(db, 'users', userId, 'likes');
     
     firebaseLogger.info(`Getting liked NFTs for user ${userId} using mediaKey-based approach`);
     const snapshot = await getDocs(likesRef);
-
-    if (typeof userIdOrWallet === 'number') {
-      scheduleLikesCleanup(userIdOrWallet);
-    }
-
+    
     if (snapshot.empty) {
       firebaseLogger.info(`No liked NFTs found for user ${userId}`);
-      if (typeof userIdOrWallet === 'number') {
-        await cleanupLikes(userIdOrWallet);
-        const afterCleanup = await getDocs(likesRef);
-        if (afterCleanup.empty) return [];
-        return likedNftsFromLikeDocs(userId, afterCleanup.docs);
-      }
       return [];
     }
 
     const migrated = await consolidateUserLikes(db, userId, snapshot.docs);
     const likeDocs = migrated ? (await getDocs(likesRef)).docs : snapshot.docs;
-    return likedNftsFromLikeDocs(userId, likeDocs);
+    
+    const createTimes = await fetchLikeCreateTimes(userId);
+    // Transform the documents into NFT objects with mediaKey as primary identifier
+    let likedNFTs: NFT[] = likeDocs.map(docSnap => {
+      const data = docSnap.data();
+      const mediaKey = getMediaKey({
+        contract: data.contract || data.nftContract || data.nft?.contract,
+        tokenId: data.tokenId || data.nft?.tokenId,
+        mediaKey: docSnap.id,
+        audio: data.audioUrl || data.nft?.audio || data.audio,
+        animationUrl: data.animationUrl || data.nft?.animationUrl,
+        videoUrl: data.videoUrl || data.nft?.videoUrl,
+        metadata: data.metadata || data.nft?.metadata,
+      }) || docSnap.id;
+      
+      // Construct the NFT object with mediaKey as primary identifier
+      const nft: NFT = {
+        mediaKey, // Set mediaKey from document ID (essential for content-first approach)
+        contract: data.contract || data.nftContract,
+        tokenId: data.tokenId,
+        name: data.name || 'Untitled',
+        description: data.description || '',
+        image: data.image || '',
+        audio: data.audioUrl || '',
+        collection: data.collection ? { name: data.collection } : undefined,
+        network: data.network,
+        metadata: {
+          ...(data.metadata || {}),
+          animation_url:
+            restoreStoredAnimationUrl(data) || data.metadata?.animation_url,
+          ...(data.mediaMime ? { mimeType: data.mediaMime } : {}),
+        },
+      };
+      
+      // If we have a nested nft object, prioritize those values
+      if (data.nft) {
+        Object.assign(nft, {
+          contract: data.nft.contract || nft.contract,
+          tokenId: data.nft.tokenId || nft.tokenId,
+          name: data.nft.name || nft.name,
+          description: data.nft.description || nft.description,
+          image: data.nft.image || nft.image,
+          audio: data.nft.audio || nft.audio,
+          metadata: data.nft.metadata || nft.metadata
+        });
+        
+        if (data.nft.collection) {
+          nft.collection = {
+            name: data.nft.collection.name || (typeof data.nft.collection === 'string' ? data.nft.collection : 'Unknown Collection'),
+            image: data.nft.collection.image
+          };
+        }
+      }
+      
+      // Fill in collection if available from metadata
+      if (!nft.collection && data.metadata?.collection) {
+        nft.collection = {
+          name: data.metadata.collection.name || 'Unknown Collection',
+          image: data.metadata.collection.image
+        };
+      }
+      
+      // Determine if this is a video NFT
+      if (nft.metadata?.animation_url && typeof nft.metadata.animation_url === 'string') {
+        const animUrl = nft.metadata.animation_url.toLowerCase();
+        
+        // First check file extensions - safe and doesn't need URL parsing
+        if (animUrl.endsWith('.mp4') || 
+            animUrl.endsWith('.webm') || 
+            animUrl.endsWith('.mov')) {
+          nft.isVideo = true;
+        } else {
+          // For IPFS detection, properly parse the URL
+          try {
+            const url = new URL(animUrl);
+            
+            // Check if this is an IPFS URL (either hostname or path indicates IPFS content)
+            const isIpfsUrl = 
+              url.hostname === 'ipfs.io' || 
+              url.hostname.endsWith('.ipfs.io') ||
+              url.hostname === 'cloudflare-ipfs.com' ||
+              url.hostname === 'ipfs.infura.io' ||
+              url.pathname.startsWith('/ipfs/');
+              
+            // Check if this might be an audio file by extension
+            const isPossiblyAudio = 
+              url.pathname.endsWith('.mp3') || 
+              url.pathname.endsWith('.wav') || 
+              url.pathname.endsWith('.ogg') || 
+              url.pathname.endsWith('.flac');
+              
+            // Mark as video if it's IPFS but not audio
+            if (isIpfsUrl && !isPossiblyAudio) {
+              nft.isVideo = true;
+            }
+          } catch (error) {
+            // If URL parsing fails, try again with a more careful approach
+            try {
+              // SECURITY: Proper URL parsing with validation
+              const urlWithProtocol = animUrl.startsWith('http') ? animUrl : `https://${animUrl}`;
+              const parsedUrl = new URL(urlWithProtocol);
+              
+              // Define allowed IPFS hostnames
+              const allowedIpfsHosts = [
+                'ipfs.io',
+                'cloudflare-ipfs.com',
+                'ipfs.infura.io',
+                'dweb.link',
+                'gateway.pinata.cloud'
+              ];
+              
+              // Check if the hostname exactly matches or is a subdomain of an allowed host
+              const isIpfsHost = allowedIpfsHosts.some(host => 
+                parsedUrl.hostname === host || parsedUrl.hostname.endsWith(`.${host}`));
+              
+              // If it's a valid IPFS host
+              if (isIpfsHost) {
+                // Check file extension from the pathname
+                const path = parsedUrl.pathname.toLowerCase();
+                const isAudioFile = path.endsWith('.mp3') || path.endsWith('.wav') || 
+                                  path.endsWith('.ogg') || path.endsWith('.flac');
+                
+                // Mark as video if it's not an audio file
+                if (!isAudioFile) {
+                  nft.isVideo = true;
+                }
+              }
+            } catch (secondError) {
+              // If both parsing attempts fail, log and continue
+              console.error('Error parsing animation URL after fallback:', secondError);
+            }
+          }
+        }
+      }
+      
+      // Special case for YouTube links
+      // Check for YouTube links in metadata properties
+      const externalUrl = nft.metadata?.properties?.['external_url'] || '';
+      if (typeof externalUrl === 'string' && externalUrl) {
+        try {
+          // Parse the URL properly to extract the hostname
+          const url = new URL(externalUrl);
+          const hostname = url.hostname.toLowerCase();
+          
+          // Check if hostname is youtube.com or a subdomain, or youtu.be
+          if (hostname === 'youtube.com' || 
+              hostname.endsWith('.youtube.com') || 
+              hostname === 'youtu.be') {
+            nft.isVideo = true;
+          }
+        } catch (error) {
+          // If URL parsing fails, try again with a more careful approach
+          try {
+            // SECURITY: Proper URL parsing with validation - ensure URL has protocol
+            const urlWithProtocol = externalUrl.startsWith('http') ? externalUrl : `https://${externalUrl}`;
+            const parsedUrl = new URL(urlWithProtocol);
+            
+            // Define allowed YouTube hostnames
+            const youtubeHosts = [
+              'youtube.com',
+              'www.youtube.com',
+              'youtu.be'
+            ];
+            
+            // Check if the hostname exactly matches or is a subdomain of YouTube
+            const isYoutubeHost = youtubeHosts.some(host => 
+              parsedUrl.hostname === host || 
+              // This handles m.youtube.com, music.youtube.com, etc.
+              (host === 'youtube.com' && parsedUrl.hostname.endsWith('.youtube.com')));
+            
+            if (isYoutubeHost) {
+              nft.isVideo = true;
+            }
+          } catch (secondError) {
+            // If both parsing attempts fail, log the error and continue
+            console.error('Error parsing YouTube URL after fallback:', secondError);
+          }
+        }
+      }
+      
+      hydrateNftPlayback(nft);
+      stampNftLikeTime(nft, {
+        ...data,
+        createTime:
+          snapshotCreateMillis(docSnap) || createTimes.get(docSnap.id) || 0,
+      });
+      return nft;
+    });
+    
+    // Initialize userLikesSnapshot outside the conditional blocks
+    let userLikesSnapshot: QuerySnapshot<DocumentData> | null = null;
+    
+    // Check if we also need to get old format likes - only for numeric user IDs (FIDs)
+    if (typeof userIdOrWallet === 'number') {
+      const userRef = doc(db, 'users', userId);
+      const userDoc = await getDoc(userRef);
+      
+      if (userDoc.exists()) {
+        const userData = userDoc.data();
+        if (userData.liked_nfts && Array.isArray(userData.liked_nfts) && userData.liked_nfts.length > 0) {
+          // Add these to our results
+          likedNFTs = [...likedNFTs, ...userData.liked_nfts];
+          
+          // Schedule a cleanup
+          setTimeout(() => {
+            cleanupLikes(userIdOrWallet as number).catch(err => 
+              firebaseLogger.error(`Background cleanup failed for user ${userId}:`, err)
+            );
+          }, 2000);
+        }
+      }
+      
+      // Also check user_likes global collection (newer format) - only for FIDs
+      const userLikesQuery = query(
+        collection(db, 'user_likes'),
+        where(documentId(), '>=', `${userId}-`),
+        where(documentId(), '<', `${userId}z`)
+      );
+      
+      // Execute the query for FID users
+      userLikesSnapshot = await getDocs(userLikesQuery);
+      
+      if (!userLikesSnapshot.empty) {
+        firebaseLogger.info(`Found ${userLikesSnapshot.docs.length} NFTs in user_likes collection for user ${userId}`);
+        
+        const globalLikedNFTs = userLikesSnapshot.docs.map((doc: any) => {
+          const docData = doc.data();
+          
+          return {
+            contract: docData.contract,
+            tokenId: docData.tokenId,
+            name: docData.name || 'Untitled',
+            description: docData.description || '',
+            image: docData.image || '',
+            audio: docData.audioUrl || '',
+            collection: { name: docData.collection || 'Unknown Collection' },
+            network: docData.network
+          } as NFT;
+        });
+        
+        // Add these to our results
+        likedNFTs = [...likedNFTs, ...globalLikedNFTs];
+      }
+    }
+    
+    // Deduplicate NFTs by canonical contract-tokenId
+    const uniqueNFTs = new Map<string, NFT>();
+    
+    for (const nft of likedNFTs) {
+      if (nft && nft.contract && nft.tokenId) {
+        const key = getNftIdentityKey(nft) || `${nft.contract}-${nft.tokenId}`;
+        const existing = uniqueNFTs.get(key);
+        if (!existing) {
+          uniqueNFTs.set(key, nft);
+          continue;
+        }
+        if (getNftLikedTime(nft) > getNftLikedTime(existing)) {
+          uniqueNFTs.set(key, nft);
+          continue;
+        }
+        if (
+          getNftLikedTime(nft) === getNftLikedTime(existing) &&
+          ((!existing.name && nft.name) || (!existing.image && nft.image))
+        ) {
+          uniqueNFTs.set(key, stampNftLikeTime({ ...existing, ...nft }, existing));
+        }
+      }
+    }
+    
+    likedNFTs = uniqueLikedNfts(sortLikedNewestFirst(Array.from(uniqueNFTs.values()).filter(isPlayableMediaNFT)));
+    
+    // We no longer need to check for permanently removed NFTs
+    // Simply return playable audio/video likes (3D models are excluded)
+    
+    firebaseLogger.info(`Processed ${likedNFTs.length} liked NFTs after deduplication`);
+    return likedNFTs;
   } catch (error) {
     firebaseLogger.error('Error getting liked NFTs:', error);
     return [];

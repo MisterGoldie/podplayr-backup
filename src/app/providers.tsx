@@ -2,14 +2,14 @@
 
 import { createContext, useContext, useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { isBaseAppBrowser, isCoinbaseWalletClientFid, isFarcasterMiniApp, isRealFid } from '../utils/platform';
-import { ensurePodplayrFollow } from '../lib/firebase/follows';
-import { searchUsersByAddress } from '../lib/firebase/user';
+import { ensurePodplayrFollow, searchUsersByAddress } from '../lib/firebase';
 import { VideoPlayProvider } from '../contexts/VideoPlayContext';
 import { NFTNotificationProvider } from '../context/NFTNotificationContext';
 import { PlayerProvider } from '../contexts/PlayerContext';
 import { useMiniKit } from '@coinbase/onchainkit/minikit';
 import { Toaster } from 'react-hot-toast';
 import { getStoredBaseWalletAddress, signInWithBase } from '../lib/baseAccount';
+import { signInToFirebaseWithQuickAuth } from '../lib/firebaseSession';
 import { getBioText } from '../utils/format';
 
 // Create a context for the user's Farcaster ID
@@ -20,10 +20,13 @@ export const UserFidContext = createContext<{
   environment: 'farcaster' | 'coinbase' | 'web';
   walletAddress?: string;
   connectBaseWallet?: () => Promise<void>;
+  firebaseUid?: string;
+  isFirebaseAuthReady: boolean;
 }>({
   setFid: () => {},
   isFidReady: false,
   environment: 'web',
+  isFirebaseAuthReady: false,
 });
 
 // Enhanced context interfaces
@@ -89,6 +92,8 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
   const [isFidReady, setIsFidReady] = useState(false);
   const [environment, setEnvironment] = useState<'farcaster' | 'coinbase' | 'web'>('web');
   const [walletAddress, setWalletAddress] = useState<string>();
+  const [firebaseUid, setFirebaseUid] = useState<string>();
+  const [isFirebaseAuthReady, setIsFirebaseAuthReady] = useState(false);
   
   // Add missing state variables
   const [userContext, setUserContext] = useState<FarcasterUserContext | null>(null);
@@ -97,8 +102,6 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
 
   // Get MiniKit context
   const { context: miniKitContext } = useMiniKit();
-  const miniKitContextRef = useRef(miniKitContext);
-  miniKitContextRef.current = miniKitContext;
   const [isMiniKit, setIsMiniKit] = useState(false);
 
   // Note: PODPlayr's follower count used to be force-recomputed with a full
@@ -116,7 +119,7 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
     async function initializeEnvironmentContext() {
       try {
         const applyMiniKitUser = () => {
-          const miniUser = miniKitContextRef.current?.user;
+          const miniUser = miniKitContext?.user;
           const miniFid = miniUser?.fid;
           if (!miniUser || !isRealFid(miniFid)) return;
           setFid(miniFid);
@@ -127,7 +130,7 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
             pfp: miniUser.pfpUrl,
             bio: (miniUser as any).bio,
           });
-          const miniClient = miniKitContextRef.current?.client;
+          const miniClient = miniKitContext?.client;
           if (miniClient) {
             setClientContext({
               clientFid: miniClient.clientFid || miniFid,
@@ -246,39 +249,47 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
     }
 
     initializeEnvironmentContext();
-  }, []);
-
-  useEffect(() => {
-    if (environment !== 'coinbase') return;
-    const miniUser = miniKitContext?.user;
-    if (!miniUser || !isRealFid(miniUser.fid)) return;
-    setFid(miniUser.fid);
-    setUserContext({
-      fid: miniUser.fid,
-      username: miniUser.username,
-      displayName: miniUser.displayName,
-      pfp: miniUser.pfpUrl,
-      bio: (miniUser as any).bio,
-    });
-    const miniClient = miniKitContext?.client;
-    if (miniClient) {
-      setClientContext({
-        clientFid: miniClient.clientFid || miniUser.fid,
-        added: miniClient.added || false,
-        safeAreaInsets: miniClient.safeAreaInsets,
-      });
-    }
-  }, [environment, miniKitContext]);
+  }, [miniKitContext]);
   
+  // Farcaster follow writes are owner-checked once a Firebase session exists,
+  // so wait for that uid. Web and Base have no session and still follow.
   const followedFidRef = useRef<number | undefined>(undefined);
   useEffect(() => {
     if (!fid) return;
+    if (environment === 'farcaster' && firebaseUid !== String(fid)) return;
     if (followedFidRef.current === fid) return;
     followedFidRef.current = fid;
     ensurePodplayrFollow(fid).catch(error => {
       console.error('Error ensuring PODPlayr follow:', error);
     });
-  }, [fid]);
+  }, [fid, firebaseUid, environment]);
+
+  useEffect(() => {
+    if (!isFidReady) return;
+
+    if (environment !== 'farcaster' || !fid) {
+      setIsFirebaseAuthReady(true);
+      return;
+    }
+
+    let cancelled = false;
+    setIsFirebaseAuthReady(false);
+
+    signInToFirebaseWithQuickAuth(fid)
+      .then((uid) => {
+        if (!cancelled && uid) setFirebaseUid(uid);
+      })
+      .catch((error) => {
+        console.error('Firebase Quick Auth sign-in failed:', error);
+      })
+      .finally(() => {
+        if (!cancelled) setIsFirebaseAuthReady(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isFidReady, environment, fid]);
 
   const applyWalletIdentity = useCallback(async (address: string) => {
     setWalletAddress(address.toLowerCase());
@@ -319,8 +330,10 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
       environment,
       walletAddress,
       connectBaseWallet,
+      firebaseUid,
+      isFirebaseAuthReady,
     }),
-    [fid, setFid, isFidReady, environment, walletAddress, connectBaseWallet]
+    [fid, setFid, isFidReady, environment, walletAddress, connectBaseWallet, firebaseUid, isFirebaseAuthReady]
   );
 
   const unifiedContextValue = useMemo(

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { processMediaUrl, IPFS_GATEWAYS, isAudioUrlUsedAsImage, getCleanIPFSUrl, processArweaveUrl, getMediaKey, getNftIdentityKey, buildArweaveImageFallbackUrls, buildIpfsFallbackUrls, buildHttpCdnImageFallbackUrls, extractIPFSPath, getNftMediaUrl, toIpfsGatewayUrl, clearNftMediaUrlCache, pickImageCandidates, shouldProbeIpfsDirectory, sanitizeMediaUrl, looksLikeStillImageUrl, isCollectionOpenSeaStillUrl, isFragileSeaDnPosterUrl, nftHasSeaDnVideoAnimation, rememberNftDisplayCover, getRememberedNftDisplayCover } from '../../utils/media';
-import { getCardThumbUrl, getCardThumbAlternates, shouldPreserveAnimation, nftHasAnimatedCover, isBrowserFriendlyCdnUrl, isArweaveMediaUrl, isIpfsMediaUrl, isVideoMediaUrl, isLikelyTokenVideoCoverUrl, getVideoCoverStillUrl, alchemyCoverIsPlaybackVideo, isAlchemyAnimationCdnUrl, parseAlchemyCdnRef, resizeAlchemyCloudinaryThumb } from '../../utils/imageOptimizer';
+import { getCardThumbUrl, getCardThumbAlternates, shouldPreserveAnimation, nftHasAnimatedCover, isBrowserFriendlyCdnUrl, isArweaveMediaUrl, isIpfsMediaUrl, isVideoMediaUrl, isLikelyTokenVideoCoverUrl, getVideoCoverStillUrl, alchemyCoverIsPlaybackVideo, parseAlchemyCdnRef, resizeAlchemyCloudinaryThumb } from '../../utils/imageOptimizer';
 import { imageDebug, imageDebugUrlKind, logNftCoverDebug } from '../../utils/imageDebug';
 import Image from 'next/image';
 import type { SyntheticEvent } from 'react';
@@ -417,12 +417,6 @@ export const NFTImage: React.FC<NFTImageProps> = ({
     // set imgLoading=true. Same src won't re-fire onLoad → false arweave hang hops.
     let nextDisplayUrl = '';
     const rememberedDisplay = nft ? getRememberedNftDisplayCover(nft) : '';
-    const rememberedIsDoomedAnimThumb =
-      !!rememberedDisplay &&
-      /thumbnailv2/i.test(rememberedDisplay) &&
-      (isAlchemyAnimationCdnUrl(rememberedDisplay) ||
-        /_animation(?:_|$|[/?#])/i.test(rememberedDisplay) ||
-        isLikelyTokenVideoCoverUrl(rememberedDisplay));
     if (rememberedDisplay) {
       nextDisplayUrl = useCardThumb
         ? rememberedDisplay
@@ -557,7 +551,15 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       let resolveBranch = 'none';
       let resolvedForLog = '';
 
-      const rememberedNeedsVideoStillFix = rememberedIsDoomedAnimThumb;
+      // A remembered cover from *before* the server told us this token's
+      // image is really video (coverIsVideo) can be the doomed plain-image
+      // guess itself — trusting it blindly re-eats the same 400 every mount.
+      const rememberedNeedsVideoStillFix =
+        !!rememberedHit &&
+        !!nft?.coverIsVideo &&
+        !isVideoMediaUrl(rememberedHit) &&
+        !/alchemyapi\/video\/fetch/i.test(rememberedHit) &&
+        !isLikelyTokenVideoCoverUrl(rememberedHit);
 
       if (rememberedHit && !rememberedNeedsVideoStillFix) {
         const sizedHit = useCardThumb
@@ -722,13 +724,6 @@ export const NFTImage: React.FC<NFTImageProps> = ({
 
     setError(false);
     setRetryCount(0);
-
-    // Mini player / remounts must keep the card's already-decoded cover.
-    // The trailing getNftMediaUrl pass used to replace it with the playback
-    // `_animation_` hash → video/fetch (slow, often blocked).
-    if (rememberedDisplay && !rememberedIsDoomedAnimThumb) {
-      return;
-    }
 
     // Prefer Alchemy static thumb when cover is video / dead IPFS / SeaDN —
     // don't wait for load failure (Nifty Island mp4 covers, etc.).

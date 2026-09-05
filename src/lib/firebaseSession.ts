@@ -52,24 +52,7 @@ export async function signInToFirebaseWithQuickAuth(expectedFid: number): Promis
       throw new Error('Firebase session fid did not match the signed-in Farcaster user');
     }
 
-    let credential;
-    try {
-      credential = await signInWithCustomToken(auth, data.token);
-    } catch (error) {
-      const customData =
-        typeof error === 'object' && error && 'customData' in error
-          ? (error as { customData?: unknown }).customData
-          : undefined;
-      authLogger.error('signInWithCustomToken failed', {
-        code:
-          typeof error === 'object' && error && 'code' in error
-            ? (error as { code?: string }).code
-            : undefined,
-        message: error instanceof Error ? error.message : String(error),
-        customData,
-      });
-      throw error;
-    }
+    const credential = await signInWithCustomToken(auth, data.token);
     const uid = credential.user.uid;
     authLogger.info('Signed in to Firebase as fid', uid);
     return uid;
