@@ -4,9 +4,8 @@ import React, { useState, useEffect, useMemo, useContext } from 'react';
 import { SearchBar } from '../search/SearchBar';
 import Image from 'next/image';
 import { FarcasterUser, SearchedUser, FollowedUser } from '../../types/user';
-import { getDoc, doc } from 'firebase/firestore';
-import { db, trackUserSearch, isUserFollowed, toggleFollowUser, getFollowingUsers } from '../../lib/firebase';
-import { searchUsers, getPopularSearchedUsers } from '../../lib/firebase/user';
+import { trackUserSearch, searchUsers, getPopularSearchedUsers } from '../../lib/firebase/user';
+import { toggleFollowUser, getFollowingUsers } from '../../lib/firebase/follows';
 import { UserFidContext } from '../../app/providers';
 import { PAGE_SIZE, usePagedItems } from '../../hooks/usePagedItems';
 import {
@@ -74,6 +73,9 @@ function formatCount(value?: number) {
 }
 
 const FEATURED_FIDS = new Set([...POD_MEMBER_FIDS, PODPLAYR_OFFICIAL_FID, ...ACYL_FIDS]);
+const EXPLORE_CACHE_MS = 5 * 60 * 1000;
+let featuredUsersCache: { users: FarcasterUser[]; at: number } | null = null;
+let popularUsersCache: { users: SearchedUser[]; at: number } | null = null;
 
 const ExploreView: React.FC<ExploreViewProps> = (props) => {
   const { fid: contextFid } = useContext(UserFidContext);
@@ -93,9 +95,12 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
   const [followedUsers, setFollowedUsers] = useState<Record<number, boolean>>({});
   const [scrollRoot, setScrollRoot] = useState<HTMLDivElement | null>(null);
   const [filter, setFilter] = useState<ExploreFilter>('all');
-  const [featuredUsers, setFeaturedUsers] = useState<FarcasterUser[]>([]);
-  const [featuredReady, setFeaturedReady] = useState(false);
-  const [popularUsers, setPopularUsers] = useState<SearchedUser[]>([]);
+  const [featuredUsers, setFeaturedUsers] = useState<FarcasterUser[]>(
+    () => featuredUsersCache?.users ?? []
+  );
+  const [popularUsers, setPopularUsers] = useState<SearchedUser[]>(
+    () => popularUsersCache?.users ?? []
+  );
   const [following, setFollowing] = useState<FollowedUser[]>([]);
 
   const { visibleItems: visibleSearchResults, hasMore: hasMoreSearch, sentinelRef: searchSentinelRef } = usePagedItems(searchResults, {
@@ -105,17 +110,20 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
   });
 
   useEffect(() => {
+    if (featuredUsersCache && Date.now() - featuredUsersCache.at < EXPLORE_CACHE_MS) {
+      setFeaturedUsers(featuredUsersCache.users);
+      return;
+    }
     let cancelled = false;
     const ids = [...FEATURED_FIDS];
     searchUsers(`fid:${ids.join(',')}`)
       .then((users) => {
-        if (!cancelled) setFeaturedUsers(users || []);
+        const next = users || [];
+        featuredUsersCache = { users: next, at: Date.now() };
+        if (!cancelled) setFeaturedUsers(next);
       })
       .catch(() => {
         if (!cancelled) setFeaturedUsers([]);
-      })
-      .finally(() => {
-        if (!cancelled) setFeaturedReady(true);
       });
     return () => {
       cancelled = true;
@@ -123,9 +131,14 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
   }, []);
 
   useEffect(() => {
+    if (popularUsersCache && Date.now() - popularUsersCache.at < EXPLORE_CACHE_MS) {
+      setPopularUsers(popularUsersCache.users);
+      return;
+    }
     let cancelled = false;
     getPopularSearchedUsers(12)
       .then((users) => {
+        popularUsersCache = { users, at: Date.now() };
         if (!cancelled) setPopularUsers(users);
       })
       .catch(() => {
@@ -139,40 +152,30 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
   useEffect(() => {
     if (!effectiveUserFid) {
       setFollowing([]);
+      setFollowedUsers({});
       return;
     }
     let cancelled = false;
     getFollowingUsers(effectiveUserFid)
       .then((users) => {
-        if (!cancelled) setFollowing(users);
+        if (cancelled) return;
+        setFollowing(users);
+        const next: Record<number, boolean> = {};
+        users.forEach((user) => {
+          next[user.fid] = true;
+        });
+        setFollowedUsers(next);
       })
       .catch(() => {
-        if (!cancelled) setFollowing([]);
+        if (!cancelled) {
+          setFollowing([]);
+          setFollowedUsers({});
+        }
       });
     return () => {
       cancelled = true;
     };
   }, [effectiveUserFid]);
-
-  useEffect(() => {
-    const checkFollowStatuses = async () => {
-      if (!effectiveUserFid) return;
-      const pool = [...searchResults, ...recentSearches, ...featuredUsers, ...popularUsers];
-      const uniqueFids = [...new Set(pool.map((user) => user.fid).filter(Boolean))];
-      const next: Record<number, boolean> = {};
-      await Promise.all(
-        uniqueFids.map(async (fid) => {
-          next[fid] = await isUserFollowed(effectiveUserFid, fid);
-        })
-      );
-      following.forEach((user) => {
-        next[user.fid] = true;
-      });
-      setFollowedUsers((prev) => ({ ...prev, ...next }));
-    };
-
-    void checkFollowStatuses();
-  }, [effectiveUserFid, searchResults, recentSearches, featuredUsers, popularUsers, following]);
 
   const handleFollowToggle = async (user: FarcasterUser, event: React.MouseEvent) => {
     event.preventDefault();
@@ -198,37 +201,12 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
     }
   };
 
-  const openUser = async (user: FarcasterUser | SearchedUser) => {
+  const openUser = (user: FarcasterUser | SearchedUser) => {
     if (effectiveUserFid && !user.isENS) {
-      try {
-        await trackUserSearch(user.username, effectiveUserFid);
-      } catch {
+      void trackUserSearch(user.username, effectiveUserFid).catch(() => {
         // Tracking is best-effort
-      }
+      });
     }
-
-    if ('searchCount' in user || !('custody_address' in user)) {
-      try {
-        const userDoc = await getDoc(doc(db, 'searchedusers', user.fid.toString()));
-        const userData = userDoc.data();
-        handleDirectUserSelect({
-          fid: user.fid,
-          username: user.username,
-          display_name: officialAccountDisplayName(user.fid, user.display_name || userData?.display_name) || user.username,
-          pfp_url: user.pfp_url || userData?.pfp_url || (user.isENS ? '/defaultens.png' : `https://avatar.vercel.sh/${user.username}`),
-          follower_count: user.follower_count || 0,
-          following_count: user.following_count || 0,
-          custody_address: userData?.custody_address,
-          verified_addresses: userData?.verified_addresses,
-          isENS: user.isENS || userData?.isENS || false,
-          profile: { bio: getBio(user) || userData?.bio || '' },
-        });
-        return;
-      } catch {
-        // Fall through to the lightweight profile
-      }
-    }
-
     handleDirectUserSelect(toFarcasterUser(user));
   };
 
@@ -519,7 +497,7 @@ const ExploreView: React.FC<ExploreViewProps> = (props) => {
           </section>
         )}
 
-        {showDiscovery && featuredReady && (
+        {showDiscovery && (
           <div className="px-4 space-y-8 explore-stack">
             {officialUser && filter !== 'ens' && (
               <div className="w-full rounded-2xl p-4 flex items-center gap-4 border border-purple-300/25 bg-gradient-to-r from-purple-700/40 via-fuchsia-700/20 to-black/30">
