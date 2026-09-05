@@ -5,17 +5,13 @@ import { useToast } from '../../hooks/useToast';
 import Image from 'next/image';
 import type { NFT, FarcasterUser } from '../../types/user';
 import type { FarcasterUserContext, FarcasterClientContext, FarcasterLocationContext } from '../../app/providers';
-import { getFollowersCount, getFollowingCount } from '../../lib/firebase';
-import { getLikedNFTs } from '../../lib/firebase/likes';
-import { uploadProfileBackground } from '../../firebase';
+import dynamic from 'next/dynamic';
+import { getFollowCounts } from '../../lib/firebase/follows';
 import { optimizeImage } from '../../utils/imageOptimizer';
 import { getMediaKey } from '../../utils/media';
-import { sameLikedTrack } from '../../utils/likeDedupe';
-import { filterPlayableMediaNFTs, applyConfirmedPlayback, isPlayableMediaNFT } from '../../utils/isMediaNFT';
+import { filterPlayableMediaNFTs } from '../../utils/isMediaNFT';
 import { clearHiddenNfts, getHiddenNftCount, isNftHidden, subscribeToHiddenNfts } from '../../utils/hiddenNfts';
 import { useUserImages } from '../../contexts/UserImageContext';
-import FollowsModal from '../FollowsModal';
-import PrivacyPolicyModal from '../PrivacyPolicyModal';
 import { useNFTNotification } from '../../context/NFTNotificationContext';
 import { UserProfileNFTGrid } from '../nft/UserProfileNFTGrid';
 import { getBioText } from '../../utils/format';
@@ -23,6 +19,9 @@ import { UserFidContext } from '../../app/providers';
 import { BaseAppSignIn } from '../auth/BaseAppSignIn';
 import { ShareProfileButton } from '../ShareProfileButton';
 import { CommunityPills } from '../user/CommunityPills';
+
+const FollowsModal = dynamic(() => import('../FollowsModal'), { ssr: false });
+const PrivacyPolicyModal = dynamic(() => import('../PrivacyPolicyModal'), { ssr: false });
 
 interface ProfileViewProps {
   farcasterContext: {
@@ -86,9 +85,9 @@ function formatCount(value?: number) {
 // Add session-level caching variables at the top of the file, after imports
 let profileDataCache = new Map<number, {
   nfts: NFT[];
-  likedNFTs: NFT[];
   followerCount: number;
   followingCount: number;
+  countsReady: boolean;
   timestamp: number;
 }>();
 
@@ -96,18 +95,15 @@ const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
 const ProfileView: React.FC<ProfileViewProps> = ({
   farcasterContext,
-  nfts,
   handlePlayAudio,
   isPlaying,
   currentlyPlaying,
   handlePlayPause,
-  onNFTsLoaded,
   onLikeToggle,
   isNFTLiked: isNFTLikedProp,
   onUserProfileClick
 }) => {
   const { walletAddress, fid: contextFid, environment, isFidReady } = useContext(UserFidContext);
-  const [likedNFTs, setLikedNFTs] = useState<NFT[]>([]);
   const toast = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [hasCompletedInitialLoad, setHasCompletedInitialLoad] = useState(false);
@@ -128,7 +124,6 @@ const ProfileView: React.FC<ProfileViewProps> = ({
   const [followsModalType, setFollowsModalType] = useState<'followers' | 'following'>('followers');
 
   // Move useRef hooks to top level of component
-  const loadingLikedNFTs = useRef(false);
   const loadingFollowCounts = useRef(false);
 
   const [allUserNFTs, setAllUserNFTs] = useState<NFT[]>([]);
@@ -208,11 +203,12 @@ const ProfileView: React.FC<ProfileViewProps> = ({
       const cached = profileDataCache.get(userFid);
       const now = Date.now();
       
-      if (cached && cached.nfts.length > 0 && (now - cached.timestamp) < CACHE_DURATION) {
+      if (cached && (now - cached.timestamp) < CACHE_DURATION) {
         setAllUserNFTs(cached.nfts);
-        setLikedNFTs(cached.likedNFTs.filter(isPlayableMediaNFT));
-        setAppFollowerCount(cached.followerCount);
-        setAppFollowingCount(cached.followingCount);
+        if (cached.countsReady) {
+          setAppFollowerCount(cached.followerCount);
+          setAppFollowingCount(cached.followingCount);
+        }
         setHasCompletedInitialLoad(true);
         return;
       }
@@ -237,15 +233,14 @@ const ProfileView: React.FC<ProfileViewProps> = ({
           mediaKey: getMediaKey(nft)
         }));
         
-        if (nftsWithMediaKey.length > 0) {
-          profileDataCache.set(userFid, {
-            nfts: nftsWithMediaKey,
-            likedNFTs: [],
-            followerCount: 0,
-            followingCount: 0,
-            timestamp: now
-          });
-        }
+        const existing = profileDataCache.get(userFid);
+        profileDataCache.set(userFid, {
+          nfts: nftsWithMediaKey,
+          followerCount: existing?.followerCount ?? 0,
+          followingCount: existing?.followingCount ?? 0,
+          countsReady: existing?.countsReady ?? false,
+          timestamp: now
+        });
 
         setAllUserNFTs(nftsWithMediaKey);
         setHasCompletedInitialLoad(true);
@@ -262,66 +257,39 @@ const ProfileView: React.FC<ProfileViewProps> = ({
     loadNFTs();
   }, [userFid, isFidReady, canLoadCollection]);
 
-  // Replace liked NFTs useEffect with cached version:
-  useEffect(() => {
-    const loadLikedNFTs = async () => {
-      if (!canLoadCollection || !farcasterContext?.user?.fid || loadingLikedNFTs.current) return;
-      
-      const userFid = farcasterContext.user.fid;
-      const cached = profileDataCache.get(userFid);
-      const now = Date.now();
-      
-      if (cached && cached.likedNFTs.length > 0 && (now - cached.timestamp) < CACHE_DURATION) {
-        setLikedNFTs(cached.likedNFTs.filter(isPlayableMediaNFT));
-        return;
-      }
-      
-      loadingLikedNFTs.current = true;
-      try {
-        const liked = await getLikedNFTs(userFid);
-        setLikedNFTs(liked);
-        applyConfirmedPlayback(liked, setLikedNFTs);
-        
-        // Update cache
-        if (cached) {
-          cached.likedNFTs = liked;
-        }
-      } catch (error) {
-        console.error('Error loading liked NFTs:', error);
-      } finally {
-        loadingLikedNFTs.current = false;
-      }
-    };
-
-    loadLikedNFTs();
-  }, [farcasterContext?.user?.fid, canLoadCollection]);
-
-  // Replace follow counts useEffect with cached version:
   useEffect(() => {
     const fetchFollowCounts = async () => {
-      const userFid = farcasterContext?.user?.fid;
-      if (!canLoadCollection || !userFid || loadingFollowCounts.current) return;
-      
-      const cached = profileDataCache.get(userFid);
+      const fid = farcasterContext?.user?.fid;
+      if (!canLoadCollection || !fid || loadingFollowCounts.current) return;
+
+      const cached = profileDataCache.get(fid);
       const now = Date.now();
-      
-      if (cached && cached.followerCount > 0 && (now - cached.timestamp) < CACHE_DURATION) {
+
+      if (cached?.countsReady && (now - cached.timestamp) < CACHE_DURATION) {
         setAppFollowerCount(cached.followerCount);
         setAppFollowingCount(cached.followingCount);
         return;
       }
-      
+
       loadingFollowCounts.current = true;
       try {
-        const followerCount = await getFollowersCount(userFid);
-        const followingCount = await getFollowingCount(userFid);
-        setAppFollowerCount(followerCount);
-        setAppFollowingCount(followingCount);
-        
-        // Update cache
-        if (cached) {
-          cached.followerCount = followerCount;
-          cached.followingCount = followingCount;
+        const { followers, following } = await getFollowCounts(fid);
+        setAppFollowerCount(followers);
+        setAppFollowingCount(following);
+
+        const existing = profileDataCache.get(fid);
+        if (existing) {
+          existing.followerCount = followers;
+          existing.followingCount = following;
+          existing.countsReady = true;
+        } else {
+          profileDataCache.set(fid, {
+            nfts: [],
+            followerCount: followers,
+            followingCount: following,
+            countsReady: true,
+            timestamp: now
+          });
         }
       } catch (error) {
         console.error('Error fetching follow counts for profile:', error);
@@ -332,12 +300,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({
       }
     };
 
-    fetchFollowCounts();
-    
-    if (!canLoadCollection) return;
-
-    const interval = setInterval(fetchFollowCounts, 10 * 60 * 1000);
-    return () => clearInterval(interval);
+    void fetchFollowCounts();
   }, [farcasterContext?.user?.fid, canLoadCollection]);
 
   const handleBackgroundUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -369,6 +332,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({
       setError(null);
       setIsUploading(true);
       const optimized = await optimizeImage(file);
+      const { uploadProfileBackground } = await import('../../firebase');
       const url = await uploadProfileBackground(farcasterContext.user.fid, optimized.file);
       setBackgroundImage(url);
       input.value = '';
@@ -396,10 +360,12 @@ const ProfileView: React.FC<ProfileViewProps> = ({
           onUserProfileClick={onUserProfileClick}
         />
       )}
-      <PrivacyPolicyModal
-        isOpen={showPrivacyPolicy}
-        onClose={() => setShowPrivacyPolicy(false)}
-      />
+      {showPrivacyPolicy && (
+        <PrivacyPolicyModal
+          isOpen={showPrivacyPolicy}
+          onClose={() => setShowPrivacyPolicy(false)}
+        />
+      )}
       <div 
         ref={setScrollRoot}
         className="page-scroll pt-16 pb-48 bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082]"
@@ -581,10 +547,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({
                 handlePlayAudio(nft, { queue: filteredNFTs, queueType: 'profile' });
               }}
               onLikeToggle={onLikeToggle}
-              isNFTLiked={(nft: NFT) => {
-                if (isNFTLikedProp) return isNFTLikedProp(nft);
-                return likedNFTs.some((likedNFT) => sameLikedTrack(likedNFT, nft));
-              }}
+              isNFTLiked={(nft: NFT) => Boolean(isNFTLikedProp?.(nft))}
               userFid={farcasterContext?.user?.fid}
               scrollRoot={scrollRoot}
               resetKey={farcasterContext?.user?.fid}

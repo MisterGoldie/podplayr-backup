@@ -51,6 +51,7 @@ export {
   getFollowingUsers,
   recomputeFollowingCount,
   recomputeFollowerCount,
+  getFollowCounts,
   getFollowingCount,
   getFollowersCount,
   getFollowers,
