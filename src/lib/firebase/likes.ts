@@ -336,30 +336,36 @@ async function likedNftsFromLikeDocs(
 
   const likedNFTs = likeDocs.map((docSnap) => {
     const data = docSnap.data();
+    const nested = data.nft && typeof data.nft === 'object' ? data.nft : {};
+    const collectionSource = data.collection || nested.collection;
     const animationUrl = restoreStoredAnimationUrl(data);
     const nft = {
       mediaKey: docSnap.id,
-      contract: data.contract || data.nftContract,
-      tokenId: data.tokenId,
-      name: data.name || data.nft?.name || 'Untitled',
-      description: data.description || data.nft?.description || '',
-      image: data.image || data.imageUrl || data.nft?.image || '',
-      audio: data.audioUrl || data.nft?.audio || '',
-      videoUrl: data.videoUrl || undefined,
-      isVideo: Boolean(data.isVideo),
-      playbackMode: data.playbackMode || undefined,
-      network: data.network,
+      contract: data.contract || data.nftContract || nested.contract,
+      tokenId: data.tokenId || nested.tokenId,
+      name: data.name || nested.name || 'Untitled',
+      description: data.description || nested.description || '',
+      image: data.image || data.imageUrl || nested.image || '',
+      audio: data.audioUrl || data.audio || nested.audio || '',
+      videoUrl: data.videoUrl || nested.videoUrl || undefined,
+      isVideo: Boolean(data.isVideo || nested.isVideo),
+      playbackMode: data.playbackMode || nested.playbackMode || undefined,
+      network: data.network || nested.network,
       metadata: {
-        ...(data.nft?.metadata || {}),
+        ...(nested.metadata || {}),
         ...(data.metadata || {}),
-        animation_url: animationUrl || data.metadata?.animation_url,
+        animation_url: animationUrl || data.metadata?.animation_url || nested.metadata?.animation_url,
         ...(data.mediaMime ? { mimeType: data.mediaMime } : {}),
       },
-      collection: data.collection
-        ? { name: typeof data.collection === 'string' ? data.collection : data.collection.name }
-        : data.nft?.collection
-          ? { name: data.nft.collection.name || 'Unknown Collection', image: data.nft.collection.image }
-          : undefined,
+      collection: collectionSource
+        ? {
+            name:
+              typeof collectionSource === 'string'
+                ? collectionSource
+                : collectionSource.name || 'Unknown Collection',
+            image: typeof collectionSource === 'string' ? undefined : collectionSource.image,
+          }
+        : undefined,
     } as NFT;
     hydrateNftPlayback(nft);
     stampNftLikeTime(nft, {

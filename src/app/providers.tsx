@@ -10,7 +10,6 @@ import { PlayerProvider } from '../contexts/PlayerContext';
 import { useMiniKit } from '@coinbase/onchainkit/minikit';
 import { Toaster } from 'react-hot-toast';
 import { getStoredBaseWalletAddress, signInWithBase } from '../lib/baseAccount';
-import { signInToFirebaseWithQuickAuth } from '../lib/firebaseSession';
 import { getBioText } from '../utils/format';
 
 // Create a context for the user's Farcaster ID
@@ -21,13 +20,10 @@ export const UserFidContext = createContext<{
   environment: 'farcaster' | 'coinbase' | 'web';
   walletAddress?: string;
   connectBaseWallet?: () => Promise<void>;
-  firebaseUid?: string;
-  isFirebaseAuthReady: boolean;
 }>({
   setFid: () => {},
   isFidReady: false,
   environment: 'web',
-  isFirebaseAuthReady: false,
 });
 
 // Enhanced context interfaces
@@ -93,8 +89,6 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
   const [isFidReady, setIsFidReady] = useState(false);
   const [environment, setEnvironment] = useState<'farcaster' | 'coinbase' | 'web'>('web');
   const [walletAddress, setWalletAddress] = useState<string>();
-  const [firebaseUid, setFirebaseUid] = useState<string>();
-  const [isFirebaseAuthReady, setIsFirebaseAuthReady] = useState(false);
   
   // Add missing state variables
   const [userContext, setUserContext] = useState<FarcasterUserContext | null>(null);
@@ -276,45 +270,15 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
     }
   }, [environment, miniKitContext]);
   
-  // Farcaster follow writes are owner-checked once a Firebase session exists,
-  // so wait for that uid. Web and Base have no session and still follow.
   const followedFidRef = useRef<number | undefined>(undefined);
   useEffect(() => {
     if (!fid) return;
-    if (environment === 'farcaster' && firebaseUid !== String(fid)) return;
     if (followedFidRef.current === fid) return;
     followedFidRef.current = fid;
     ensurePodplayrFollow(fid).catch(error => {
       console.error('Error ensuring PODPlayr follow:', error);
     });
-  }, [fid, firebaseUid, environment]);
-
-  useEffect(() => {
-    if (!isFidReady) return;
-
-    if (environment !== 'farcaster' || !fid) {
-      setIsFirebaseAuthReady(true);
-      return;
-    }
-
-    let cancelled = false;
-    setIsFirebaseAuthReady(false);
-
-    signInToFirebaseWithQuickAuth(fid)
-      .then((uid) => {
-        if (!cancelled && uid) setFirebaseUid(uid);
-      })
-      .catch((error) => {
-        console.error('Firebase Quick Auth sign-in failed:', error);
-      })
-      .finally(() => {
-        if (!cancelled) setIsFirebaseAuthReady(true);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [isFidReady, environment, fid]);
+  }, [fid]);
 
   const applyWalletIdentity = useCallback(async (address: string) => {
     setWalletAddress(address.toLowerCase());
@@ -355,10 +319,8 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
       environment,
       walletAddress,
       connectBaseWallet,
-      firebaseUid,
-      isFirebaseAuthReady,
     }),
-    [fid, setFid, isFidReady, environment, walletAddress, connectBaseWallet, firebaseUid, isFirebaseAuthReady]
+    [fid, setFid, isFidReady, environment, walletAddress, connectBaseWallet]
   );
 
   const unifiedContextValue = useMemo(

@@ -163,7 +163,16 @@ function isLocalOrDataUrl(url: string): boolean {
   return !url || url.startsWith('/') || url.startsWith('data:') || url.startsWith('blob:');
 }
 
+/** Alchemy video hashes are `…_animation` or `…_animation_<id>` — not only `_animation_`. */
+const ALCHEMY_ANIMATION_HASH = /_animation(?:_|$|[/?#])/i;
+
+function isDoomedAnimationThumbnailV2(url: string): boolean {
+  return /thumbnailv2/i.test(url) && ALCHEMY_ANIMATION_HASH.test(url);
+}
+
 function isAlreadyResized(url: string): boolean {
+  // thumbnailv2 400s on `_animation_` hashes — do not treat those as final.
+  if (isDoomedAnimationThumbnailV2(url)) return false;
   return (
     url.includes('wsrv.nl') ||
     url.includes('images.weserv.nl') ||
@@ -199,6 +208,14 @@ export function alchemyVideoFetchStillUrl(cdnUrl: string, size = 360): string {
   return `https://res.cloudinary.com/alchemyapi/video/fetch/w_${size},h_${size},c_fill,q_70,f_png,so_0/${cdnUrl}`;
 }
 
+/** Alchemy names the video asset `…_animation_<id>` — thumbnailv2 always 400s on it. */
+export function isAlchemyAnimationCdnUrl(url?: string | null): boolean {
+  if (!url) return false;
+  return /(?:nft2?-cdn\.alchemy\.com|thumbnailv2)\/[^/?#]+\/[^/?#]*_animation(?:_|$|[/?#])/i.test(
+    url
+  );
+}
+
 /**
  * True when the token cover hash is the same Alchemy file as playback.
  * Chapter 14 / Coinage: that hash is video/mp4 — thumbnailv2 400s, video/fetch works.
@@ -212,6 +229,12 @@ export function alchemyCoverIsPlaybackVideo(nft?: {
   metadata?: { image?: string | null; animation_url?: string | null } | null;
 } | null): boolean {
   if (!nft) return false;
+  if (
+    isAlchemyAnimationCdnUrl(nft.image) ||
+    isAlchemyAnimationCdnUrl(nft.metadata?.image)
+  ) {
+    return true;
+  }
   const cover =
     parseAlchemyCdnRef(nft.image || '') || parseAlchemyCdnRef(nft.metadata?.image || '');
   if (!cover) return false;
@@ -239,6 +262,13 @@ export function resizeAlchemyCloudinaryThumb(url: string, size: number): string 
  */
 export function getAlchemyNativeCardThumb(url: string, size = 360): string | null {
   if (!url || isLocalOrDataUrl(url)) return null;
+
+  // Cached / already-sized Cloudinary thumbs still wrap `_animation_` hashes.
+  // Rewrite those before the "already resized" early return, or they 400 forever.
+  if (isAlchemyAnimationCdnUrl(url) || isDoomedAnimationThumbnailV2(url)) {
+    const animRef = parseAlchemyCdnRef(url);
+    if (animRef) return alchemyVideoFetchStillUrl(animRef.cdnUrl, size);
+  }
 
   let u = url;
   const fetchWrapped = url.match(
@@ -271,6 +301,9 @@ export function getAlchemyNativeCardThumb(url: string, size = 360): string | nul
 
   const cdn = u.match(/nft2?-cdn\.alchemy\.com\/([^/?#]+)\/([^/?#]+)/i);
   if (cdn) {
+    if (isAlchemyAnimationCdnUrl(u) || ALCHEMY_ANIMATION_HASH.test(cdn[2])) {
+      return alchemyVideoFetchStillUrl(`https://${cdn[0]}`, size);
+    }
     return `https://res.cloudinary.com/alchemyapi/image/upload/w_${size},h_${size},c_fill,q_70/thumbnailv2/${cdn[1]}/${cdn[2]}`;
   }
 
@@ -328,7 +361,13 @@ export function getCardThumbAlternates(
     push(getVideoCoverStillUrl(opts.videoCoverUrl, size));
   }
 
-  if (!opts?.skipThumbnailV2) {
+  const skipThumbnailV2 =
+    opts?.skipThumbnailV2 ||
+    isAlchemyAnimationCdnUrl(url) ||
+    isDoomedAnimationThumbnailV2(url) ||
+    isAlchemyAnimationCdnUrl(opts?.alchemyCdnPeer || '') ||
+    isDoomedAnimationThumbnailV2(opts?.alchemyCdnPeer || '');
+  if (!skipThumbnailV2) {
     push(getAlchemyNativeCardThumb(url, size));
     if (opts?.alchemyCdnPeer) {
       push(getAlchemyNativeCardThumb(opts.alchemyCdnPeer, size));
@@ -579,6 +618,7 @@ export function isVideoMediaUrl(url: string): boolean {
  */
 export function isLikelyTokenVideoCoverUrl(url: string): boolean {
   if (!url || isLocalOrDataUrl(url)) return false;
+  if (isAlchemyAnimationCdnUrl(url)) return true;
   // Alchemy Cloudinary transforms embed the origin URL — don't treat stills as video.
   if (/res\.cloudinary\.com\/alchemyapi/i.test(url)) return false;
   if (isVideoMediaUrl(url) || /niftyisland\.com/i.test(url)) return true;
@@ -608,14 +648,18 @@ export function getVideoCoverStillUrl(
         );
   }
 
-  const cdn = url.match(/https?:\/\/nft2?-cdn\.alchemy\.com\/[^/?#]+\/[^/?#]+/i)?.[0];
+  const alchemyRef = parseAlchemyCdnRef(url);
+  const cdn = alchemyRef?.cdnUrl;
   // Bare Alchemy CDN is usually an image — thumbnailv2. Only video/fetch when
   // caller knows it's a video hash (Coinage / Neybors / SeaDN peer).
   if (
     cdn &&
-    (opts?.assumeVideo || isVideoMediaUrl(url) || isLikelyTokenVideoCoverUrl(url))
+    (opts?.assumeVideo ||
+      isVideoMediaUrl(url) ||
+      isLikelyTokenVideoCoverUrl(url) ||
+      isAlchemyAnimationCdnUrl(url))
   ) {
-    return `https://res.cloudinary.com/alchemyapi/video/fetch/w_${size},h_${size},c_fill,q_70,f_png,so_0/${cdn}`;
+    return alchemyVideoFetchStillUrl(cdn, size);
   }
 
   if (!isLikelyTokenVideoCoverUrl(url) && !isVideoMediaUrl(url)) return null;

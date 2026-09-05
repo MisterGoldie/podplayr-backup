@@ -153,29 +153,28 @@ export const UserDataLoader: React.FC<UserDataLoaderProps> = ({
           if (likesEnabled) {
             handleLikedNFTsLoaded(cached.likedNFTs);
           }
-          // Still refresh owned NFTs in background so custody-only caches don't stick
         }
 
+        let userData = cached?.userData;
+        if (onUserDataLoaded) {
+          const users = await searchUsers(userFid.toString()).catch((error) => {
+            console.error('Error searching for user:', error);
+            if (!cached) handleError(error.message || 'Error searching for user');
+            return [];
+          });
 
-        const users = await searchUsers(userFid.toString()).catch((error) => {
-          console.error('Error searching for user:', error);
-          handleError(error.message || 'Error searching for user');
-          return [];
-        });
+          if (cancelled) return;
 
-        if (cancelled) return;
-
-        if (!users?.length) {
-          console.error('No user found for FID:', userFid);
-          handleError('User not found');
-          return;
+          if (users?.length) {
+            userData = users[0];
+            handleUserDataLoaded(userData);
+          } else if (!cached) {
+            console.error('No user found for FID:', userFid);
+            handleError('User not found');
+            return;
+          }
         }
 
-        const userData = users[0];
-        handleUserDataLoaded(userData);
-
-        // Serve local cache immediately (stale-while-revalidate), then always
-        // refresh via fetchUserNFTs so verified wallets aren't missed.
         const cachedNFTs = getCachedNFTs(userFid);
         if (cachedNFTs?.length) {
           const hasValidStructure = cachedNFTs.every(
@@ -226,13 +225,15 @@ export const UserDataLoader: React.FC<UserDataLoaderProps> = ({
         }
 
         const updatedCache = getSessionCache();
-        updatedCache.set(userFid, {
-          userData,
-          nfts: nftsWithLikeStatus,
-          likedNFTs,
-          timestamp: Date.now(),
-        });
-        setSessionCache(updatedCache);
+        if (userData) {
+          updatedCache.set(userFid, {
+            userData,
+            nfts: nftsWithLikeStatus,
+            likedNFTs,
+            timestamp: Date.now(),
+          });
+          setSessionCache(updatedCache);
+        }
       } catch (error) {
         if (cancelled) return;
         console.error('Error loading user data:', error);
@@ -260,6 +261,7 @@ export const UserDataLoader: React.FC<UserDataLoaderProps> = ({
     handleNFTsLoaded,
     handleLikedNFTsLoaded,
     handleError,
+    onUserDataLoaded,
   ]);
 
   return null;

@@ -54,7 +54,8 @@ function readLikedNftsCache(): NFT[] | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as NFT[];
     if (!Array.isArray(parsed) || parsed.length === 0) return null;
-    return parsed;
+    const playable = parsed.filter(isPlayableMediaNFT);
+    return playable.length > 0 ? playable : null;
   } catch {
     return null;
   }
@@ -184,6 +185,7 @@ const DemoBase: React.FC = () => {
 
   const isLoadingLikedNFTsRef = useRef(false);
   const skipEmptyLikeCacheWrite = useRef(true);
+  const nftPlaybackConfirmRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { topPlayed: topPlayedNFTs, loading: topPlayedLoading } = useTopPlayedNFTs();
   const {
@@ -346,7 +348,13 @@ const DemoBase: React.FC = () => {
     const unique = deduplicateNFTsByMediaKey(nfts.map((n) => withFeaturedPlayback(n)));
     setUserNFTs(unique);
     setUserNftsLoading(false);
-    applyConfirmedPlayback(unique, setUserNFTs);
+    if (nftPlaybackConfirmRef.current != null) {
+      window.clearTimeout(nftPlaybackConfirmRef.current);
+    }
+    nftPlaybackConfirmRef.current = window.setTimeout(() => {
+      applyConfirmedPlayback(unique, setUserNFTs);
+      nftPlaybackConfirmRef.current = null;
+    }, 2500);
   }, []);
 
   const handleUserDataError = useCallback((loadError: string) => {

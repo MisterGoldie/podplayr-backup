@@ -114,7 +114,11 @@ const looksLikeVideoFileUrl = (url: string): boolean => VIDEO_FILE_EXT_RE.test(u
 export const looksLikeStillImageUrl = (url?: string | null): boolean => {
   if (!url) return false;
   if (/res\.cloudinary\.com\/alchemyapi\/video\/fetch/i.test(url)) return false;
+  if (/(?:nft2?-cdn\.alchemy\.com|thumbnailv2)\/[^/?#]+\/[^/?#]*_animation(?:_|$|[/?#])/i.test(url)) {
+    return false;
+  }
   if (IMAGE_FILE_EXT_RE.test(url)) return true;
+  if (/nft2?-cdn\.alchemy\.com/i.test(url) && !/_animation(?:_|$|[/?#])/i.test(url)) return true;
   return /i2c\.seadn\.io/i.test(url);
 };
 

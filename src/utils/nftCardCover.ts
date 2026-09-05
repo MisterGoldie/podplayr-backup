@@ -1,36 +1,52 @@
 import type { NFT } from '~/types/nft';
-import { sanitizeMediaUrl } from './media';
-import { shouldPreserveAnimation } from './imageOptimizer';
+import { getRememberedNftDisplayCover, sanitizeMediaUrl } from './media';
+import { isAlchemyAnimationCdnUrl, shouldPreserveAnimation } from './imageOptimizer';
+
+const isVideoCoverUrl = (url?: string | null): boolean => {
+  const u = sanitizeMediaUrl(url);
+  if (!u) return false;
+  return (
+    isAlchemyAnimationCdnUrl(u) ||
+    /res\.cloudinary\.com\/alchemyapi\/video\/fetch/i.test(u) ||
+    /\.(mp4|webm|mov|m4v)(?:\?|#|$)/i.test(u)
+  );
+};
 
 /** Same cover URL + GIF vs still split as NFTCard — player thumbs must match the grid. */
 export function getNftCardCover(nft: NFT): {
   rawImageUrl: string;
   useGifCover: boolean;
 } {
-  const tokenImageUrl =
-    sanitizeMediaUrl(nft.image) ||
-    sanitizeMediaUrl(nft.metadata?.image) ||
-    sanitizeMediaUrl(nft.metadata?.image_url) ||
-    '';
-  const alchemyVisual = [
-    nft.metadata?.animation_url,
-    nft.videoUrl,
-    nft.audio,
+  const remembered = getRememberedNftDisplayCover(nft);
+  if (remembered) {
+    return {
+      rawImageUrl: remembered,
+      useGifCover: shouldPreserveAnimation(remembered),
+    };
+  }
+
+  const stillCandidates = [
     nft.image,
     nft.metadata?.image,
-  ].find((u) => u && /nft2?-cdn\.alchemy\.com|res\.cloudinary\.com\/alchemyapi/i.test(u));
+    nft.metadata?.image_url,
+    nft.metadata?.display_image_url,
+  ]
+    .map((u) => sanitizeMediaUrl(u))
+    .filter((u): u is string => Boolean(u) && !isVideoCoverUrl(u));
+  const tokenImageUrl = stillCandidates[0] || '';
+  const alchemyStill = stillCandidates.find(
+    (u) => /nft2?-cdn\.alchemy\.com|res\.cloudinary\.com\/alchemyapi/i.test(u)
+  );
   const rawImageUrl =
     tokenImageUrl ||
-    sanitizeMediaUrl(nft.metadata?.display_image_url) ||
-    (alchemyVisual ? sanitizeMediaUrl(alchemyVisual) : '') ||
-    sanitizeMediaUrl(nft.metadata?.animation_url) ||
-    sanitizeMediaUrl(nft.videoUrl) ||
+    alchemyStill ||
     sanitizeMediaUrl(nft.collection?.image) ||
-    sanitizeMediaUrl(nft.audio) ||
+    sanitizeMediaUrl(nft.image) ||
+    sanitizeMediaUrl(nft.metadata?.animation_url) ||
     '';
   const useGifCover =
     Boolean(tokenImageUrl) &&
     shouldPreserveAnimation(tokenImageUrl) &&
-    !alchemyVisual;
+    !alchemyStill;
   return { rawImageUrl, useGifCover };
 }
