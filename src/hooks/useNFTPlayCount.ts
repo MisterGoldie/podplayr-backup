@@ -4,6 +4,7 @@ import type { NFT } from '../types/user';
 import { logger } from '../utils/logger';
 import { getMediaKey } from '../utils/media';
 import { mergeLegacyPlayCounts } from '../lib/consolidateGlobalPlays';
+import { PLAY_COUNT_UPDATED } from '../lib/playCountEvents';
 
 const playCountLogger = logger.getModuleLogger('playCount');
 const mergedPlayKeys = new Set<string>();
@@ -96,6 +97,22 @@ export const useNFTPlayCount = (nft: NFT | null, shouldFetch: boolean = true) =>
 
     listen();
 
+    const onLocalPlay = (event: Event) => {
+      const detail = (event as CustomEvent<{ mediaKey?: string; playCount?: number }>).detail;
+      if (!detail || detail.mediaKey !== mediaKey) return;
+      const next = Number(detail.playCount);
+      if (!Number.isFinite(next) || next <= previousCountRef.current) return;
+      if (!isInitialLoadRef.current) {
+        setRealCountIncrease(true);
+        setTimeout(() => setRealCountIncrease(false), 2000);
+      }
+      isInitialLoadRef.current = false;
+      previousCountRef.current = next;
+      setPlayCount(next);
+      setLoading(false);
+    };
+    window.addEventListener(PLAY_COUNT_UPDATED, onLocalPlay);
+
     void (async () => {
       const source = nftRef.current;
       if (!source || mergedPlayKeys.has(mediaKey)) return;
@@ -115,6 +132,7 @@ export const useNFTPlayCount = (nft: NFT | null, shouldFetch: boolean = true) =>
     return () => {
       cancelled = true;
       playCountLogger.debug('Cleaning up play count listener for:', mediaKey);
+      window.removeEventListener(PLAY_COUNT_UPDATED, onLocalPlay);
       unsubscribe();
     };
   }, [mediaKey, shouldFetch]);

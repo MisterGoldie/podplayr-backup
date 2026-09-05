@@ -19,6 +19,7 @@ import { auth, db, firebaseLogger } from './config';
 import { getMediaKey, getNftIdentityKey } from '../../utils/media';
 import { getNftPlaybackPlan, applyConfirmedPlayback } from '../../utils/isMediaNFT';
 import { mergeLegacyPlayCounts } from '../consolidateGlobalPlays';
+import { emitPlayCountUpdate, emitUserPlayRecorded } from '../playCountEvents';
 import {
   playbackFieldsForStore,
   nftFromPlayRecord,
@@ -288,6 +289,7 @@ export const trackNFTPlay = async (nft: NFT, fid: number, options?: { forceTrack
     // playHistory is owner-checked when signed in; a denied users/1 write
     // used to run before this commit and silently drop the count.
     await batch.commit();
+    emitPlayCountUpdate(mediaKey, newPlayCount);
 
     try {
       await addDoc(collection(db, 'nft_plays'), nftPlayData);
@@ -305,6 +307,7 @@ export const trackNFTPlay = async (nft: NFT, fid: number, options?: { forceTrack
         timestamp: Timestamp.now(),
         timestampMs: Date.now(),
       });
+      emitUserPlayRecorded(historyFid);
     } catch (error) {
       firebaseLogger.warn('playHistory append failed after count commit:', error);
     }

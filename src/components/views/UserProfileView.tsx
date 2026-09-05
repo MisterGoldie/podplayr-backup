@@ -17,6 +17,7 @@ import { officialAccountDisplayName } from '../../constants/community';
 import { CommunityPills } from '../user/CommunityPills';
 import { getBioText } from '../../utils/format';
 import { ShareProfileButton } from '../ShareProfileButton';
+import { USER_PLAY_RECORDED } from '../../lib/playCountEvents';
 
 const FollowsModal = dynamic(() => import('../FollowsModal'), { ssr: false });
 const UserInfoPanel = dynamic(() => import('../user/UserInfoPanel'), { ssr: false });
@@ -255,7 +256,6 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
     if (cached?.statsReady) {
       setTotalPlays(cached.totalPlays);
       setLikedNFTsCount(cached.likedNFTsCount);
-      return;
     }
 
     let cancelled = false;
@@ -285,8 +285,19 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
     };
 
     void loadInfoStats();
+
+    const onUserPlay = (event: Event) => {
+      const playedFid = String(
+        (event as CustomEvent<{ fid?: string }>).detail?.fid || ''
+      );
+      if (!playedFid || playedFid !== String(targetFid)) return;
+      void loadInfoStats();
+    };
+    window.addEventListener(USER_PLAY_RECORDED, onUserPlay);
+
     return () => {
       cancelled = true;
+      window.removeEventListener(USER_PLAY_RECORDED, onUserPlay);
     };
   }, [showInfoPanel, user?.fid, user?.username]);
 
