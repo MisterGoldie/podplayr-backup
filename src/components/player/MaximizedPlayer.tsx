@@ -82,6 +82,9 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
   const [scrubPosition, setScrubPosition] = useState<number | null>(null);
   const [longPressTimer, setLongPressTimer] = useState<NodeJS.Timeout | null>(null);
   const progressBarRef = useRef<HTMLDivElement>(null);
+  const scrubPositionRef = useRef<number | null>(null);
+  const isDraggingRef = useRef(false);
+  const seekedFromTouchRef = useRef(false);
   const [pipActive, setPipActive] = useState(false);
   const [resolvedImageUrl, setResolvedImageUrl] = useState(() =>
     nft.image
@@ -562,7 +565,28 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
   // the audio's position rather than repeatedly re-triggering that stall.
 
   // Add these helper functions below your existing functions
+  const timeFromClientX = (clientX: number) => {
+    if (!progressBarRef.current || !Number.isFinite(duration) || duration <= 0) return null;
+    const rect = progressBarRef.current.getBoundingClientRect();
+    const percent = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    return duration * percent;
+  };
+
+  const updateScrubPosition = (clientX: number) => {
+    const time = timeFromClientX(clientX);
+    if (time === null) return;
+    scrubPositionRef.current = time;
+    setScrubPosition(time);
+  };
+
+  const commitSeekFromClientX = (clientX: number) => {
+    const time = timeFromClientX(clientX) ?? scrubPositionRef.current;
+    if (time === null) return;
+    onSeek(time);
+  };
+
   const handleProgressBarMouseDown = (e: React.MouseEvent) => {
+    isDraggingRef.current = true;
     setIsDragging(true);
     updateScrubPosition(e.clientX);
     
@@ -572,35 +596,24 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
   };
 
   const handleMouseMove = (e: MouseEvent) => {
-    if (isDragging) {
+    if (isDraggingRef.current) {
       updateScrubPosition(e.clientX);
     }
   };
 
   const handleMouseUp = (e: MouseEvent) => {
-    if (isDragging) {
-      updateScrubPosition(e.clientX);
-      
-      // Perform the actual seek
-      if (scrubPosition !== null) {
-        onSeek(scrubPosition);
-      }
+    if (isDraggingRef.current) {
+      commitSeekFromClientX(e.clientX);
       
       // Reset state
+      isDraggingRef.current = false;
       setIsDragging(false);
+      scrubPositionRef.current = null;
       setScrubPosition(null);
       
       // Remove event listeners
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
-    }
-  };
-
-  const updateScrubPosition = (clientX: number) => {
-    if (progressBarRef.current && Number.isFinite(duration) && duration > 0) {
-      const rect = progressBarRef.current.getBoundingClientRect();
-      const percent = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-      setScrubPosition(duration * percent);
     }
   };
 
@@ -634,14 +647,20 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
     }
   };
 
-  const handleTouchEnd = () => {
-    // If we were scrubbing and have a position, seek to it
-    if (isActivelyScrubbingBar && scrubPosition !== null) {
-      onSeek(scrubPosition);
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    const touch = e.changedTouches[0];
+    if (isActivelyScrubbingBar) {
+      seekedFromTouchRef.current = true;
+      if (touch) {
+        commitSeekFromClientX(touch.clientX);
+      } else if (scrubPositionRef.current !== null) {
+        onSeek(scrubPositionRef.current);
+      }
     }
     
     // Reset states
     setIsActivelyScrubbingBar(false);
+    scrubPositionRef.current = null;
     setScrubPosition(null);
     
     // Clear any existing timer
@@ -835,20 +854,20 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
 
             <div
               ref={progressBarRef}
-              className={`relative ${isActivelyScrubbingBar ? 'h-3' : 'h-1.5'} bg-white/10 rounded-full mb-1.5 transition-all duration-150 touch-none`}
+              className={`relative ${isActivelyScrubbingBar ? 'h-3' : 'h-1.5'} bg-white/10 rounded-full mb-1.5 transition-all duration-150 touch-none cursor-pointer`}
+              onMouseDown={handleProgressBarMouseDown}
               onTouchStart={handleTouchStart}
               onTouchMove={handleTouchMove}
               onTouchEnd={handleTouchEnd}
               onTouchCancel={handleTouchEnd}
               onClick={async (e) => {
                 e.stopPropagation();
-                await triggerHaptic('light', 'MaximizedPlayer-Seek');
-                if (!e.currentTarget) return;
-                const rect = e.currentTarget.getBoundingClientRect();
-                const percent = (e.clientX - rect.left) / rect.width;
-                if (Number.isFinite(duration) && duration > 0) {
-                  onSeek(duration * percent);
+                if (seekedFromTouchRef.current) {
+                  seekedFromTouchRef.current = false;
+                  return;
                 }
+                await triggerHaptic('light', 'MaximizedPlayer-Seek');
+                commitSeekFromClientX(e.clientX);
               }}
             >
               <div

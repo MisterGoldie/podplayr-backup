@@ -52,8 +52,8 @@ import {
   clearNftMediaUrlCache,
 } from '../utils/media';
 import { resolveCdnPlaybackUrls, isOrphanMuxPlaybackUrl, isMuxPlaybackUrl, isPollutedPlaybackUrl, isWeakPlaybackUrl, isMezzanineMuxUrl } from '../lib/mediaCdn';
-import { attachPlaybackSource, detachHlsPlayback, isHlsAttached, isHlsUrl, pauseHlsBuffering, resumeHlsBuffering } from '../lib/hlsPlayback';
-import { setActiveMainMedia, pauseActiveMainMedia } from '../lib/activeMainMedia';
+import { attachPlaybackSource, detachHlsPlayback, isHlsAttached, isHlsUrl, pauseHlsBuffering, resumeHlsBuffering, seekAttachedMedia } from '../lib/hlsPlayback';
+import { setActiveMainMedia, getActiveMainMedia, pauseActiveMainMedia } from '../lib/activeMainMedia';
 import { restorePageScroll } from '../utils/pageScroll';
 
 function findNftInQueue(queue: NFT[], nft: NFT): number {
@@ -147,6 +147,8 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
 
   const fidRef = useRef(fid ?? 1);
   fidRef.current = fid ?? 1;
+  const currentPlayingNftRef = useRef<NFT | null>(null);
+  currentPlayingNftRef.current = currentPlayingNFT;
   const playAttemptRef = useRef(0);
   const stallTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const failoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -721,6 +723,7 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     }
 
     flushSync(() => {
+      currentPlayingNftRef.current = nft;
       setCurrentPlayingNFT(nft);
       setCurrentlyPlaying(`${nft.contract}-${nft.tokenId}`);
     });
@@ -1111,16 +1114,15 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     };
 
     let firstProgressLogged = false;
-    media.ontimeupdate = () => {
-      if (playAttempt !== playAttemptRef.current) return;
-      if (!firstProgressLogged && media.currentTime > 0) {
-        firstProgressLogged = true;
+    const syncClockStatus = () => {
+      if (Number.isFinite(media.currentTime)) {
+        setAudioProgress(media.currentTime);
       }
-      setAudioProgress(media.currentTime);
-      if (media.currentTime > 0) {
-        rememberPlayingMime();
+      if (Number.isFinite(media.duration) && media.duration > 0) {
+        setAudioDuration(media.duration);
       }
-
+    };
+    const maybeTrackPlay = () => {
       const knownDuration = Number.isFinite(media.duration) && media.duration > 0;
       const reachedPercent = knownDuration && media.currentTime >= media.duration * 0.25;
       const reachedFallback = !knownDuration && media.currentTime >= 15;
@@ -1131,6 +1133,17 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
           audioLogger.error('Error tracking NFT play after threshold:', error);
         });
       }
+    };
+    media.ontimeupdate = () => {
+      if (playAttempt !== playAttemptRef.current) return;
+      if (!firstProgressLogged && media.currentTime > 0) {
+        firstProgressLogged = true;
+      }
+      syncClockStatus();
+      if (media.currentTime > 0) {
+        rememberPlayingMime();
+      }
+      maybeTrackPlay();
     };
 
     media.onplay = () => {
@@ -1153,7 +1166,13 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     };
     media.onseeked = () => {
       if (playAttempt !== playAttemptRef.current) return;
-      if (media.paused) pauseHlsBuffering();
+      syncClockStatus();
+      maybeTrackPlay();
+      // Wait until the new position actually has data before pausing Mux
+      // loads — otherwise a paused seek never picks up the target frame.
+      if (media.paused && media.readyState >= 2) {
+        pauseHlsBuffering();
+      }
     };
     media.onended = () => {
       if (playAttempt !== playAttemptRef.current) return;
@@ -1220,12 +1239,40 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     await skipInQueue(-1);
   }, [skipInQueue]);
 
-  const handleSeek = useCallback((time: number) => {
-    const clock = visualPlaybackRef.current || audioRef.current;
-    if (!clock) return;
-    clock.currentTime = time;
-    setAudioProgress(time);
+  const resolvePlaybackClock = useCallback(() => {
+    const visual = visualPlaybackRef.current;
+    if (visual?.isConnected) return visual;
+
+    const nft = currentPlayingNftRef.current;
+    if (nft?.contract && nft.tokenId) {
+      const mounted = document.getElementById(
+        playbackVideoElementId(nft.contract, String(nft.tokenId))
+      );
+      if (mounted instanceof HTMLVideoElement) {
+        visualPlaybackRef.current = mounted;
+        return mounted;
+      }
+    }
+
+    const active = getActiveMainMedia();
+    if (active?.isConnected || active === audioRef.current) return active;
+    return audioRef.current;
   }, []);
+
+  const handleSeek = useCallback((time: number) => {
+    const clock = resolvePlaybackClock();
+    if (!clock) return;
+    const wasPlaying = !clock.paused;
+    const landed = seekAttachedMedia(clock, time);
+    if (landed === null) return;
+    setAudioProgress(landed);
+    if (Number.isFinite(clock.duration) && clock.duration > 0) {
+      setAudioDuration(clock.duration);
+    }
+    if (wasPlaying && clock.paused) {
+      clock.play().catch(() => {});
+    }
+  }, [resolvePlaybackClock]);
 
   // Add a function to set fallback URLs
   const setFallbackSources = useCallback((urls: string[]) => {

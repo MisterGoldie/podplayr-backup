@@ -39,6 +39,24 @@ export function resumeHlsBuffering() {
   }
 }
 
+/** Seek the live clock and make sure HLS actually loads that position. */
+export function seekAttachedMedia(media: HTMLMediaElement, time: number): number | null {
+  if (!Number.isFinite(time)) return null;
+  const duration = media.duration;
+  const clamped =
+    Number.isFinite(duration) && duration > 0
+      ? Math.min(Math.max(0, time), Math.max(0, duration - 0.05))
+      : Math.max(0, time);
+
+  resumeHlsBuffering();
+  try {
+    media.currentTime = clamped;
+  } catch {
+    return null;
+  }
+  return Number.isFinite(media.currentTime) ? media.currentTime : clamped;
+}
+
 export function detachHlsPlayback(media?: HTMLMediaElement | null) {
   if (currentHls) {
     try {

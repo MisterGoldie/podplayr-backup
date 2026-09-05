@@ -10,6 +10,10 @@ export function setActiveMainMedia(el: HTMLMediaElement | null) {
   activeMedia = el;
 }
 
+export function getActiveMainMedia() {
+  return activeMedia;
+}
+
 export function pauseActiveMainMedia() {
   if (activeMedia && !activeMedia.paused) {
     activeMedia.pause();
