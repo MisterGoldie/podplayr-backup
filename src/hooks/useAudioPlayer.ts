@@ -145,6 +145,8 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
   });
   const { error: showErrorToast } = useToast();
 
+  const fidRef = useRef(fid ?? 1);
+  fidRef.current = fid ?? 1;
   const playAttemptRef = useRef(0);
   const stallTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const failoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -724,7 +726,7 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     });
     releaseOrphanPlaybackVideos(playbackVideoElementId(nft.contract, nft.tokenId));
 
-    recordRecentPlay(nft, fid).catch((error) => {
+    recordRecentPlay(nft, fidRef.current).catch((error) => {
       audioLogger.error('Error recording recent play:', error);
     });
 
@@ -1125,7 +1127,7 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       if (!playTracked && (reachedPercent || reachedFallback)) {
         playTracked = true;
         audioLogger.info(`Play count threshold reached for NFT: ${nft.name}`);
-        trackNFTPlay(nft, fid, { thresholdReached: true }).catch(error => {
+        trackNFTPlay(nft, fidRef.current, { thresholdReached: true }).catch(error => {
           audioLogger.error('Error tracking NFT play after threshold:', error);
         });
       }

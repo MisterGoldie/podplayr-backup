@@ -15,7 +15,7 @@ import {
   startAfter,
 } from 'firebase/firestore';
 import type { NFT } from '../../types/nft';
-import { db, firebaseLogger } from './config';
+import { auth, db, firebaseLogger } from './config';
 import { getMediaKey, getNftIdentityKey } from '../../utils/media';
 import { getNftPlaybackPlan, applyConfirmedPlayback } from '../../utils/isMediaNFT';
 import { mergeLegacyPlayCounts } from '../consolidateGlobalPlays';
@@ -283,20 +283,31 @@ export const trackNFTPlay = async (nft: NFT, fid: number, options?: { forceTrack
       playCount: currentPlayCount + 1, // Use the actual play count
       thresholdReached: options?.thresholdReached || false // Track if this was a threshold play
     };
-    await addDoc(collection(db, 'nft_plays'), nftPlayData);
 
-    // Track in user's play history
-    const userRef = doc(db, 'users', fid.toString());
-    const playHistoryRef = collection(userRef, 'playHistory');
-    await addDoc(playHistoryRef, {
-      ...nftPlayData,
-      mediaKey, // Ensure mediaKey is included
-      timestamp: Timestamp.now(),
-      timestampMs: Date.now(),
-    });
-
-    // Commit the batch
+    // InfoPanel listens on global_plays. Commit that increment first.
+    // playHistory is owner-checked when signed in; a denied users/1 write
+    // used to run before this commit and silently drop the count.
     await batch.commit();
+
+    try {
+      await addDoc(collection(db, 'nft_plays'), nftPlayData);
+    } catch (error) {
+      firebaseLogger.warn('nft_plays append failed after count commit:', error);
+    }
+
+    try {
+      const historyFid = auth.currentUser?.uid || String(fid);
+      const playHistoryRef = collection(db, 'users', historyFid, 'playHistory');
+      await addDoc(playHistoryRef, {
+        ...nftPlayData,
+        fid: Number(historyFid) || fid,
+        mediaKey,
+        timestamp: Timestamp.now(),
+        timestampMs: Date.now(),
+      });
+    } catch (error) {
+      firebaseLogger.warn('playHistory append failed after count commit:', error);
+    }
     
     // Return mediaKey for reference by caller
     return mediaKey;
