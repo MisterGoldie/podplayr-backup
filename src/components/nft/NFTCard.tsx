@@ -124,7 +124,7 @@ const NFTCardInner: React.FC<NFTCardProps> = ({
           {useGifCover ? (
             <NFTGifImage
               nft={displayNft}
-              className="w-full h-full object-cover"
+              className="absolute inset-0 w-full h-full object-cover"
               width={smallCard ? 160 : 180}
               height={smallCard ? 160 : 180}
               priority={!smallCard}
@@ -134,7 +134,7 @@ const NFTCardInner: React.FC<NFTCardProps> = ({
               nft={displayNft}
               src={rawImageUrl}
               alt={nft.name}
-              className="w-full h-full object-cover"
+              className="absolute inset-0 w-full h-full object-cover"
               width={smallCard ? 160 : 180}
               height={smallCard ? 160 : 180}
               sizes={smallCard ? '160px' : '180px'}

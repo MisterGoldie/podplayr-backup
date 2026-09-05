@@ -2013,7 +2013,7 @@ export const NFTImage: React.FC<NFTImageProps> = ({
         data-nft-id={nft ? `${nft.contract}-${nft.tokenId}` : 'unknown'}
         data-original-src={src}
         key={`nft-img-${nft?.contract || 'unknown'}-${nft?.tokenId || 'unknown'}`}
-        style={{ objectFit: 'cover' }}
+        style={{ objectFit: 'cover', width: '100%', height: '100%' }}
       />
     );
   }
@@ -2039,6 +2039,7 @@ export const NFTImage: React.FC<NFTImageProps> = ({
         data-nft-image-status={error ? 'error' : 'loaded'}
         data-nft-id={nft ? `${nft.contract}-${nft.tokenId}` : 'unknown'}
         key={`nft-img-${nft?.contract || 'unknown'}-${nft?.tokenId || 'unknown'}`}
+        style={{ objectFit: 'cover', width: '100%', height: '100%' }}
       />
     );
   }
@@ -2063,7 +2064,7 @@ export const NFTImage: React.FC<NFTImageProps> = ({
         loading={priority ? 'eager' : loading}
         sizes={sizes}
         key={`nft-img-${nft?.contract || 'unknown'}-${nft?.tokenId || 'unknown'}`}
-        style={{ objectFit: 'cover' }}
+        style={{ objectFit: 'cover', width: '100%', height: '100%' }}
       />
     </>
   );
