@@ -1101,7 +1101,7 @@ export function playbackVideoElementId(contract: string, tokenId: string): strin
 }
 
 export const PLAYBACK_VIDEO_CLASSNAME =
-  'w-auto h-auto object-contain rounded-3xl max-h-[58vh] min-h-[36vh] min-w-[60%] max-w-full shadow-2xl shadow-purple-900/40';
+  'w-full h-full object-contain max-h-full max-w-full';
 
 /** Keep the element in the compositor without using display:none.
  *  WebKit scroll-into-view on a hidden playing <video> breaks nested page scroll. */
@@ -1112,7 +1112,8 @@ export function parkPlaybackVideo(video: HTMLVideoElement) {
 
 export function applyPlaybackVideoPresentation(video: HTMLVideoElement) {
   video.className = PLAYBACK_VIDEO_CLASSNAME;
-  video.style.cssText = 'opacity:1;will-change:transform;object-fit:contain;';
+  video.style.cssText =
+    'opacity:1;will-change:transform;object-fit:contain;width:100%;height:100%;';
 }
 
 /** Same node the player UI adopts — create it immediately so play() stays in the tap gesture. */

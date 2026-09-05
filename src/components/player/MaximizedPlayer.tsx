@@ -684,15 +684,60 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
           <div className="absolute inset-0 bg-gradient-to-b from-black/55 via-black/70 to-black" />
         </div>
 
-        <div
-          className="relative flex-1 flex flex-col overflow-hidden"
-          style={{
-            paddingTop: 'max(0.75rem, env(safe-area-inset-top))',
-            paddingBottom: 'max(1rem, env(safe-area-inset-bottom))',
-          }}
-        >
-          <div className={`px-4 flex justify-between items-center z-10 transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
-            <div className="flex items-center gap-2">
+        <div className="relative flex-1 overflow-hidden">
+          <div
+            className="absolute inset-0 z-[1] flex items-center justify-center"
+            onClick={() => {
+              if (!isActivelyScrubbingBar) onPlayPause();
+            }}
+          >
+            {hasVideoLayer && (
+              <div
+                className={
+                  showVideoVisually
+                    ? 'w-full h-full'
+                    : 'fixed left-0 bottom-20 w-px h-px opacity-0 pointer-events-none overflow-hidden'
+                }
+                aria-hidden={!showVideoVisually}
+              >
+                {renderVideo()}
+              </div>
+            )}
+            {!showVideoVisually && (
+              <div className="relative w-full h-full flex items-center justify-center p-2">
+                {(nft.name === 'ACYL RADIO - Hidden Tales' || nft.name === 'ACYL RADIO - WILL01' || nft.name === 'ACYL RADIO - Chili Sounds 🌶️') ? (
+                  <img
+                    src={resolvedImageUrl}
+                    alt={nft.name}
+                    className="max-w-full max-h-full w-auto h-auto object-contain"
+                    width={720}
+                    height={720}
+                    style={{
+                      willChange: 'transform',
+                      transform: 'translateZ(0)',
+                    }}
+                  />
+                ) : (
+                  <NFTImage
+                    src={resolvedImageUrl}
+                    alt={nft.name}
+                    className="max-w-full max-h-full w-auto h-auto object-contain"
+                    width={720}
+                    height={720}
+                    priority={true}
+                    nft={nft}
+                    key={`thumb-${nft.contract}-${nft.tokenId}`}
+                  />
+                )}
+              </div>
+            )}
+          </div>
+
+          <div
+            className={`absolute top-0 left-0 right-0 z-10 px-3 pb-10 flex justify-between items-start pointer-events-none bg-gradient-to-b from-black/75 via-black/30 to-transparent transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0'}`}
+            style={{ paddingTop: 'max(0.5rem, env(safe-area-inset-top))' }}
+          >
+            <div className={`flex items-center gap-2 pointer-events-auto ${showControls ? '' : 'pointer-events-none'}`}>
               {canLike && (
                 <button
                   type="button"
@@ -722,7 +767,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
                 </svg>
               </button>
             </div>
-            <div className="flex items-center gap-2">
+            <div className={`flex items-center gap-2 pointer-events-auto ${showControls ? '' : 'pointer-events-none'}`}>
               {Boolean(nft.contract && nft.tokenId) && (
                 <button
                   type="button"
@@ -779,64 +824,24 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
             </div>
           </div>
 
-          <div className="flex-1 flex items-center justify-center px-5 py-3 overflow-hidden min-h-0">
-            <div className="max-h-full flex items-center justify-center relative">
-              {hasVideoLayer && (
-                <div
-                  className={
-                    showVideoVisually
-                      ? 'contents'
-                      : 'fixed left-0 bottom-20 w-px h-px opacity-0 pointer-events-none overflow-hidden'
-                  }
-                  aria-hidden={!showVideoVisually}
-                >
-                  {renderVideo()}
-                </div>
-              )}
-              {!showVideoVisually && (
-                <div className="relative rounded-3xl overflow-hidden w-[min(90vw,58vh)] h-[min(90vw,58vh)] max-w-full max-h-[58vh] shadow-2xl shadow-purple-900/40 ring-1 ring-white/10">
-                  {(nft.name === 'ACYL RADIO - Hidden Tales' || nft.name === 'ACYL RADIO - WILL01' || nft.name === 'ACYL RADIO - Chili Sounds 🌶️') ? (
-                    <img
-                      src={resolvedImageUrl}
-                      alt={nft.name}
-                      className="w-full h-full object-contain rounded-3xl"
-                      width={720}
-                      height={720}
-                      style={{
-                        willChange: 'transform',
-                        transform: 'translateZ(0)',
-                      }}
-                    />
-                  ) : (
-                    <NFTImage
-                      src={resolvedImageUrl}
-                      alt={nft.name}
-                      className="w-full h-full object-contain rounded-3xl"
-                      width={720}
-                      height={720}
-                      priority={true}
-                      nft={nft}
-                      key={`thumb-${nft.contract}-${nft.tokenId}`}
-                    />
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="relative flex-none px-6 pt-1">
-            <div className="mb-4 text-center min-w-0">
-              <h2 className="text-white text-lg font-semibold truncate">{nft.name}</h2>
+          <div
+            className={`absolute bottom-0 left-0 right-0 z-10 px-4 pt-16 bg-gradient-to-t from-black via-black/70 to-transparent transition-opacity duration-300 ${showControls ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
+            style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-2 text-center min-w-0">
+              <h2 className="text-white text-base font-semibold truncate">{nft.name}</h2>
             </div>
 
             <div
               ref={progressBarRef}
-              className={`relative ${isActivelyScrubbingBar ? 'h-3' : 'h-1.5'} bg-white/10 rounded-full mb-2 transition-all duration-150 touch-none`}
+              className={`relative ${isActivelyScrubbingBar ? 'h-3' : 'h-1.5'} bg-white/10 rounded-full mb-1.5 transition-all duration-150 touch-none`}
               onTouchStart={handleTouchStart}
               onTouchMove={handleTouchMove}
               onTouchEnd={handleTouchEnd}
               onTouchCancel={handleTouchEnd}
               onClick={async (e) => {
+                e.stopPropagation();
                 await triggerHaptic('light', 'MaximizedPlayer-Seek');
                 if (!e.currentTarget) return;
                 const rect = e.currentTarget.getBoundingClientRect();
@@ -866,12 +871,12 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
               )}
             </div>
 
-            <div className="flex justify-between text-white/50 text-xs tabular-nums mb-5">
+            <div className="flex justify-between text-white/50 text-xs tabular-nums mb-3">
               <span>{formatTime(displayElapsed)}</span>
               <span>-{formatTime(displayRemaining)}</span>
             </div>
 
-            <div className="flex justify-center items-center gap-10 pb-2">
+            <div className="flex justify-center items-center gap-8 pb-1">
               <button
                 type="button"
                 onClick={async () => {
@@ -882,7 +887,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
                 disabled={!onPrevious}
                 aria-label="Previous"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" height="32" viewBox="0 -960 960 960" width="32" fill="currentColor">
+                <svg xmlns="http://www.w3.org/2000/svg" height="28" viewBox="0 -960 960 960" width="28" fill="currentColor">
                   <path d="M220-240v-480h80v480h-80Zm440 0v-480l-360 240 360 240Z"/>
                 </svg>
               </button>
@@ -890,7 +895,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
               <PlaybackButton
                 isPlaying={isPlaying}
                 onClick={onPlayPause}
-                size="xlarge"
+                size="large"
                 className="bg-purple-500 shadow-lg shadow-purple-500/40 ring-4 ring-purple-400/25"
                 hapticLabel="MaximizedPlayer"
               />
@@ -905,7 +910,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
                 disabled={!onNext}
                 aria-label="Next"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" height="32" viewBox="0 -960 960 960" width="32" fill="currentColor">
+                <svg xmlns="http://www.w3.org/2000/svg" height="28" viewBox="0 -960 960 960" width="28" fill="currentColor">
                   <path d="M660-240v-480h80v480h-80ZM220-240v-480l360 240-360 240Z"/>
                 </svg>
               </button>
