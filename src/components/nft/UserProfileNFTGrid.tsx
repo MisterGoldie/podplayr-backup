@@ -56,6 +56,7 @@ export const UserProfileNFTGrid: React.FC<UserProfileNFTGridProps> = ({
                 userFid={userFid?.toString()}
                 isNFTLiked={() => (isNFTLiked ? isNFTLiked(nft) : false)}
                 animationDelay={staggerDelay}
+                imagePriority={index < 4}
                 smallCard
               />
             </div>

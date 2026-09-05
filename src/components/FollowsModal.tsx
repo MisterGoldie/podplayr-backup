@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, useRef } from 'react';
-import { subscribeToFollowers, subscribeToFollowingUsers, toggleFollowUser, isUserFollowed } from '../lib/firebase';
+import { subscribeToFollowers, subscribeToFollowingUsers, toggleFollowUser, isUserFollowed } from '../lib/firebase/follows';
 import type { FollowedUser, FarcasterUser } from '../types/user';
 import { AnimatePresence, motion } from 'framer-motion';
 import FollowNotification from './FollowNotification';
