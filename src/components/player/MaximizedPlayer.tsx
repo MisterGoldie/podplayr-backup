@@ -703,8 +703,13 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
           <div className="absolute inset-0 bg-gradient-to-b from-black/55 via-black/70 to-black" />
         </div>
 
-        <div className="relative flex-1 overflow-hidden">
-          <div className="absolute inset-0 z-[1] flex items-center justify-center">
+        <div className="relative flex-1 min-h-0 overflow-hidden flex flex-col">
+          <div
+            className="flex-none"
+            style={{ height: 'max(3.25rem, calc(env(safe-area-inset-top) + 2.75rem))' }}
+            aria-hidden
+          />
+          <div className="relative z-[1] flex-1 min-h-0 flex items-center justify-center px-3">
             {hasVideoLayer && (
               <div
                 className={
@@ -718,7 +723,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
               </div>
             )}
             {!showVideoVisually && (
-              <div className="relative w-full h-full flex items-center justify-center p-2">
+              <div className="relative w-full h-full flex items-center justify-center">
                 {(nft.name === 'ACYL RADIO - Hidden Tales' || nft.name === 'ACYL RADIO - WILL01' || nft.name === 'ACYL RADIO - Chili Sounds 🌶️') ? (
                   <img
                     src={resolvedImageUrl}
@@ -839,7 +844,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
           </div>
 
           <div
-            className={`absolute bottom-0 left-0 right-0 z-10 px-4 pt-16 bg-gradient-to-t from-black via-black/70 to-transparent transition-opacity duration-300 ${showControls ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
+            className={`relative z-10 flex-none px-4 pt-3 bg-gradient-to-t from-black via-black/80 to-transparent transition-opacity duration-300 ${showControls ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
             style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
             onClick={(e) => e.stopPropagation()}
           >
