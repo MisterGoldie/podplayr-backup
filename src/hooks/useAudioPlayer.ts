@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { flushSync } from 'react-dom';
 import { NFT } from '../types/user';
-import { trackNFTPlay as originalTrackNFTPlay, recordRecentPlay } from '../lib/firebase';
+import { trackNFTPlay as originalTrackNFTPlay, recordRecentPlay } from '../lib/firebase/plays';
 import { v4 as uuidv4 } from 'uuid';
 
 // Wrapper for trackNFTPlay that respects the 25% threshold requirement

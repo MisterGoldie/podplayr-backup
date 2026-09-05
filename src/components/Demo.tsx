@@ -12,7 +12,7 @@ import {
   trackUserSearch,
   searchUsers,
   subscribeToRecentSearches
-} from '../lib/firebase';
+} from '../lib/firebase/user';
 import { getLikedNFTs, toggleLikeNFT } from '../lib/firebase/likes';
 import type { NFT, FarcasterUser, SearchedUser } from '../types/user';
 import { usePlayer } from '../contexts/PlayerContext';
@@ -162,12 +162,27 @@ const DemoBase: React.FC = () => {
       void import('./views/ProfileView');
       void import('./views/UserProfileView');
     };
-    if (typeof requestIdleCallback === 'function') {
-      const id = requestIdleCallback(prefetchTabs, { timeout: 2500 });
-      return () => cancelIdleCallback(id);
+    let idleId: number | undefined;
+    let timer: number | undefined;
+    const start = () => {
+      if (typeof requestIdleCallback === 'function') {
+        idleId = requestIdleCallback(prefetchTabs, { timeout: 5000 });
+        return;
+      }
+      timer = window.setTimeout(prefetchTabs, 3500);
+    };
+    if (document.readyState === 'complete') {
+      start();
+    } else {
+      window.addEventListener('load', start, { once: true });
     }
-    const timer = window.setTimeout(prefetchTabs, 1500);
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.removeEventListener('load', start);
+      if (idleId !== undefined && typeof cancelIdleCallback === 'function') {
+        cancelIdleCallback(idleId);
+      }
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
   }, []);
 
   useEffect(() => {
@@ -238,14 +253,14 @@ const DemoBase: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (!fid) return;
+    if (!fid || !currentPage.isExplore) return;
 
     const unsubscribe = subscribeToRecentSearches(fid, (searches) => {
       setRecentSearches(searches);
     });
 
     return unsubscribe;
-  }, [fid]);
+  }, [fid, currentPage.isExplore]);
 
   const releaseVideoResources = useCallback(() => {
     const currentId = currentPlayingNFT

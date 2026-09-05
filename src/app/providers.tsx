@@ -2,7 +2,8 @@
 
 import { createContext, useContext, useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { isBaseAppBrowser, isCoinbaseWalletClientFid, isFarcasterMiniApp, isRealFid } from '../utils/platform';
-import { ensurePodplayrFollow, searchUsersByAddress } from '../lib/firebase';
+import { ensurePodplayrFollow } from '../lib/firebase/follows';
+import { searchUsersByAddress } from '../lib/firebase/user';
 import { VideoPlayProvider } from '../contexts/VideoPlayContext';
 import { NFTNotificationProvider } from '../context/NFTNotificationContext';
 import { PlayerProvider } from '../contexts/PlayerContext';
@@ -102,6 +103,8 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
 
   // Get MiniKit context
   const { context: miniKitContext } = useMiniKit();
+  const miniKitContextRef = useRef(miniKitContext);
+  miniKitContextRef.current = miniKitContext;
   const [isMiniKit, setIsMiniKit] = useState(false);
 
   // Note: PODPlayr's follower count used to be force-recomputed with a full
@@ -119,7 +122,7 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
     async function initializeEnvironmentContext() {
       try {
         const applyMiniKitUser = () => {
-          const miniUser = miniKitContext?.user;
+          const miniUser = miniKitContextRef.current?.user;
           const miniFid = miniUser?.fid;
           if (!miniUser || !isRealFid(miniFid)) return;
           setFid(miniFid);
@@ -130,7 +133,7 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
             pfp: miniUser.pfpUrl,
             bio: (miniUser as any).bio,
           });
-          const miniClient = miniKitContext?.client;
+          const miniClient = miniKitContextRef.current?.client;
           if (miniClient) {
             setClientContext({
               clientFid: miniClient.clientFid || miniFid,
@@ -249,7 +252,29 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
     }
 
     initializeEnvironmentContext();
-  }, [miniKitContext]);
+  }, []);
+
+  useEffect(() => {
+    if (environment !== 'coinbase') return;
+    const miniUser = miniKitContext?.user;
+    if (!miniUser || !isRealFid(miniUser.fid)) return;
+    setFid(miniUser.fid);
+    setUserContext({
+      fid: miniUser.fid,
+      username: miniUser.username,
+      displayName: miniUser.displayName,
+      pfp: miniUser.pfpUrl,
+      bio: (miniUser as any).bio,
+    });
+    const miniClient = miniKitContext?.client;
+    if (miniClient) {
+      setClientContext({
+        clientFid: miniClient.clientFid || miniUser.fid,
+        added: miniClient.added || false,
+        safeAreaInsets: miniClient.safeAreaInsets,
+      });
+    }
+  }, [environment, miniKitContext]);
   
   // Farcaster follow writes are owner-checked once a Firebase session exists,
   // so wait for that uid. Web and Base have no session and still follow.

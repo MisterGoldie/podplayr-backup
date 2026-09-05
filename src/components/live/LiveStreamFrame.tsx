@@ -108,11 +108,23 @@ export function LiveStreamFrame() {
       destroyHls();
     };
 
-    void poll();
-    const id = window.setInterval(poll, LIVE_POLL_MS);
+    let intervalId: number | undefined;
+    let idleId: number | undefined;
+    let startTimer: number | undefined;
+    const start = () => {
+      void poll();
+      intervalId = window.setInterval(poll, LIVE_POLL_MS);
+    };
+    if (typeof requestIdleCallback === 'function') {
+      idleId = requestIdleCallback(start, { timeout: 1200 });
+    } else {
+      startTimer = window.setTimeout(start, 400);
+    }
     return () => {
       cancelled = true;
-      window.clearInterval(id);
+      if (idleId !== undefined) cancelIdleCallback(idleId);
+      if (startTimer !== undefined) window.clearTimeout(startTimer);
+      if (intervalId !== undefined) window.clearInterval(intervalId);
       destroyHls();
     };
   }, [attachLive, destroyHls]);
