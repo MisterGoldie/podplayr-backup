@@ -534,7 +534,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
   }, [isMinimized]);
 
   const iconButtonClass =
-    'p-2 rounded-full bg-black/45 backdrop-blur-md border border-white/10 text-white/90 active:scale-95 transition-transform touch-manipulation';
+    'p-2 rounded-full bg-black/45 backdrop-blur-md text-white/90 active:scale-95 transition-transform touch-manipulation outline-none focus:outline-none focus-visible:outline-none';
   const progressPercent = safeProgressPercent(
     scrubPosition !== null ? scrubPosition : progress,
     duration
@@ -795,7 +795,9 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
               )}
             </div>
             <div className="flex-1 flex items-center justify-center min-h-[2.75rem] w-full px-1">
-              <h2 className="text-white text-base font-semibold truncate text-center w-full">
+              <h2
+                className={`text-white text-base font-semibold truncate text-center w-full transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0'}`}
+              >
                 {nft.name}
               </h2>
             </div>
