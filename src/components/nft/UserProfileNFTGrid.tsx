@@ -39,7 +39,7 @@ export const UserProfileNFTGrid: React.FC<UserProfileNFTGridProps> = ({
 
   return (
     <>
-      <div className="flex flex-wrap justify-center gap-4 pb-32">
+      <div className="flex flex-wrap justify-center gap-4">
         {visibleItems.map((nft, index) => {
           const uniqueKey = `user-profile-${nft.contract}-${nft.tokenId}`;
           const staggerDelay = 0.05 * (index % 8);

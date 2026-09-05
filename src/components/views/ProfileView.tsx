@@ -368,7 +368,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({
       )}
       <div 
         ref={setScrollRoot}
-        className="page-scroll pt-16 pb-48 bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082]"
+        className="page-scroll pt-16 pb-40 bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082]"
       >
         <div className="relative w-full h-[200px] sm:h-[240px] overflow-hidden">
           <div
@@ -570,8 +570,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({
             </div>
           ) : null}
         </div>
-        {/* Copyright text - positioned higher on the page */}
-        <div className="text-center mt-8 mb-20 text-white/60 text-sm">
+        <div className="text-center mt-6 text-white/60 text-sm">
           © THEPOD 2026 ALL RIGHTS RESERVED
           <div className="mt-2">
             <button

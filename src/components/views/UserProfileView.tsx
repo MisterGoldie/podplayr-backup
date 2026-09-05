@@ -376,7 +376,7 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
         />
       )}
       
-      <div ref={setScrollRoot} className="page-scroll pt-16 pb-48 bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082]">
+      <div ref={setScrollRoot} className="page-scroll pt-16 pb-40 bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082]">
         <div className="relative w-full h-[200px] sm:h-[240px] overflow-hidden">
           <div
             className="absolute inset-0 bg-cover bg-center"
