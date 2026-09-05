@@ -46,6 +46,44 @@ interface NavigationSource {
   fromProfile: boolean;
 }
 
+const LIKED_NFTS_CACHE_KEY = 'podplayr_liked_nfts_v1';
+
+function readLikedNftsCache(): NFT[] | null {
+  try {
+    const raw = localStorage.getItem(LIKED_NFTS_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as NFT[];
+    if (!Array.isArray(parsed) || parsed.length === 0) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeLikedNftsCache(nfts: NFT[]) {
+  try {
+    const slim = nfts.map((nft) => ({
+      mediaKey: nft.mediaKey,
+      contract: nft.contract,
+      tokenId: nft.tokenId,
+      name: nft.name,
+      image: nft.image,
+      audio: nft.audio,
+      videoUrl: nft.videoUrl,
+      isVideo: nft.isVideo,
+      playbackMode: nft.playbackMode,
+      metadata: nft.metadata,
+      collection: nft.collection,
+      network: nft.network,
+      likedAt: nft.likedAt,
+      likedTimestamp: nft.likedTimestamp,
+    }));
+    localStorage.setItem(LIKED_NFTS_CACHE_KEY, JSON.stringify(slim));
+  } catch {
+    // Ignore quota / private-mode failures
+  }
+}
+
 const HOME_PAGE: PageState = {
   isHome: true,
   isExplore: false,
@@ -195,6 +233,12 @@ const DemoBase: React.FC = () => {
 
   useEffect(() => {
     try {
+      const cachedNfts = readLikedNftsCache();
+      if (cachedNfts) {
+        setLikedNFTs(cachedNfts);
+        setLikedNFTsLoaded(true);
+        return;
+      }
       const cachedLikes = localStorage.getItem('podplayr_liked_media_keys');
       if (!cachedLikes) return;
       const mediaKeys = JSON.parse(cachedLikes) as string[];
@@ -229,11 +273,16 @@ const DemoBase: React.FC = () => {
       }
 
       isLoadingLikedNFTsRef.current = true;
-      setLikedNFTsLoaded(false);
       try {
         const liked = (await getLikedNFTs(fid)).filter(isPlayableMediaNFT);
         setLikedNFTs(liked);
-        applyConfirmedPlayback(liked, setLikedNFTs);
+        writeLikedNftsCache(liked);
+        const confirmPlayback = () => applyConfirmedPlayback(liked, setLikedNFTs);
+        if (typeof requestIdleCallback === 'function') {
+          requestIdleCallback(confirmPlayback, { timeout: 4000 });
+        } else {
+          window.setTimeout(confirmPlayback, 1500);
+        }
       } catch (error) {
         demoLogger.error('Error loading liked NFTs:', error);
       } finally {

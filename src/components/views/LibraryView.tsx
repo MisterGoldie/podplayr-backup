@@ -92,7 +92,6 @@ const SimpleNFTCard: React.FC<SimpleNFTCardProps> = ({
               className="w-full h-full object-cover"
               width={48}
               height={48}
-              priority
             />
           ) : (
             <NFTImage
@@ -103,7 +102,6 @@ const SimpleNFTCard: React.FC<SimpleNFTCardProps> = ({
               height={48}
               sizes="48px"
               quality={50}
-              priority
               nft={coverNft}
             />
           )}
@@ -208,6 +206,7 @@ const LibraryNFTFeed: React.FC<LibraryNFTFeedProps> = ({
                 onLikeToggle={onLikeToggle}
                 isNFTLiked={libraryIsLiked}
                 animationDelay={staggerDelay}
+                imagePriority={index < 4}
               />
             );
           }
