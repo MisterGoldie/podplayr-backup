@@ -92,6 +92,9 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
       : ''
   );
   const [videoLayerFailed, setVideoLayerFailed] = useState(false);
+  const [mediaAspect, setMediaAspect] = useState<number | null>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const [mediaBox, setMediaBox] = useState({ width: 0, height: 0 });
   const [showInfo, setShowInfo] = useState(false);
   const [sharing, setSharing] = useState(false);
   const { visible: showMinimizeHint, dismiss: dismissMinimizeHint } = usePlayerArrowHint(
@@ -126,6 +129,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
 
   useEffect(() => {
     setVideoLayerFailed(false);
+    setMediaAspect(null);
   }, [nft.contract, nft.tokenId]);
 
   useEffect(() => {
@@ -151,6 +155,35 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
         : ''
     );
   }, [nft.contract, nft.tokenId, nft.image, nft.network]);
+
+  useLayoutEffect(() => {
+    const stage = stageRef.current;
+    if (!stage || isMinimized) return;
+    const aspect = mediaAspect && mediaAspect > 0
+      ? mediaAspect
+      : showVideoVisually ? 16 / 9 : 1;
+    const TITLE_SLOT = 44;
+    const layout = () => {
+      const availW = stage.clientWidth;
+      const availH = Math.max(0, stage.clientHeight - TITLE_SLOT);
+      if (availW <= 0 || availH <= 0) return;
+      let width = availW;
+      let height = width / aspect;
+      if (height > availH) {
+        height = availH;
+        width = height * aspect;
+      }
+      setMediaBox((prev) =>
+        Math.abs(prev.width - width) < 0.5 && Math.abs(prev.height - height) < 0.5
+          ? prev
+          : { width, height }
+      );
+    };
+    layout();
+    const observer = new ResizeObserver(layout);
+    observer.observe(stage);
+    return () => observer.disconnect();
+  }, [mediaAspect, showVideoVisually, isMinimized]);
   
   // Auto-hide controls after inactivity — skip while minimized so leftover
   // document listeners never capture navigation on the page underneath.
@@ -416,6 +449,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
         visualFailTimer = null;
       }
       setVideoLayerFailed(false);
+      setMediaAspect(video.videoWidth / video.videoHeight);
       applyPlaybackPlanToNft(nft, playbackPlan);
       return true;
     };
@@ -709,47 +743,62 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
             style={{ height: 'max(3.25rem, calc(env(safe-area-inset-top) + 2.75rem))' }}
             aria-hidden
           />
-          <div className="relative z-[1] flex-1 min-h-0 flex items-center justify-center px-3">
-            {hasVideoLayer && (
-              <div
-                className={
-                  showVideoVisually
-                    ? 'w-full h-full'
-                    : 'fixed left-0 bottom-20 w-px h-px opacity-0 pointer-events-none overflow-hidden'
-                }
-                aria-hidden={!showVideoVisually}
-              >
-                {renderVideo()}
-              </div>
-            )}
-            {!showVideoVisually && (
-              <div className="relative w-full h-full flex items-center justify-center">
-                {(nft.name === 'ACYL RADIO - Hidden Tales' || nft.name === 'ACYL RADIO - WILL01' || nft.name === 'ACYL RADIO - Chili Sounds 🌶️') ? (
-                  <img
-                    src={resolvedImageUrl}
-                    alt={nft.name}
-                    className="max-w-full max-h-full w-auto h-auto object-contain"
-                    width={720}
-                    height={720}
-                    style={{
-                      willChange: 'transform',
-                      transform: 'translateZ(0)',
-                    }}
-                  />
-                ) : (
-                  <NFTImage
-                    src={resolvedImageUrl}
-                    alt={nft.name}
-                    className="max-w-full max-h-full w-auto h-auto object-contain"
-                    width={720}
-                    height={720}
-                    priority={true}
-                    nft={nft}
-                    key={`thumb-${nft.contract}-${nft.tokenId}`}
-                  />
-                )}
-              </div>
-            )}
+          <div ref={stageRef} className="relative z-[1] flex-1 min-h-0 flex flex-col items-center px-3">
+            <div className="flex-1 min-h-0 w-full" aria-hidden />
+            <div
+              className="relative shrink-0"
+              style={
+                mediaBox.width > 0
+                  ? { width: mediaBox.width, height: mediaBox.height }
+                  : { width: '100%', flex: '1 1 auto', minHeight: 0 }
+              }
+            >
+              {hasVideoLayer && (
+                <div
+                  className={
+                    showVideoVisually
+                      ? 'w-full h-full'
+                      : 'fixed left-0 bottom-20 w-px h-px opacity-0 pointer-events-none overflow-hidden'
+                  }
+                  aria-hidden={!showVideoVisually}
+                >
+                  {renderVideo()}
+                </div>
+              )}
+              {!showVideoVisually && (
+                <div className="relative w-full h-full flex items-center justify-center">
+                  {(nft.name === 'ACYL RADIO - Hidden Tales' || nft.name === 'ACYL RADIO - WILL01' || nft.name === 'ACYL RADIO - Chili Sounds 🌶️') ? (
+                    <img
+                      src={resolvedImageUrl}
+                      alt={nft.name}
+                      className="max-w-full max-h-full w-auto h-auto object-contain"
+                      width={720}
+                      height={720}
+                      style={{
+                        willChange: 'transform',
+                        transform: 'translateZ(0)',
+                      }}
+                    />
+                  ) : (
+                    <NFTImage
+                      src={resolvedImageUrl}
+                      alt={nft.name}
+                      className="max-w-full max-h-full w-auto h-auto object-contain"
+                      width={720}
+                      height={720}
+                      priority={true}
+                      nft={nft}
+                      key={`thumb-${nft.contract}-${nft.tokenId}`}
+                    />
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="flex-1 flex items-center justify-center min-h-[2.75rem] w-full px-1">
+              <h2 className="text-white text-base font-semibold truncate text-center w-full">
+                {nft.name}
+              </h2>
+            </div>
           </div>
 
           <div
@@ -848,10 +897,6 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
             style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="mb-2 text-center min-w-0">
-              <h2 className="text-white text-base font-semibold truncate">{nft.name}</h2>
-            </div>
-
             <div
               ref={progressBarRef}
               className={`relative ${isActivelyScrubbingBar ? 'h-3' : 'h-1.5'} bg-white/10 rounded-full mb-1.5 transition-all duration-150 touch-none cursor-pointer`}
