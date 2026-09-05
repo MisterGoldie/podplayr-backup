@@ -704,12 +704,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
         </div>
 
         <div className="relative flex-1 overflow-hidden">
-          <div
-            className="absolute inset-0 z-[1] flex items-center justify-center"
-            onClick={() => {
-              if (!isActivelyScrubbingBar) onPlayPause();
-            }}
-          >
+          <div className="absolute inset-0 z-[1] flex items-center justify-center">
             {hasVideoLayer && (
               <div
                 className={
