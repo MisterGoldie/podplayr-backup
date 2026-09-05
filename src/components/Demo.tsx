@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback, useContext, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { FarcasterContext, UserFidContext } from '~/app/providers';
-import { PlayerWithAds, usePrerollAd } from './player/PlayerWithAds';
+import { usePrerollAd } from '../hooks/usePrerollAd';
 import { getMediaKey } from '~/utils/media';
 import { sameLikedTrack } from '../utils/likeDedupe';
 import { BottomNav } from './navigation/BottomNav';
@@ -83,6 +83,14 @@ const UserProfileView = dynamic(() => import('./views/UserProfileView'), {
   ssr: false,
   loading: TabLoading,
 });
+const PlayerWithAds = dynamic(
+  () => import('./player/PlayerWithAds').then((mod) => mod.PlayerWithAds),
+  { ssr: false }
+);
+
+function prefetchPlayerChunk() {
+  void import('./player/PlayerWithAds');
+}
 
 const deduplicateNFTsByMediaKey = (nfts: NFT[]): NFT[] => {
   const uniqueNFTs = new Map<string, NFT>();
@@ -370,6 +378,7 @@ const DemoBase: React.FC = () => {
   }, [fid, likedNFTs]);
 
   const handlePlayNFT = useCallback(async (nft: NFT, context?: { queue?: NFT[]; queueType?: string }) => {
+    prefetchPlayerChunk();
     const sameTrack = currentPlayingNFT
       ? getMediaKey(currentPlayingNFT) === getMediaKey(nft)
       : currentlyPlaying === `${nft.contract}-${nft.tokenId}`;
@@ -627,6 +636,7 @@ const DemoBase: React.FC = () => {
       // handlePlayAudio alone doesn't touch isPlayerMinimized (that's owned
       // here in Demo.tsx and normally only unminimized by handlePlayNFT for
       // the suggested-music-videos rail) — force it open for a shared link.
+      prefetchPlayerChunk();
       setIsPlayerMinimized(false);
       // No user gesture at page-load time, so browsers block autoplay outright
       // (NotAllowedError) — load the track paused and let the user's first
