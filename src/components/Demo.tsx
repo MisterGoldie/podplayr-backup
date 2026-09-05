@@ -84,6 +84,65 @@ const UserProfileView = dynamic(() => import('./views/UserProfileView'), {
   loading: TabLoading,
 });
 
+const LIKED_NFTS_SNAPSHOT_KEY = 'podplayr_liked_nfts_snapshot_v1';
+const LIKED_NFTS_SNAPSHOT_TTL = 24 * 60 * 60 * 1000;
+
+function likedNftsSnapshotIsUsable(nfts: unknown): nfts is NFT[] {
+  if (!Array.isArray(nfts) || nfts.length === 0) return false;
+  return nfts.every(
+    (nft) =>
+      Boolean(nft) &&
+      typeof nft === 'object' &&
+      typeof (nft as NFT).contract === 'string' &&
+      Boolean((nft as NFT).contract) &&
+      (nft as NFT).tokenId != null &&
+      String((nft as NFT).tokenId).length > 0
+  );
+}
+
+function readLikedNftsSnapshot(): { fid: number; nfts: NFT[] } | null {
+  try {
+    const raw = localStorage.getItem(LIKED_NFTS_SNAPSHOT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { fid?: number; nfts?: unknown; timestamp?: number };
+    if (
+      typeof parsed.fid !== 'number' ||
+      !parsed.fid ||
+      typeof parsed.timestamp !== 'number' ||
+      Date.now() - parsed.timestamp > LIKED_NFTS_SNAPSHOT_TTL ||
+      !likedNftsSnapshotIsUsable(parsed.nfts)
+    ) {
+      if (parsed && !likedNftsSnapshotIsUsable(parsed.nfts)) {
+        localStorage.removeItem(LIKED_NFTS_SNAPSHOT_KEY);
+      }
+      return null;
+    }
+    return { fid: parsed.fid, nfts: parsed.nfts };
+  } catch {
+    return null;
+  }
+}
+
+function writeLikedNftsSnapshot(fid: number, nfts: NFT[]) {
+  if (!fid) return;
+  try {
+    if (nfts.length === 0) {
+      localStorage.setItem(
+        LIKED_NFTS_SNAPSHOT_KEY,
+        JSON.stringify({ fid, nfts: [], timestamp: Date.now() })
+      );
+      return;
+    }
+    if (!likedNftsSnapshotIsUsable(nfts)) return;
+    localStorage.setItem(
+      LIKED_NFTS_SNAPSHOT_KEY,
+      JSON.stringify({ fid, nfts, timestamp: Date.now() })
+    );
+  } catch {
+    // Ignore quota / private-mode failures
+  }
+}
+
 const deduplicateNFTsByMediaKey = (nfts: NFT[]): NFT[] => {
   const uniqueNFTs = new Map<string, NFT>();
 
@@ -138,6 +197,7 @@ const DemoBase: React.FC = () => {
 
   const isLoadingLikedNFTsRef = useRef(false);
   const skipEmptyLikeCacheWrite = useRef(true);
+  const likedSnapshotFidRef = useRef<number | null>(null);
 
   const { topPlayed: topPlayedNFTs, loading: topPlayedLoading } = useTopPlayedNFTs();
   const {
@@ -171,6 +231,13 @@ const DemoBase: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    const snapshot = readLikedNftsSnapshot();
+    if (snapshot) {
+      likedSnapshotFidRef.current = snapshot.fid;
+      setLikedNFTs(snapshot.nfts);
+      setLikedNFTsLoaded(true);
+      return;
+    }
     try {
       const cachedLikes = localStorage.getItem('podplayr_liked_media_keys');
       if (!cachedLikes) return;
@@ -195,7 +262,13 @@ const DemoBase: React.FC = () => {
     } catch {
       // Ignore quota / private-mode failures
     }
-  }, [likedNFTs]);
+    if (!fid) return;
+    if (likedNftsSnapshotIsUsable(likedNFTs)) {
+      writeLikedNftsSnapshot(fid, likedNFTs);
+    } else if (likedNFTs.length === 0 && likedNFTsLoaded) {
+      writeLikedNftsSnapshot(fid, likedNFTs);
+    }
+  }, [likedNFTs, fid, likedNFTsLoaded]);
 
   useEffect(() => {
     const loadLikedNFTs = async () => {
@@ -205,12 +278,31 @@ const DemoBase: React.FC = () => {
         return;
       }
 
+      if (likedSnapshotFidRef.current != null && likedSnapshotFidRef.current !== fid) {
+        likedSnapshotFidRef.current = null;
+        setLikedNFTs([]);
+        setLikedNFTsLoaded(false);
+      } else {
+        const snapshot = readLikedNftsSnapshot();
+        if (snapshot && snapshot.fid === fid) {
+          likedSnapshotFidRef.current = fid;
+          setLikedNFTs(snapshot.nfts);
+          setLikedNFTsLoaded(true);
+        } else if (likedSnapshotFidRef.current !== fid) {
+          setLikedNFTsLoaded(false);
+        }
+      }
+
       isLoadingLikedNFTsRef.current = true;
-      setLikedNFTsLoaded(false);
       try {
         const liked = (await getLikedNFTs(fid)).filter(isPlayableMediaNFT);
+        likedSnapshotFidRef.current = fid;
         setLikedNFTs(liked);
-        applyConfirmedPlayback(liked, setLikedNFTs);
+        writeLikedNftsSnapshot(fid, liked);
+        applyConfirmedPlayback(liked, (updated) => {
+          setLikedNFTs(updated);
+          writeLikedNftsSnapshot(fid, updated);
+        });
       } catch (error) {
         demoLogger.error('Error loading liked NFTs:', error);
       } finally {
