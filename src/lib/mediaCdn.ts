@@ -126,6 +126,11 @@ const PLAYBACK_OVERRIDES: Record<string, { mobile: string; desktop?: string }> =
     mobile: muxHls('B00glZFc67CoWhE4KHC00cFRKnEt5D7yR2yhl013gvwnT8'),
     desktop: muxHls('B00glZFc67CoWhE4KHC00cFRKnEt5D7yR2yhl013gvwnT8'),
   },
+  // BACKROOMS EP 1 - Will — Mux-only until mint
+  nTpLKvbY4DLW1J7NR8MB1Zqtt72SlQmF900uktBUGH2I: {
+    mobile: muxHls('nTpLKvbY4DLW1J7NR8MB1Zqtt72SlQmF900uktBUGH2I'),
+    desktop: muxHls('nTpLKvbY4DLW1J7NR8MB1Zqtt72SlQmF900uktBUGH2I'),
+  },
   // I Asked My Friends A Serious Question — Mux-only
   '1C023gIJ9baWRdDavLYzKqB02iBPUHeO00wfTaL2AnGp00s': {
     mobile: muxHls('1C023gIJ9baWRdDavLYzKqB02iBPUHeO00wfTaL2AnGp00s'),

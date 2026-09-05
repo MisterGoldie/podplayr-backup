@@ -162,6 +162,22 @@ export function withFeaturedHydration<T extends NFT>(nft: T): T {
 
 export const FEATURED_NFTS: NFT[] = [
   {
+    name: 'BACKROOMS EP 1 - Will',
+    image: '/backrooms1.PNG',
+    contract: 'pending',
+    tokenId: 'backrooms-ep1-will',
+    network: 'base',
+    audio: 'https://stream.mux.com/nTpLKvbY4DLW1J7NR8MB1Zqtt72SlQmF900uktBUGH2I.m3u8',
+    isVideo: true,
+    playbackMode: 'video-with-audio',
+    metadata: {
+      animation_url: 'https://stream.mux.com/nTpLKvbY4DLW1J7NR8MB1Zqtt72SlQmF900uktBUGH2I.m3u8',
+      mimeType: 'video/mp4',
+      description: 'BACKROOMS EP 1 - Will',
+      attributes: [{ trait_type: 'Host', value: 'Will' }],
+    },
+  },
+  {
     name: 'NFT Podcast with Logik (Julian Gilliam)',
     image:
       'https://image.mux.com/8VjskmcBC3w6R01xpsgLHUKb31wjrhKch23uZBjmJuOQ/thumbnail.jpg?time=10',

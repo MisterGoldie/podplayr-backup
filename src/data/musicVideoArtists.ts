@@ -69,6 +69,16 @@ const MUSIC_VIDEO_ARTISTS: Record<string, MusicVideoArtist> = {
     fid: 14871,
     name: 'Artist',
   },
+  // BACKROOMS EP 1 - Will — Mux-only featured (pending contract)
+  [artistKeyRaw('pending', 'backrooms-ep1-will')]: {
+    fid: 414859,
+    name: 'Will',
+    collaborators: [
+      { fid: 14871, name: 'Artist' },
+      { fid: 7472, name: 'Artist' },
+      { fid: 3349343, name: 'Artist' },
+    ],
+  },
   // NFT Podcast with Logik (Julian Gilliam) — Mux-only featured (pending contract)
   [artistKeyRaw('pending', 'logik-ep1')]: {
     fid: 7472,
