@@ -113,3 +113,34 @@ export function miniAppMetadataTags(options: EmbedOptions) {
     'fc:frame': JSON.stringify(buildEmbed(options, 'launch_frame')),
   };
 }
+
+/** Twitter + Open Graph for a share URL. Always pass a same-origin image
+ *  (`/image.png` or `/api/og…`). Twitterbot cannot fetch IPFS/Pinata. */
+export function socialShareMetadata({
+  title,
+  description,
+  imageUrl,
+  pageUrl,
+}: {
+  title: string;
+  description: string;
+  imageUrl: string;
+  pageUrl: string;
+}) {
+  return {
+    openGraph: {
+      title,
+      description,
+      url: pageUrl,
+      siteName: 'PODPLAYR',
+      type: 'website' as const,
+      images: [{ url: imageUrl, width: 1200, height: 800, alt: title }],
+    },
+    twitter: {
+      card: 'summary_large_image' as const,
+      title,
+      description,
+      images: [imageUrl],
+    },
+  };
+}

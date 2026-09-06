@@ -15,9 +15,19 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
+  metadataBase: new URL(appUrl),
   title: "PODPLAYR",
   description: "Listen & Watch NFTs on PODPLAYR",
   openGraph: {
+    title: "PODPLAYR",
+    description: "Listen & Watch NFTs on PODPLAYR",
+    url: appUrl,
+    siteName: "PODPLAYR",
+    type: "website",
+    images: [{ url: `${appUrl}/image.png`, width: 1200, height: 800, alt: "PODPLAYR" }],
+  },
+  twitter: {
+    card: "summary_large_image",
     title: "PODPLAYR",
     description: "Listen & Watch NFTs on PODPLAYR",
     images: [`${appUrl}/image.png`],
