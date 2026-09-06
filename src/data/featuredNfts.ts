@@ -54,7 +54,7 @@ export function isCuratedFeaturedCover(
     (featured) =>
       featured.contract?.toLowerCase() === contract &&
       String(featured.tokenId) === tokenId &&
-      featured.image === nft.image
+      featured.image.toLowerCase() === nft.image.toLowerCase()
   );
 }
 
@@ -163,7 +163,7 @@ export function withFeaturedHydration<T extends NFT>(nft: T): T {
 export const FEATURED_NFTS: NFT[] = [
   {
     name: 'BACKROOMS EP 1 - Will',
-    image: '/backrooms1.png',
+    image: '/backrooms1.PNG',
     contract: 'pending',
     tokenId: 'backrooms-ep1-will',
     network: 'base',
