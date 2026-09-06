@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import App from '~/app/app';
-import { getProfileUrl, getServerAppUrl, miniAppMetadataTags, socialShareMetadata } from '~/lib/miniapp';
+import { getProfileUrl, getServerAppUrl, miniAppMetadataTags } from '~/lib/miniapp';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,12 +49,6 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   if (!fid || fid < 0) {
     return {
       title: 'PODPLAYR',
-      ...socialShareMetadata({
-        title: 'PODPLAYR',
-        description: 'Listen & Watch NFTs on PODPLAYR',
-        imageUrl: `${appUrl}/image.png`,
-        pageUrl: appUrl,
-      }),
       other: miniAppMetadataTags({
         imageUrl: `${appUrl}/image.png`,
         buttonTitle: 'Enter PODPLAYR',
@@ -68,22 +62,18 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const title = profile.displayName
     ? `${profile.displayName} on PODPLAYR`
     : 'PODPLAYR profile';
-  const description = profile.username
-    ? `Listen to @${profile.username}'s media NFTs on PODPLAYR`
-    : 'Listen to media NFTs on PODPLAYR';
-  const ogImage = `${appUrl}/api/og/profile?fid=${fid}&ogv=pfp3`;
 
   return {
     title,
-    description,
-    ...socialShareMetadata({
+    description: profile.username
+      ? `Listen to @${profile.username}'s media NFTs on PODPLAYR`
+      : 'Listen to media NFTs on PODPLAYR',
+    openGraph: {
       title,
-      description,
-      imageUrl: ogImage,
-      pageUrl: profileUrl,
-    }),
+      images: [`${appUrl}/api/og/profile?fid=${fid}&ogv=pfp2`],
+    },
     other: miniAppMetadataTags({
-      imageUrl: ogImage,
+      imageUrl: `${appUrl}/api/og/profile?fid=${fid}&ogv=pfp2`,
       buttonTitle: 'Open profile',
       launchUrl: profileUrl,
     }),

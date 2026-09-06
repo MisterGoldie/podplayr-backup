@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import App from '~/app/app';
-import { getNftUrl, getServerAppUrl, miniAppMetadataTags, socialShareMetadata } from '~/lib/miniapp';
+import { getNftUrl, getServerAppUrl, miniAppMetadataTags } from '~/lib/miniapp';
+import { findFeaturedNftByIdentity } from '~/data/featuredNfts';
 import { resolvePlayableNftForEmbed } from '~/lib/resolvePlayableNft';
 import { NFT_BOOTSTRAP_SCRIPT_ID, serializeNftBootstrap } from '~/lib/nftBootstrap';
 
@@ -17,12 +18,6 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   if (!nft) {
     return {
       title: 'PODPLAYR',
-      ...socialShareMetadata({
-        title: 'PODPLAYR',
-        description: 'Listen & Watch NFTs on PODPLAYR',
-        imageUrl: `${appUrl}/image.png`,
-        pageUrl: appUrl,
-      }),
       other: miniAppMetadataTags({
         imageUrl: `${appUrl}/image.png`,
         buttonTitle: 'Enter PODPLAYR',
@@ -31,21 +26,26 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     };
   }
 
+  const resolveOgImage = (img: string) =>
+    img.startsWith('/') ? `${appUrl}${img}` : img;
+
+  const isFeatured = Boolean(findFeaturedNftByIdentity(contract, tokenId));
+  const ogImage = isFeatured
+    ? resolveOgImage(nft.image || '') || `${appUrl}/image.png`
+    : `${appUrl}/api/og?contract=${encodeURIComponent(contract)}&tokenId=${encodeURIComponent(tokenId)}&ogv=thumb7`;
+
   const name = nft.name || 'PODPLAYR';
   const description = nft.description || nft.metadata?.description || 'Listen to this NFT on PODPLAYR';
-  // Same-origin card for Twitter + Farcaster. Raw IPFS/Pinata covers work in
-  // Warpcast but Twitterbot cannot fetch them.
-  const ogImage = `${appUrl}/api/og?contract=${encodeURIComponent(contract)}&tokenId=${encodeURIComponent(tokenId)}&ogv=thumb8`;
 
   return {
     title: `${name} on PODPLAYR`,
     description,
-    ...socialShareMetadata({
+    openGraph: {
       title: name,
       description,
-      imageUrl: ogImage,
-      pageUrl: nftUrl,
-    }),
+      images: [ogImage],
+      url: nftUrl,
+    },
     other: miniAppMetadataTags({
       imageUrl: ogImage,
       buttonTitle: '▶️ Play Now',

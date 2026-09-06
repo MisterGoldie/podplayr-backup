@@ -1,25 +1,15 @@
 import type { Metadata } from 'next';
 import App from './app';
-import { getServerAppUrl, miniAppMetadataTags, socialShareMetadata } from '~/lib/miniapp';
+import { getServerAppUrl, miniAppMetadataTags } from '~/lib/miniapp';
 
 export const dynamic = 'force-dynamic';
 
 export async function generateMetadata(): Promise<Metadata> {
   const appUrl = await getServerAppUrl();
-  const title = 'PODPLAYR';
-  const description = 'Listen & Watch NFTs on PODPLAYR';
-  const ogImage = `${appUrl}/image.png`;
   return {
-    title,
-    description,
-    ...socialShareMetadata({
-      title,
-      description,
-      imageUrl: ogImage,
-      pageUrl: appUrl,
-    }),
+    title: 'PODPLAYR',
     other: miniAppMetadataTags({
-      imageUrl: ogImage,
+      imageUrl: `${appUrl}/image.png`,
       buttonTitle: '▶️ Enter PODPLAYR',
       launchUrl: appUrl,
     }),
