@@ -9,7 +9,6 @@ import { PlaybackButton } from '../buttons/PlaybackButton';
 import InfoPanel from './InfoPanel';
 import { PlayerArrowHint, usePlayerArrowHint } from './PlayerArrowHint';
 import { UserFidContext } from '../../app/providers';
-import { isRealFid } from '../../utils/platform';
 import { shareNftToFarcaster } from '../../lib/shareToFarcaster';
 
 // Fix the MaximizedPlayerProps interface to include isAnimating
@@ -69,7 +68,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
   onOpenArtistProfile,
 }) => {
   const { fid } = useContext(UserFidContext);
-  const canLike = Boolean(onLikeToggle) && isRealFid(fid);
+  const canLike = Boolean(onLikeToggle) && Boolean(fid) && fid !== -1;
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const videoHostRef = useRef<HTMLDivElement | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);

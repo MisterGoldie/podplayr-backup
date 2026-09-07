@@ -626,8 +626,9 @@ export const toggleLikeNFT = async (nft: NFT, fidOrWalletAddress: number | strin
   firebaseLogger.info('Starting toggleLikeNFT with NFT:', nft.name, 'and user ID:', fidOrWalletAddress, 
     typeof fidOrWalletAddress === 'string' ? '(wallet address)' : '(fid)');
   
-  // Validate the user identifier (either fid or wallet address)
-  if (typeof fidOrWalletAddress === 'number' && (!fidOrWalletAddress || fidOrWalletAddress <= 0)) {
+  // Validate the user identifier (either fid or wallet address).
+  // Negative FIDs are wallet/email/ENS identities and must still like.
+  if (typeof fidOrWalletAddress === 'number' && (!fidOrWalletAddress || fidOrWalletAddress === -1)) {
     firebaseLogger.error('Invalid fid provided to toggleLikeNFT:', fidOrWalletAddress);
     
     // Try to recover from localStorage as a fallback for Privy users
@@ -989,7 +990,7 @@ export const toggleLikeNFT = async (nft: NFT, fidOrWalletAddress: number | strin
 export const addLikedNFT = async (fid: number, nft: NFT): Promise<void> => {
   try {
     // Validate inputs
-    if (!fid || fid <= 0) {
+    if (!fid || fid === -1) {
       firebaseLogger.error('Invalid fid provided to addLikedNFT:', fid);
       throw new Error('Invalid user ID');
     }
@@ -1072,7 +1073,7 @@ export const addLikedNFT = async (fid: number, nft: NFT): Promise<void> => {
 export const removeLikedNFT = async (fid: number, nft: NFT): Promise<void> => {
   try {
     // Validate inputs
-    if (!fid || fid <= 0) {
+    if (!fid || fid === -1) {
       firebaseLogger.error('Invalid fid provided to removeLikedNFT:', fid);
       throw new Error('Invalid user ID');
     }
