@@ -23,12 +23,17 @@ export const UserFidContext = createContext<{
   applyWalletAddress?: (address: string) => Promise<void>;
   applyFarcasterIdentity?: (fid: number, address?: string) => Promise<void>;
   clearWalletIdentity?: () => void;
+  setWebAuthStatus?: (ready: boolean, authenticated: boolean) => void;
+  webAuthReady: boolean;
+  webAuthenticated: boolean;
   firebaseUid?: string;
   isFirebaseAuthReady: boolean;
 }>({
   setFid: () => {},
   isFidReady: false,
   environment: 'web',
+  webAuthReady: false,
+  webAuthenticated: false,
   isFirebaseAuthReady: false,
 });
 
@@ -97,6 +102,8 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
   const [walletAddress, setWalletAddress] = useState<string>();
   const [firebaseUid, setFirebaseUid] = useState<string>();
   const [isFirebaseAuthReady, setIsFirebaseAuthReady] = useState(false);
+  const [webAuthReady, setWebAuthReady] = useState(false);
+  const [webAuthenticated, setWebAuthenticated] = useState(false);
   
   // Add missing state variables
   const [userContext, setUserContext] = useState<FarcasterUserContext | null>(null);
@@ -349,6 +356,11 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
     setUserContext(null);
   }, []);
 
+  const setWebAuthStatus = useCallback((ready: boolean, authenticated: boolean) => {
+    setWebAuthReady(ready);
+    setWebAuthenticated(authenticated);
+  }, []);
+
   const connectBaseWallet = useCallback(async () => {
     const result = await signInWithBase();
     await applyWalletIdentity(result.address);
@@ -375,10 +387,13 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
       applyWalletAddress: applyWalletIdentity,
       applyFarcasterIdentity,
       clearWalletIdentity,
+      setWebAuthStatus,
+      webAuthReady,
+      webAuthenticated,
       firebaseUid,
       isFirebaseAuthReady,
     }),
-    [fid, setFid, isFidReady, environment, walletAddress, connectBaseWallet, applyWalletIdentity, applyFarcasterIdentity, clearWalletIdentity, firebaseUid, isFirebaseAuthReady]
+    [fid, setFid, isFidReady, environment, walletAddress, connectBaseWallet, applyWalletIdentity, applyFarcasterIdentity, clearWalletIdentity, setWebAuthStatus, webAuthReady, webAuthenticated, firebaseUid, isFirebaseAuthReady]
   );
 
   const unifiedContextValue = useMemo(

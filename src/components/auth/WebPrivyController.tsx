@@ -35,7 +35,7 @@ export function WebPrivyController({
 }: {
   onOpenReady: (open: () => void) => void;
 }) {
-  const { environment, applyWalletAddress, applyFarcasterIdentity, clearWalletIdentity } = useContext(UserFidContext);
+  const { environment, applyWalletAddress, applyFarcasterIdentity, clearWalletIdentity, setWebAuthStatus } = useContext(UserFidContext);
   const { ready, authenticated, user } = usePrivy();
   const { login } = useLogin();
   const { wallets } = useWallets();
@@ -43,24 +43,31 @@ export function WebPrivyController({
 
   useEffect(() => {
     if (environment !== 'web') {
+      setWebAuthStatus?.(true, false);
       onOpenReady(() => {});
       return;
     }
 
+    if (!ready) {
+      setWebAuthStatus?.(false, false);
+      onOpenReady(() => {});
+      return;
+    }
+
+    setWebAuthStatus?.(true, authenticated);
     onOpenReady(() => {
-      if (!ready) return;
       if (!authenticated) login();
     });
-  }, [environment, ready, authenticated, login, onOpenReady]);
+  }, [environment, ready, authenticated, login, onOpenReady, setWebAuthStatus]);
 
   useEffect(() => {
     if (environment !== 'web') return;
 
+    if (!ready) return;
+
     if (!authenticated) {
-      if (appliedIdentityRef.current) {
-        appliedIdentityRef.current = null;
-        clearWalletIdentity?.();
-      }
+      appliedIdentityRef.current = null;
+      clearWalletIdentity?.();
       return;
     }
 
@@ -81,7 +88,7 @@ export function WebPrivyController({
     if (!address || appliedIdentityRef.current === address.toLowerCase()) return;
     appliedIdentityRef.current = address.toLowerCase();
     void applyWalletAddress?.(address);
-  }, [environment, authenticated, user, wallets, applyWalletAddress, applyFarcasterIdentity, clearWalletIdentity]);
+  }, [environment, ready, authenticated, user, wallets, applyWalletAddress, applyFarcasterIdentity, clearWalletIdentity]);
 
   return null;
 }

@@ -125,6 +125,16 @@ function readLikedNftsSnapshot(): { fid: number; nfts: NFT[] } | null {
   }
 }
 
+function clearLikedNftsLocalCache() {
+  try {
+    localStorage.removeItem(LIKED_NFTS_SNAPSHOT_KEY);
+    localStorage.removeItem('podplayr_liked_media_keys');
+    localStorage.removeItem('podplyr_liked_mediakeys');
+  } catch {
+    // Ignore quota / private-mode failures
+  }
+}
+
 function writeLikedNftsSnapshot(fid: number, nfts: NFT[]) {
   if (!fid) return;
   try {
@@ -166,7 +176,7 @@ const deduplicateNFTsByMediaKey = (nfts: NFT[]): NFT[] => {
 
 const DemoBase: React.FC = () => {
   const { isFarcaster, user: farcasterUser, client: farcasterClient, location: farcasterLocation } = useContext(FarcasterContext);
-  const { fid, isFidReady, environment } = useContext(UserFidContext);
+  const { fid, isFidReady, environment, webAuthReady, webAuthenticated } = useContext(UserFidContext);
   const openPrivyRef = useRef<() => void>(() => {});
   const bindPrivyOpen = useCallback((open: () => void) => {
     openPrivyRef.current = open;
@@ -237,6 +247,8 @@ const DemoBase: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    if (environment === 'web' && hasPrivyAppId()) return;
+
     const snapshot = readLikedNftsSnapshot();
     if (snapshot) {
       likedSnapshotFidRef.current = snapshot.fid;
@@ -252,7 +264,7 @@ const DemoBase: React.FC = () => {
     } catch (error) {
       demoLogger.error('Error loading cached likes:', error);
     }
-  }, []);
+  }, [environment]);
 
   useEffect(() => {
     if (skipEmptyLikeCacheWrite.current && likedNFTs.length === 0) {
@@ -277,6 +289,20 @@ const DemoBase: React.FC = () => {
   useEffect(() => {
     const loadLikedNFTs = async () => {
       if (isLoadingLikedNFTsRef.current) return;
+
+      if (environment === 'web' && hasPrivyAppId()) {
+        if (!webAuthReady) return;
+        if (!webAuthenticated) {
+          skipEmptyLikeCacheWrite.current = true;
+          likedSnapshotFidRef.current = null;
+          setLikedNFTs([]);
+          setLikedNFTsLoaded(true);
+          clearLikedNftsLocalCache();
+          return;
+        }
+        if (!fid) return;
+      }
+
       if (!fid) {
         setLikedNFTsLoaded(true);
         return;
@@ -318,7 +344,7 @@ const DemoBase: React.FC = () => {
     if (isFidReady) {
       void loadLikedNFTs();
     }
-  }, [fid, isFidReady]);
+  }, [fid, isFidReady, environment, webAuthReady, webAuthenticated]);
 
   useEffect(() => {
     // Only prune when playable audio/video is dead — a broken thumbnail alone
