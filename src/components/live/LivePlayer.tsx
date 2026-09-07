@@ -108,10 +108,6 @@ export function LivePlayer({
               )}
             </button>
 
-            <h2 className="mt-3 mb-1 text-center text-base font-semibold text-white truncate">
-              {LIVE_TITLE}
-            </h2>
-
             <LiveChat online={online} variant="player" />
           </div>
 
