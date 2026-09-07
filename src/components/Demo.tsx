@@ -26,7 +26,8 @@ import { UserImageProvider } from '../contexts/UserImageContext';
 import { BaseAppSignIn } from './auth/BaseAppSignIn';
 import { WebPrivyController } from './auth/WebPrivyController';
 import { hasPrivyAppId } from './providers/PrivyAppProvider';
-import { parseProfileFid, parseNftDeepLink } from '../lib/miniapp';
+import { parseProfileFid, parseNftDeepLink, isLivePath, isLiveLaunch } from '../lib/miniapp';
+import { LivePlayer } from './live/LivePlayer';
 import { firstNonNull, readNftBootstrap } from '../lib/nftBootstrap';
 import { normalizeNftTokenId } from '../utils/nftIdentity';
 import { restorePageScroll } from '../utils/pageScroll';
@@ -202,6 +203,14 @@ const DemoBase: React.FC = () => {
     fromProfile: false
   });
   const [isPlayerMinimized, setIsPlayerMinimized] = useState(true);
+  const [liveActive, setLiveActive] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return isLivePath(window.location.pathname);
+  });
+  const [liveMaximized, setLiveMaximized] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return isLivePath(window.location.pathname);
+  });
   const [searchResults, setSearchResults] = useState<FarcasterUser[]>([]);
   const [selectedUser, setSelectedUser] = useState<FarcasterUser | null>(null);
   const [userNFTs, setUserNFTs] = useState<NFT[]>([]);
@@ -476,7 +485,16 @@ const DemoBase: React.FC = () => {
     }
   }, [fid, likedNFTs]);
 
+  const openLive = useCallback(() => {
+    if (isPlaying) handlePlayPause();
+    setLiveActive(true);
+    setLiveMaximized(true);
+  }, [isPlaying, handlePlayPause]);
+
   const handlePlayNFT = useCallback(async (nft: NFT, context?: { queue?: NFT[]; queueType?: string }) => {
+    setLiveActive(false);
+    setLiveMaximized(false);
+
     const sameTrack = currentPlayingNFT
       ? getMediaKey(currentPlayingNFT) === getMediaKey(nft)
       : currentlyPlaying === `${nft.contract}-${nft.tokenId}`;
@@ -762,6 +780,9 @@ const DemoBase: React.FC = () => {
   const loadNftFromDeepLinkRef = useRef(loadNftFromDeepLink);
   loadNftFromDeepLinkRef.current = loadNftFromDeepLink;
   const deepLinkHandledRef = useRef(false);
+  const liveLaunchHandledRef = useRef(
+    typeof window !== 'undefined' && isLivePath(window.location.pathname)
+  );
 
   useEffect(() => {
     if (deepLinkHandledRef.current) return;
@@ -792,6 +813,14 @@ const DemoBase: React.FC = () => {
       void loadNftFromDeepLinkRef.current(deepLink!.contract, deepLink!.tokenId);
     }, 0);
     return () => window.clearTimeout(timer);
+  }, [farcasterLocation]);
+
+  useEffect(() => {
+    if (liveLaunchHandledRef.current) return;
+    if (!isLiveLaunch(window.location.pathname, farcasterLocation?.embed)) return;
+    liveLaunchHandledRef.current = true;
+    setLiveActive(true);
+    setLiveMaximized(true);
   }, [farcasterLocation]);
 
   useEffect(() => {
@@ -840,6 +869,8 @@ const DemoBase: React.FC = () => {
           onLikeToggle={onLikeToggle}
           likedNFTs={likedNFTs}
           currentPlayingNFT={currentPlayingNFT}
+          onOpenLive={openLive}
+          livePlayerActive={liveActive}
         />
       )}
       {currentPage.isExplore && (
@@ -944,8 +975,8 @@ const DemoBase: React.FC = () => {
       <BottomNav
         currentView={currentViewKey}
         onViewChange={handleViewChange}
-        isPlayerActive={!!currentPlayingNFT}
-        isPlayerMinimized={isPlayerMinimized}
+        isPlayerActive={liveActive || !!currentPlayingNFT}
+        isPlayerMinimized={liveActive ? !liveMaximized : isPlayerMinimized}
         isAdPlaying={showAd}
         enableProfileDoubleTap={environment === 'web' && hasPrivyAppId()}
         onProfileDoubleTap={() => openPrivyRef.current()}
@@ -957,7 +988,13 @@ const DemoBase: React.FC = () => {
           onError={handleUserDataError}
         />
       )}
-      {(showAd || currentPlayingNFT) && (
+      {liveActive && (
+        <LivePlayer
+          isMinimized={!liveMaximized}
+          onMinimizeToggle={() => setLiveMaximized((open) => !open)}
+        />
+      )}
+      {(showAd || currentPlayingNFT) && !liveActive && (
         <PlayerWithAds
           nft={currentPlayingNFT}
           isPlaying={isPlaying}

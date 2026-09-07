@@ -1,176 +1,37 @@
 'use client';
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import type Hls from 'hls.js';
-import {
-  LIVE_HLS_URL,
-  LIVE_OFFLINE_POLLS,
-  LIVE_POLL_MS,
-  LIVE_POSTER_URL,
-  LIVE_TITLE,
-} from '../../data/liveStream';
-import { LiveChat } from './LiveChat';
-import { shareLiveToFarcaster } from '../../lib/shareToFarcaster';
+import React, { useRef } from 'react';
+import { LIVE_POSTER_URL, LIVE_TITLE } from '../../data/liveStream';
+import { useLiveHls } from '../../hooks/useLiveHls';
 
-async function isLiveManifestAvailable(): Promise<boolean> {
-  try {
-    const res = await fetch(LIVE_HLS_URL, { method: 'GET', cache: 'no-store' });
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
-
-export function LiveStreamFrame() {
+export function LiveStreamFrame({
+  onOpen,
+  streamInline = true,
+}: {
+  onOpen: () => void;
+  streamInline?: boolean;
+}) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const hlsRef = useRef<Hls | null>(null);
-  const onlineRef = useRef(false);
-  const [online, setOnline] = useState(false);
-  const [needsTap, setNeedsTap] = useState(false);
-  const [sharing, setSharing] = useState(false);
-
-  const destroyHls = useCallback(() => {
-    if (hlsRef.current) {
-      hlsRef.current.destroy();
-      hlsRef.current = null;
-    }
-    const video = videoRef.current;
-    if (video) {
-      video.removeAttribute('src');
-      video.load();
-    }
-  }, []);
-
-  const attachLive = useCallback(async () => {
-    const video = videoRef.current;
-    if (!video) return;
-
-    destroyHls();
-
-    const { default: HlsLib } = await import('hls.js');
-
-    if (HlsLib.isSupported()) {
-      const hls = new HlsLib({
-        enableWorker: false,
-        lowLatencyMode: true,
-        liveSyncDurationCount: 3,
-        maxBufferLength: 10,
-        maxMaxBufferLength: 20,
-        testBandwidth: false,
-        startLevel: -1,
-        xhrSetup: (xhr) => {
-          xhr.withCredentials = false;
-        },
-      });
-      hlsRef.current = hls;
-      hls.on(HlsLib.Events.ERROR, (_event, data) => {
-        if (!data.fatal) return;
-        onlineRef.current = false;
-        setOnline(false);
-        setNeedsTap(false);
-        destroyHls();
-      });
-      hls.attachMedia(video);
-      hls.on(HlsLib.Events.MEDIA_ATTACHED, () => {
-        hls.loadSource(LIVE_HLS_URL);
-      });
-      hls.on(HlsLib.Events.MANIFEST_PARSED, () => {
-        video.play().then(() => setNeedsTap(false)).catch(() => setNeedsTap(true));
-      });
-      return;
-    }
-
-    if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      video.src = LIVE_HLS_URL;
-      video.play().then(() => setNeedsTap(false)).catch(() => setNeedsTap(true));
-    }
-  }, [destroyHls]);
-
-  useEffect(() => {
-    let cancelled = false;
-    let misses = 0;
-
-    const poll = async () => {
-      const live = await isLiveManifestAvailable();
-      if (cancelled) return;
-      if (live) {
-        misses = 0;
-        if (!onlineRef.current) {
-          onlineRef.current = true;
-          setOnline(true);
-          void attachLive();
-        }
-        return;
-      }
-      misses += 1;
-      if (misses < LIVE_OFFLINE_POLLS || !onlineRef.current) return;
-      onlineRef.current = false;
-      setOnline(false);
-      setNeedsTap(false);
-      destroyHls();
-    };
-
-    void poll();
-    const id = window.setInterval(poll, LIVE_POLL_MS);
-    return () => {
-      cancelled = true;
-      window.clearInterval(id);
-      destroyHls();
-    };
-  }, [attachLive, destroyHls]);
-
-  const handleTap = () => {
-    const video = videoRef.current;
-    if (!video || !online) return;
-    if (video.paused) {
-      void video.play().then(() => setNeedsTap(false)).catch(() => setNeedsTap(true));
-    } else {
-      video.pause();
-      setNeedsTap(true);
-    }
-  };
+  const { online, showLive } = useLiveHls(videoRef, streamInline);
 
   return (
     <div className="w-full lg:max-w-2xl mx-auto">
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <p className="text-[10px] uppercase tracking-[0.18em] text-white/50">{LIVE_TITLE}</p>
-        <button
-          type="button"
-          disabled={sharing}
-          onClick={async () => {
-            setSharing(true);
-            try {
-              await shareLiveToFarcaster();
-            } finally {
-              setSharing(false);
-            }
-          }}
-          className="bg-black/40 active:bg-purple-500/20 border border-purple-400/20 rounded-full px-3 py-1.5 touch-manipulation flex items-center gap-1.5 disabled:opacity-50"
-          aria-label="Share live feed"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" height="16" viewBox="0 -960 960 960" width="16" fill="currentColor" className="text-white">
-            <path d="M680-80q-50 0-85-35t-35-85q0-6 3-28L282-392q-16 15-37 23.5t-45 8.5q-50 0-85-35t-35-85q0-50 35-85t85-35q24 0 45 8.5t37 23.5l281-164q-2-7-2.5-13.5T560-760q0-50 35-85t85-35q50 0 85 35t35 85q0 50-35 85t-85 35q-24 0-45-8.5T598-672L317-508q2 7 2.5 13.5t.5 14.5q0 8-.5 14.5T317-452l281 164q16-15 37-23.5t45-8.5q50 0 85 35t35 85q0 50-35 85t-85 35Z"/>
-          </svg>
-          <span className="text-xs text-white font-medium">{sharing ? 'Sharing…' : 'Share'}</span>
-        </button>
-      </div>
+      <p className="mb-2 text-[10px] uppercase tracking-[0.18em] text-white/50">{LIVE_TITLE}</p>
       <button
         type="button"
-        onClick={handleTap}
+        onClick={onOpen}
         className="relative w-full overflow-hidden rounded-2xl border border-white/10 bg-black aspect-video touch-manipulation"
-        aria-label={online ? (needsTap ? 'Play live stream' : 'Pause live stream') : 'Livestream offline'}
+        aria-label={online ? 'Open livestream' : 'Open livestream (offline)'}
       >
         <video
           ref={videoRef}
-          className={`absolute inset-0 h-full w-full object-cover ${online ? '' : 'invisible'}`}
-          data-podplayr-live="1"
+          className={`absolute inset-0 h-full w-full object-cover ${showLive ? '' : 'invisible'}`}
+          data-podplayr-live="home"
           playsInline
           poster={LIVE_POSTER_URL}
           controls={false}
-          onPlay={() => setNeedsTap(false)}
-          onPause={() => setNeedsTap(true)}
         />
-        {!online && (
+        {!showLive && (
           <>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
@@ -178,31 +39,34 @@ export function LiveStreamFrame() {
               alt=""
               className="absolute inset-0 h-full w-full object-cover"
             />
-            <div className="absolute inset-0 bg-black/55">
-              <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-white/60">
-                Offline
-              </span>
-              <p className="absolute bottom-8 left-0 right-0 text-center text-xs text-white/40">
-                Stream starts when we go live
-              </p>
-            </div>
+            <div className="absolute inset-0 bg-black/30" />
           </>
         )}
-        {online && (
+        {online ? (
           <span className="absolute left-3 top-3 flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-white">
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-red-500" />
             Live
           </span>
+        ) : (
+          <span className="absolute left-3 top-3 rounded-full border border-white/20 bg-black/50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-white/70">
+            Offline
+          </span>
         )}
-        {online && needsTap && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/35">
-            <span className="rounded-full bg-white/15 px-4 py-2 text-sm font-medium text-white">
-              Tap to play
+        {!online && (
+          <>
+            <span className="absolute inset-0 flex items-center justify-center">
+              <span className="flex h-14 w-14 items-center justify-center rounded-full bg-black/55 ring-1 ring-white/25">
+                <svg xmlns="http://www.w3.org/2000/svg" height="28" viewBox="0 -960 960 960" width="28" fill="currentColor" className="ml-0.5 text-white">
+                  <path d="M320-200v-560l440 280-440 280Z" />
+                </svg>
+              </span>
             </span>
-          </div>
+            <p className="absolute bottom-3 left-0 right-0 text-center text-xs text-white/50">
+              Stream starts when we go live
+            </p>
+          </>
         )}
       </button>
-      {online && <LiveChat online={online} />}
     </div>
   );
 }

@@ -19,7 +19,14 @@ function handleOf(message: LiveChatMessage) {
   return message.username || message.displayName || `fid:${message.fid}`;
 }
 
-export function LiveChat({ online }: { online: boolean }) {
+export function LiveChat({
+  online,
+  variant = 'card',
+}: {
+  online: boolean;
+  variant?: 'card' | 'player';
+}) {
+  const fill = variant === 'player';
   const { fid } = useContext(UserFidContext);
   const { user } = useContext(UnifiedContext);
   const [minimized, setMinimized] = useState(false);
@@ -36,13 +43,12 @@ export function LiveChat({ online }: { online: boolean }) {
   const lastSentRef = useRef(0);
   const stickToBottomRef = useRef(true);
   const sawLiveRef = useRef(false);
-  const liveSessionId = session.status === 'live' ? session.activeSessionId : null;
+  const liveSessionId = online && session.status === 'live' ? session.activeSessionId : null;
   const canSend = isRealFid(fid) && Boolean(liveSessionId);
   const visibleMessages = useMemo(() => {
-    if (!liveSessionId) return [];
-    if (!session.strictSession) return messages;
-    return messages.filter((message) => !message.sessionId || message.sessionId === liveSessionId);
-  }, [liveSessionId, messages, session.strictSession]);
+    if (!online || !liveSessionId) return [];
+    return messages.filter((message) => message.sessionId === liveSessionId);
+  }, [liveSessionId, messages, online]);
 
   useEffect(() => {
     const stopSession = subscribeLiveChatSession(setSession, () => {
@@ -69,12 +75,14 @@ export function LiveChat({ online }: { online: boolean }) {
       const id = window.setInterval(beat, 30_000);
       return () => window.clearInterval(id);
     }
-    if (!sawLiveRef.current) return;
+    // Close a leftover "live" session when Mux is already down. Keep the
+    // reconnect grace only if this client actually saw the stream this visit.
+    const delay = sawLiveRef.current ? LIVE_SESSION_END_MS : 0;
     const timer = window.setTimeout(() => {
       void syncLiveChatSession(false).catch(() => {
         setError('Chat is unavailable right now');
       });
-    }, LIVE_SESSION_END_MS);
+    }, delay);
     return () => window.clearTimeout(timer);
   }, [online]);
 
@@ -135,22 +143,36 @@ export function LiveChat({ online }: { online: boolean }) {
       ? 'Say something…'
       : 'Chat opens when we go live';
 
+  const chatCollapsed = fill ? false : minimized;
+
   return (
-    <div className="mt-3 rounded-2xl border border-white/10 bg-black/35 overflow-hidden">
+    <div
+      className={
+        fill
+          ? 'flex-1 min-h-0 flex flex-col overflow-hidden border-t border-white/10 bg-black/40 pb-[max(0.5rem,env(safe-area-inset-bottom))]'
+          : 'mt-3 rounded-2xl border border-white/10 bg-black/35 overflow-hidden'
+      }
+    >
       <div className="flex items-center justify-between px-3 pt-2 pb-1">
         <p className="text-[10px] uppercase tracking-[0.18em] text-white/45">Live chat</p>
-        <button
-          type="button"
-          onClick={() => setMinimized((m) => !m)}
-          className="text-white/40 hover:text-white/70 touch-manipulation text-xs px-1"
-          aria-label={minimized ? 'Expand chat' : 'Minimize chat'}
-        >
-          {minimized ? '▲ Show' : '▼ Hide'}
-        </button>
+        {!fill && (
+          <button
+            type="button"
+            onClick={() => setMinimized((m) => !m)}
+            className="text-white/40 hover:text-white/70 touch-manipulation text-xs px-1"
+            aria-label={minimized ? 'Expand chat' : 'Minimize chat'}
+          >
+            {minimized ? '▲ Show' : '▼ Hide'}
+          </button>
+        )}
       </div>
-      {!minimized && <div
+      {!chatCollapsed && <div
         ref={listRef}
-        className="h-44 overflow-y-auto px-3 pt-1 pb-3 space-y-2 hide-scrollbar"
+        className={
+          fill
+            ? 'flex-1 min-h-0 overflow-y-auto px-3 pt-1 pb-3 space-y-2 hide-scrollbar'
+            : 'h-44 overflow-y-auto px-3 pt-1 pb-3 space-y-2 hide-scrollbar'
+        }
         onScroll={(event) => {
           const el = event.currentTarget;
           stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
@@ -179,7 +201,7 @@ export function LiveChat({ online }: { online: boolean }) {
           })
         )}
       </div>}
-      {!minimized && <form onSubmit={onSubmit} className="flex items-center gap-2 border-t border-white/10 p-2">
+      {!chatCollapsed && <form onSubmit={onSubmit} className="flex items-center gap-2 border-t border-white/10 p-2">
         <input
           type="text"
           value={draft}
@@ -200,7 +222,7 @@ export function LiveChat({ online }: { online: boolean }) {
           Send
         </button>
       </form>}
-      {!minimized && error ? <p className="px-3 pb-2 text-[11px] text-red-300/80">{error}</p> : null}
+      {!chatCollapsed && error ? <p className="px-3 pb-2 text-[11px] text-red-300/80">{error}</p> : null}
     </div>
   );
 }

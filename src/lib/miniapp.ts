@@ -52,6 +52,21 @@ export function getLiveUrl(appUrl = getAppUrl()): string {
   return `${stripSlash(appUrl)}/live`;
 }
 
+export function isLivePath(pathname: string): boolean {
+  return pathname.replace(/\/$/, '') === '/live';
+}
+
+/** Pathname or a Farcaster embed URL that should open the live player. */
+export function isLiveLaunch(pathname: string, embed?: string | null): boolean {
+  if (isLivePath(pathname)) return true;
+  if (!embed) return false;
+  try {
+    return isLivePath(new URL(embed).pathname);
+  } catch {
+    return false;
+  }
+}
+
 export function getNftUrl(contract: string, tokenId: string, appUrl = getAppUrl()): string {
   return `${stripSlash(appUrl)}/nft/${encodeURIComponent(contract)}/${encodeURIComponent(tokenId)}`;
 }

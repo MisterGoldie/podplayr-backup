@@ -28,6 +28,8 @@ interface HomeViewProps {
   likedNFTs: NFT[];
   currentPlayingNFT?: NFT | null;
   recentlyAddedNFT?: React.MutableRefObject<string | null>;
+  onOpenLive: () => void;
+  livePlayerActive?: boolean;
 }
 
 const HomeView: React.FC<HomeViewProps> = ({
@@ -42,6 +44,8 @@ const HomeView: React.FC<HomeViewProps> = ({
   likedNFTs,
   currentPlayingNFT,
   recentlyAddedNFT,
+  onOpenLive,
+  livePlayerActive = false,
 }) => {
   const { fid, isFidReady } = useContext(UserFidContext);
 
@@ -92,7 +96,7 @@ const HomeView: React.FC<HomeViewProps> = ({
     <>
       <div className="page-scroll space-y-6 pt-20 pb-40 bg-gradient-to-b from-[#1E1525] via-[#2D1B69] to-[#4B0082]">
         <div className="px-4">
-          <LiveStreamFrame />
+          <LiveStreamFrame onOpen={onOpenLive} streamInline={!livePlayerActive && !isPlaying} />
         </div>
         {!isFidReady ? (
           <section className="w-full">
