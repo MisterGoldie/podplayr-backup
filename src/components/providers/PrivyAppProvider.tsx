@@ -19,11 +19,15 @@ export function PrivyAppProvider({ children }: { children: ReactNode }) {
           theme: 'dark',
           accentColor: '#c084fc',
           logo: '/splash.png',
+          walletChainType: 'ethereum-only',
+          walletList: ['metamask', 'coinbase_wallet', 'rainbow'],
         },
-        loginMethods: ['wallet'],
+        loginMethods: ['email', 'wallet'],
         embeddedWallets: {
           ethereum: {
-            createOnLogin: 'off',
+            // Email logins have no injected wallet; create one so profile
+            // NFT loading still has an address to resolve.
+            createOnLogin: 'users-without-wallets',
           },
         },
       }}
