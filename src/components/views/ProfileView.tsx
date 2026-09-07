@@ -17,6 +17,8 @@ import { UserProfileNFTGrid } from '../nft/UserProfileNFTGrid';
 import { getBioText } from '../../utils/format';
 import { UserFidContext } from '../../app/providers';
 import { BaseAppSignIn } from '../auth/BaseAppSignIn';
+import { WebLogoutButton } from '../auth/WebLogoutButton';
+import { hasPrivyAppId } from '../providers/PrivyAppProvider';
 import { ShareProfileButton } from '../ShareProfileButton';
 import { CommunityPills } from '../user/CommunityPills';
 
@@ -476,6 +478,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({
               <p className="text-sm text-white/60 mt-2 line-clamp-3">{getBioText(farcasterContext.user?.bio)}</p>
             ) : null}
             <BaseAppSignIn variant="profile" />
+            {hasPrivyAppId() ? <WebLogoutButton /> : null}
           </div>
 
           {userFid ? (
