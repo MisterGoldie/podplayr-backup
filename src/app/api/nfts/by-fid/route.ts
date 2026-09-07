@@ -1,16 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { fetchUserNFTs } from '../../../../lib/nft';
+import { fetchUserNFTs as fetchWalletUserNFTs } from '../../../../lib/firebase/nfts';
 
 export async function GET(request: NextRequest) {
   const fidParam = request.nextUrl.searchParams.get('fid');
   const fid = Number(fidParam);
 
-  if (!fidParam || !Number.isInteger(fid) || fid <= 0) {
+  if (!fidParam || !Number.isInteger(fid) || fid === 0) {
     return NextResponse.json({ error: 'Invalid fid' }, { status: 400 });
   }
 
   try {
-    const nfts = await fetchUserNFTs(fid);
+    const nfts = fid < 0 ? await fetchWalletUserNFTs(fid) : await fetchUserNFTs(fid);
     return NextResponse.json(nfts, {
       headers: {
         'Cache-Control': 'private, max-age=60',

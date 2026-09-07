@@ -3,6 +3,7 @@ import "./globals.css";
 import { Providers } from "~/app/providers";
 import { Space_Grotesk } from 'next/font/google';
 import { MiniKitContextProvider } from '../components/providers/MiniKitProvider';
+import { PrivyAppProvider } from '../components/providers/PrivyAppProvider';
 import { getAppUrl } from '~/lib/miniapp';
 
 const appUrl = getAppUrl();
@@ -53,7 +54,9 @@ export default function RootLayout({
       </head>
       <body>
         <MiniKitContextProvider>
-          <Providers>{children}</Providers>
+          <PrivyAppProvider>
+            <Providers>{children}</Providers>
+          </PrivyAppProvider>
         </MiniKitContextProvider>
       </body>
     </html>

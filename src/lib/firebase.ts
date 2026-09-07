@@ -13,6 +13,7 @@ export {
 export {
   cacheUserWallet,
   getCachedWallet,
+  ensureWalletUser,
   trackENSUserSearch,
   trackUserSearch,
   subscribeToRecentSearches,

@@ -4755,6 +4755,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@stripe/stripe-js@npm:^9.15.0":
+  version: 9.15.0
+  resolution: "@stripe/stripe-js@npm:9.15.0"
+  checksum: 10c0/b2b024c0cca857661c97128013693c41dabf7ed393cd3d4c2adc9b8b5c29074aa801468d137b3f87fdb8c7fdd06c82d36ad2211cc6a497c7911d3231f5697231
+  languageName: node
+  linkType: hard
+
 "@swc/helpers@npm:0.5.15":
   version: 0.5.15
   resolution: "@swc/helpers@npm:0.5.15"
@@ -12271,6 +12278,7 @@ __metadata:
     "@heroicons/react": "npm:^2.2.0"
     "@neynar/nodejs-sdk": "npm:^2.10.0"
     "@privy-io/react-auth": "npm:^3.40.0"
+    "@stripe/stripe-js": "npm:^9.15.0"
     "@tanstack/react-query": "npm:^5.62.10"
     "@tanstack/react-virtual": "npm:^3.11.2"
     "@types/jsonwebtoken": "npm:^9.0.10"

@@ -155,33 +155,30 @@ const ProfileView: React.FC<ProfileViewProps> = ({
   // Move the useRef hook to the component body (top level)
   const prevLoggedFid = useRef<number | undefined>(undefined);
   
-  const isUserLoggedIn = () => {
-    const user = farcasterContext.user;
-    const hasFid = !!user?.fid && user.fid > 0;
-    const hasUsername = !!user?.username;
-    const hasDisplayName = !!user?.displayName;
-    const isLoggedIn = hasFid || hasUsername || hasDisplayName;
-    
-    // Only log once per user change, not on every call
-    // Remove the useRef call from here since it's now at component level
-    if (user?.fid !== prevLoggedFid.current) {
-      prevLoggedFid.current = user?.fid;
-    }
-    
-    return isLoggedIn;
-  };
-
-  // Add this before the useEffect
   const userFid = React.useMemo(
     () => farcasterContext.user?.fid || contextFid,
     [farcasterContext.user?.fid, contextFid]
   );
 
+  const isUserLoggedIn = () => {
+    const user = farcasterContext.user;
+    const hasFid = typeof userFid === 'number' && userFid !== 0;
+    const hasUsername = !!user?.username;
+    const hasDisplayName = !!user?.displayName;
+    const isLoggedIn = hasFid || hasUsername || hasDisplayName || Boolean(walletAddress);
+
+    if (user?.fid !== prevLoggedFid.current) {
+      prevLoggedFid.current = user?.fid;
+    }
+
+    return isLoggedIn;
+  };
+
   const canLoadCollection =
     isFidReady &&
-    environment !== 'web' &&
     isUserLoggedIn() &&
-    Boolean(userFid && userFid > 0);
+    typeof userFid === 'number' &&
+    userFid !== 0;
 
   useEffect(() => {
     const loadNFTs = async () => {
@@ -528,9 +525,13 @@ const ProfileView: React.FC<ProfileViewProps> = ({
               </div>
               <div className="text-lg text-purple-200">Loading your collection…</div>
             </div>
-          ) : environment === 'web' || !isUserLoggedIn() ? (
+          ) : !isUserLoggedIn() ? (
             <div className="text-center py-16 px-6">
-              <p className="text-lg text-white mb-2">Only available as a mini-app on Farcaster / the Base App</p>
+              <p className="text-lg text-white mb-2">
+                {environment === 'web'
+                  ? 'Double-tap Profile to connect a wallet'
+                  : 'Only available as a mini-app on Farcaster / the Base App'}
+              </p>
             </div>
           ) : combinedError ? (
             <div className="text-center py-12">

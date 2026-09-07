@@ -3,7 +3,7 @@ const path = require('path');
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: false, // ✅ DISABLE FOR NOW
-  transpilePackages: ['@base-org/account', '@base-org/account-ui'],
+  transpilePackages: ['@base-org/account', '@base-org/account-ui', '@privy-io/react-auth'],
   // @base-org/account's Node entry pulls @coinbase/cdp-sdk (x402), which webpack
   // cannot resolve. We only use the browser SDK for Sign in with Base.
   serverExternalPackages: ['@coinbase/cdp-sdk'],

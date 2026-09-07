@@ -35,6 +35,19 @@ export interface ENSUser extends FarcasterUser {
   linkedIdentity?: LinkedIdentity;
 }
 
+/** Negative FID from a wallet address — same scheme already used for ENS users. */
+export function syntheticFidFromAddress(address?: string | null): number {
+  const hex = (address || '').replace(/^0x/i, '');
+  for (let i = 0; i + 8 <= hex.length; i += 8) {
+    const n = parseInt(hex.slice(i, i + 8), 16);
+    if (!Number.isFinite(n) || n === 0) continue;
+    const fid = -Math.abs(n);
+    // MiniKit uses dummy fid -1 in regular browsers; never collide with that.
+    if (fid !== 0 && fid !== -1) return fid;
+  }
+  return -2;
+}
+
 /**
  * Function to convert ENS profile data to an ENSUser object
  * that's compatible with the app's existing FarcasterUser interface
@@ -46,10 +59,7 @@ export function createENSUser(ensProfile: any): ENSUser {
   // Extract username from ENS name (remove .eth)
   const username = ensName.replace('.eth', '') || '';
   
-  // Generate a negative FID to ensure it doesn't conflict with Farcaster FIDs
-  const addressHash = ensProfile.address ? 
-    parseInt(ensProfile.address.slice(2, 10), 16) : 0;
-  const fid = -Math.abs(addressHash);
+  const fid = syntheticFidFromAddress(ensProfile.address);
   
   // Better avatar fallback logic
   let pfpUrl = '/defaultens.png'; // Default ENS fallback

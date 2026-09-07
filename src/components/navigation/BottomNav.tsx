@@ -1,6 +1,6 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import { useRef, type ReactNode } from 'react';
 import { motion } from 'framer-motion';
 import { triggerHaptic } from '../../utils/haptics';
 
@@ -12,6 +12,8 @@ interface BottomNavProps {
   isPlayerActive?: boolean;
   isPlayerMinimized?: boolean;
   isAdPlaying?: boolean;
+  enableProfileDoubleTap?: boolean;
+  onProfileDoubleTap?: () => void;
 }
 
 const NAV_ITEMS: { id: View; label: string; icon: ReactNode }[] = [
@@ -59,12 +61,26 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   isPlayerActive,
   isPlayerMinimized,
   isAdPlaying,
+  enableProfileDoubleTap,
+  onProfileDoubleTap,
 }) => {
+  const lastProfileTapRef = useRef(0);
+
   if ((isPlayerActive && !isPlayerMinimized) || isAdPlaying) {
     return null;
   }
 
   const handleViewChange = (view: View) => {
+    if (view === 'profile' && enableProfileDoubleTap && onProfileDoubleTap) {
+      const now = Date.now();
+      if (now - lastProfileTapRef.current < 400) {
+        lastProfileTapRef.current = 0;
+        void triggerHaptic('medium', 'BottomNav');
+        onProfileDoubleTap();
+      } else {
+        lastProfileTapRef.current = now;
+      }
+    }
     void triggerHaptic('light', 'BottomNav');
     onViewChange(view);
   };

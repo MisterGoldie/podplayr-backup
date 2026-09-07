@@ -20,6 +20,7 @@ import { db, firebaseLogger } from './config';
 import { fetchWithRetry } from './helpers';
 import { filterPopularFnameClones, pickExactFnameUser, rankByExactFname, normalizeSearchQuery } from '../../utils/farcasterFname';
 import { PODPLAYR_ACCOUNT } from './follows';
+import { syntheticFidFromAddress } from '../../types/ens';
 
 
 export const cacheUserWallet = async (fid: number, address: string): Promise<void> => {
@@ -48,6 +49,100 @@ export const getCachedWallet = async (fid: number): Promise<string | null> => {
     firebaseLogger.error('Error getting cached wallet:', error);
     return null;
   }
+};
+
+function walletUserFromDoc(data: Record<string, unknown>, fallbackFid: number, address: string): FarcasterUser {
+  return {
+    fid: typeof data.fid === 'number' ? data.fid : fallbackFid,
+    username: String(data.username || data.display_name || address.slice(0, 8)),
+    display_name: String(data.display_name || data.username || address),
+    pfp_url: String(data.pfp_url || '/defaultens.png'),
+    follower_count: Number(data.follower_count || 0),
+    following_count: Number(data.following_count || 0),
+    custody_address: String(data.custody_address || address),
+    verifiedAddresses: Array.isArray(data.verifiedAddresses) ? data.verifiedAddresses as string[] : [address],
+    profile: {
+      bio: typeof data.bio === 'string' ? data.bio : '',
+    },
+    isENS: Boolean(data.isENS),
+  };
+}
+
+/** Find or create the negative-FID searchedusers doc used for ENS / website wallet logins. */
+export const ensureWalletUser = async (address: string): Promise<FarcasterUser> => {
+  const normalized = address.toLowerCase();
+  if (!normalized.startsWith('0x') || normalized.length !== 42) {
+    throw new Error('Invalid wallet address');
+  }
+
+  try {
+    const existingQuery = await getDocs(
+      query(collection(db, 'searchedusers'), where('custody_address', '==', normalized), limit(1))
+    );
+    if (!existingQuery.empty) {
+      const data = existingQuery.docs[0].data();
+      const fid = typeof data.fid === 'number' ? data.fid : Number(existingQuery.docs[0].id);
+      await cacheUserWallet(fid, normalized);
+      return walletUserFromDoc(data, fid, normalized);
+    }
+  } catch (error) {
+    firebaseLogger.warn('Wallet user lookup by address failed, falling back to synthetic fid:', error);
+  }
+
+  const syntheticFid = syntheticFidFromAddress(normalized);
+  const userRef = doc(db, 'searchedusers', syntheticFid.toString());
+  const existing = await getDoc(userRef);
+  if (existing.exists()) {
+    await cacheUserWallet(syntheticFid, normalized);
+    return walletUserFromDoc(existing.data(), syntheticFid, normalized);
+  }
+
+  let ensName = '';
+  let pfpUrl = '/defaultens.png';
+  let bio = '';
+  try {
+    const { getEnsProfile } = await import('../ens');
+    const ensProfile = await getEnsProfile(normalized);
+    ensName = ensProfile?.ensName || ensProfile?.name || '';
+    if (ensProfile?.avatar) pfpUrl = ensProfile.avatar;
+    bio = ensProfile?.description || '';
+  } catch (error) {
+    firebaseLogger.warn('ENS lookup failed for wallet login:', error);
+  }
+
+  const username = ensName || `${normalized.slice(0, 6)}…${normalized.slice(-4)}`;
+  const displayName = ensName || username;
+  const now = Date.now();
+  const searchedUserData = {
+    fid: syntheticFid,
+    username,
+    display_name: displayName,
+    pfp_url: pfpUrl,
+    custody_address: normalized,
+    verifiedAddresses: [normalized],
+    follower_count: 0,
+    following_count: 0,
+    lastSearched: now,
+    searchCount: increment(1),
+    isENS: Boolean(ensName),
+    bio,
+  };
+
+  await setDoc(userRef, searchedUserData, { merge: true });
+  await cacheUserWallet(syntheticFid, normalized);
+
+  return {
+    fid: syntheticFid,
+    username,
+    display_name: displayName,
+    pfp_url: pfpUrl,
+    follower_count: 0,
+    following_count: 0,
+    custody_address: normalized,
+    verifiedAddresses: [normalized],
+    profile: { bio },
+    isENS: Boolean(ensName),
+  };
 };
 
 // user_searches has no TTL — every search adds a permanent doc, so it grows

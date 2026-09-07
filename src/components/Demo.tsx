@@ -24,6 +24,8 @@ import { applyConfirmedPlayback, isPlayableMediaNFT } from '../utils/isMediaNFT'
 import { withFeaturedPlayback, findFeaturedNftByIdentity } from '../data/featuredNfts';
 import { UserImageProvider } from '../contexts/UserImageContext';
 import { BaseAppSignIn } from './auth/BaseAppSignIn';
+import { WebPrivyController } from './auth/WebPrivyController';
+import { hasPrivyAppId } from './providers/PrivyAppProvider';
 import { parseProfileFid, parseNftDeepLink } from '../lib/miniapp';
 import { firstNonNull, readNftBootstrap } from '../lib/nftBootstrap';
 import { normalizeNftTokenId } from '../utils/nftIdentity';
@@ -164,7 +166,11 @@ const deduplicateNFTsByMediaKey = (nfts: NFT[]): NFT[] => {
 
 const DemoBase: React.FC = () => {
   const { isFarcaster, user: farcasterUser, client: farcasterClient, location: farcasterLocation } = useContext(FarcasterContext);
-  const { fid, isFidReady } = useContext(UserFidContext);
+  const { fid, isFidReady, environment } = useContext(UserFidContext);
+  const openPrivyRef = useRef<() => void>(() => {});
+  const bindPrivyOpen = useCallback((open: () => void) => {
+    openPrivyRef.current = open;
+  }, []);
 
   const [currentPage, setCurrentPage] = useState<PageState>(() => {
     if (typeof window === 'undefined') return HOME_PAGE;
@@ -263,9 +269,7 @@ const DemoBase: React.FC = () => {
       // Ignore quota / private-mode failures
     }
     if (!fid) return;
-    if (likedNftsSnapshotIsUsable(likedNFTs)) {
-      writeLikedNftsSnapshot(fid, likedNFTs);
-    } else if (likedNFTs.length === 0 && likedNFTsLoaded) {
+    if (likedNFTs.length > 0 || likedNFTsLoaded) {
       writeLikedNftsSnapshot(fid, likedNFTs);
     }
   }, [likedNFTs, fid, likedNFTsLoaded]);
@@ -908,12 +912,17 @@ const DemoBase: React.FC = () => {
           }}
         />
       )}
+      {hasPrivyAppId() && environment === 'web' ? (
+        <WebPrivyController onOpenReady={bindPrivyOpen} />
+      ) : null}
       <BottomNav
         currentView={currentViewKey}
         onViewChange={handleViewChange}
         isPlayerActive={!!currentPlayingNFT}
         isPlayerMinimized={isPlayerMinimized}
         isAdPlaying={showAd}
+        enableProfileDoubleTap={environment === 'web' && hasPrivyAppId()}
+        onProfileDoubleTap={() => openPrivyRef.current()}
       />
       {selectedUser && (
         <UserDataLoader

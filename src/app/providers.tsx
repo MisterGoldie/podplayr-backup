@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { isBaseAppBrowser, isCoinbaseWalletClientFid, isFarcasterMiniApp, isRealFid } from '../utils/platform';
-import { ensurePodplayrFollow, searchUsersByAddress } from '../lib/firebase';
+import { ensurePodplayrFollow, ensureWalletUser, searchUsersByAddress } from '../lib/firebase';
 import { VideoPlayProvider } from '../contexts/VideoPlayContext';
 import { NFTNotificationProvider } from '../context/NFTNotificationContext';
 import { PlayerProvider } from '../contexts/PlayerContext';
@@ -20,6 +20,8 @@ export const UserFidContext = createContext<{
   environment: 'farcaster' | 'coinbase' | 'web';
   walletAddress?: string;
   connectBaseWallet?: () => Promise<void>;
+  applyWalletAddress?: (address: string) => Promise<void>;
+  clearWalletIdentity?: () => void;
   firebaseUid?: string;
   isFirebaseAuthReady: boolean;
 }>({
@@ -255,7 +257,7 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
   // so wait for that uid. Web and Base have no session and still follow.
   const followedFidRef = useRef<number | undefined>(undefined);
   useEffect(() => {
-    if (!fid) return;
+    if (!isRealFid(fid)) return;
     if (environment === 'farcaster' && firebaseUid !== String(fid)) return;
     if (followedFidRef.current === fid) return;
     followedFidRef.current = fid;
@@ -292,19 +294,38 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
   }, [isFidReady, environment, fid]);
 
   const applyWalletIdentity = useCallback(async (address: string) => {
-    setWalletAddress(address.toLowerCase());
-    const matches = await searchUsersByAddress(address);
-    const matched = matches[0];
-    if (!matched?.fid) return;
+    const normalized = address.toLowerCase();
+    setWalletAddress(normalized);
 
-    setFid(matched.fid);
+    const matches = await searchUsersByAddress(normalized);
+    const matched = matches[0];
+    if (matched?.fid) {
+      setFid(matched.fid);
+      setUserContext({
+        fid: matched.fid,
+        username: matched.username,
+        displayName: matched.display_name,
+        pfp: matched.pfp_url,
+        bio: getBioText(matched.profile?.bio),
+      });
+      return;
+    }
+
+    const walletUser = await ensureWalletUser(normalized);
+    setFid(walletUser.fid);
     setUserContext({
-      fid: matched.fid,
-      username: matched.username,
-      displayName: matched.display_name,
-      pfp: matched.pfp_url,
-      bio: getBioText(matched.profile?.bio),
+      fid: walletUser.fid,
+      username: walletUser.username,
+      displayName: walletUser.display_name,
+      pfp: walletUser.pfp_url,
+      bio: getBioText(walletUser.profile?.bio),
     });
+  }, []);
+
+  const clearWalletIdentity = useCallback(() => {
+    setWalletAddress(undefined);
+    setFid(undefined);
+    setUserContext(null);
   }, []);
 
   const connectBaseWallet = useCallback(async () => {
@@ -330,10 +351,12 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
       environment,
       walletAddress,
       connectBaseWallet,
+      applyWalletAddress: applyWalletIdentity,
+      clearWalletIdentity,
       firebaseUid,
       isFirebaseAuthReady,
     }),
-    [fid, setFid, isFidReady, environment, walletAddress, connectBaseWallet, firebaseUid, isFirebaseAuthReady]
+    [fid, setFid, isFidReady, environment, walletAddress, connectBaseWallet, applyWalletIdentity, clearWalletIdentity, firebaseUid, isFirebaseAuthReady]
   );
 
   const unifiedContextValue = useMemo(
