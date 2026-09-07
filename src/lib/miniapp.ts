@@ -48,6 +48,10 @@ export function parseProfileFid(pathname: string, search = ''): number | null {
   return Number.isInteger(fid) && fid !== 0 ? fid : null;
 }
 
+export function getLiveUrl(appUrl = getAppUrl()): string {
+  return `${stripSlash(appUrl)}/live`;
+}
+
 export function getNftUrl(contract: string, tokenId: string, appUrl = getAppUrl()): string {
   return `${stripSlash(appUrl)}/nft/${encodeURIComponent(contract)}/${encodeURIComponent(tokenId)}`;
 }

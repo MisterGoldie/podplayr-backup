@@ -1,6 +1,6 @@
 'use client';
 
-import { getNftUrl, getProfileUrl } from './miniapp';
+import { getLiveUrl, getNftUrl, getProfileUrl } from './miniapp';
 
 async function composeCastWithFallback(text: string, url: string): Promise<void> {
   try {
@@ -33,6 +33,11 @@ export async function shareProfileToFarcaster({
   const handle = username ? `@${username.replace(/^@/, '')}` : 'this profile';
   const text = `Check out ${handle} on @podplayr`;
   await composeCastWithFallback(text, url);
+}
+
+export async function shareLiveToFarcaster(): Promise<void> {
+  const url = getLiveUrl();
+  await composeCastWithFallback("We're LIVE on @podplayr", url);
 }
 
 export async function shareNftToFarcaster({

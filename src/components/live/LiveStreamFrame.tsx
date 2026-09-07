@@ -10,6 +10,7 @@ import {
   LIVE_TITLE,
 } from '../../data/liveStream';
 import { LiveChat } from './LiveChat';
+import { shareLiveToFarcaster } from '../../lib/shareToFarcaster';
 
 async function isLiveManifestAvailable(): Promise<boolean> {
   try {
@@ -26,6 +27,7 @@ export function LiveStreamFrame() {
   const onlineRef = useRef(false);
   const [online, setOnline] = useState(false);
   const [needsTap, setNeedsTap] = useState(false);
+  const [sharing, setSharing] = useState(false);
 
   const destroyHls = useCallback(() => {
     if (hlsRef.current) {
@@ -130,7 +132,28 @@ export function LiveStreamFrame() {
 
   return (
     <div className="w-full lg:max-w-2xl mx-auto">
-      <p className="text-[10px] uppercase tracking-[0.18em] text-white/50 mb-2">{LIVE_TITLE}</p>
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <p className="text-[10px] uppercase tracking-[0.18em] text-white/50">{LIVE_TITLE}</p>
+        <button
+          type="button"
+          disabled={sharing}
+          onClick={async () => {
+            setSharing(true);
+            try {
+              await shareLiveToFarcaster();
+            } finally {
+              setSharing(false);
+            }
+          }}
+          className="bg-black/40 active:bg-purple-500/20 border border-purple-400/20 rounded-full px-3 py-1.5 touch-manipulation flex items-center gap-1.5 disabled:opacity-50"
+          aria-label="Share live feed"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" height="16" viewBox="0 -960 960 960" width="16" fill="currentColor" className="text-white">
+            <path d="M680-80q-50 0-85-35t-35-85q0-6 3-28L282-392q-16 15-37 23.5t-45 8.5q-50 0-85-35t-35-85q0-50 35-85t85-35q24 0 45 8.5t37 23.5l281-164q-2-7-2.5-13.5T560-760q0-50 35-85t85-35q50 0 85 35t35 85q0 50-35 85t-85 35q-24 0-45-8.5T598-672L317-508q2 7 2.5 13.5t.5 14.5q0 8-.5 14.5T317-452l281 164q16-15 37-23.5t45-8.5q50 0 85 35t35 85q0 50-35 85t-85 35Z"/>
+          </svg>
+          <span className="text-xs text-white font-medium">{sharing ? 'Sharing…' : 'Share'}</span>
+        </button>
+      </div>
       <button
         type="button"
         onClick={handleTap}
