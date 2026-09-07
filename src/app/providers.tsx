@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { isBaseAppBrowser, isCoinbaseWalletClientFid, isFarcasterMiniApp, isRealFid } from '../utils/platform';
-import { ensurePodplayrFollow, ensureWalletUser, searchUsersByAddress } from '../lib/firebase';
+import { ensurePodplayrFollow, ensureWalletUser, searchUsers, searchUsersByAddress } from '../lib/firebase';
 import { VideoPlayProvider } from '../contexts/VideoPlayContext';
 import { NFTNotificationProvider } from '../context/NFTNotificationContext';
 import { PlayerProvider } from '../contexts/PlayerContext';
@@ -21,6 +21,7 @@ export const UserFidContext = createContext<{
   walletAddress?: string;
   connectBaseWallet?: () => Promise<void>;
   applyWalletAddress?: (address: string) => Promise<void>;
+  applyFarcasterIdentity?: (fid: number, address?: string) => Promise<void>;
   clearWalletIdentity?: () => void;
   firebaseUid?: string;
   isFirebaseAuthReady: boolean;
@@ -293,6 +294,23 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
     };
   }, [isFidReady, environment, fid]);
 
+  const applyMatchedUser = useCallback((matched: {
+    fid: number;
+    username?: string;
+    display_name?: string;
+    pfp_url?: string;
+    profile?: { bio?: string | { text?: string } };
+  }) => {
+    setFid(matched.fid);
+    setUserContext({
+      fid: matched.fid,
+      username: matched.username,
+      displayName: matched.display_name,
+      pfp: matched.pfp_url,
+      bio: getBioText(matched.profile?.bio),
+    });
+  }, []);
+
   const applyWalletIdentity = useCallback(async (address: string) => {
     const normalized = address.toLowerCase();
     setWalletAddress(normalized);
@@ -300,27 +318,30 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
     const matches = await searchUsersByAddress(normalized);
     const matched = matches[0];
     if (matched?.fid) {
-      setFid(matched.fid);
-      setUserContext({
-        fid: matched.fid,
-        username: matched.username,
-        displayName: matched.display_name,
-        pfp: matched.pfp_url,
-        bio: getBioText(matched.profile?.bio),
-      });
+      applyMatchedUser(matched);
       return;
     }
 
     const walletUser = await ensureWalletUser(normalized);
-    setFid(walletUser.fid);
-    setUserContext({
-      fid: walletUser.fid,
-      username: walletUser.username,
-      displayName: walletUser.display_name,
-      pfp: walletUser.pfp_url,
-      bio: getBioText(walletUser.profile?.bio),
-    });
-  }, []);
+    applyMatchedUser(walletUser);
+  }, [applyMatchedUser]);
+
+  const applyFarcasterIdentity = useCallback(async (fid: number, address?: string) => {
+    if (!isRealFid(fid)) return;
+    if (address?.startsWith('0x')) {
+      setWalletAddress(address.toLowerCase());
+    }
+
+    const matches = await searchUsers(`fid:${fid}`);
+    const matched = matches[0];
+    if (matched?.fid) {
+      applyMatchedUser(matched);
+      return;
+    }
+
+    setFid(fid);
+    setUserContext({ fid });
+  }, [applyMatchedUser]);
 
   const clearWalletIdentity = useCallback(() => {
     setWalletAddress(undefined);
@@ -352,11 +373,12 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
       walletAddress,
       connectBaseWallet,
       applyWalletAddress: applyWalletIdentity,
+      applyFarcasterIdentity,
       clearWalletIdentity,
       firebaseUid,
       isFirebaseAuthReady,
     }),
-    [fid, setFid, isFidReady, environment, walletAddress, connectBaseWallet, applyWalletIdentity, clearWalletIdentity, firebaseUid, isFirebaseAuthReady]
+    [fid, setFid, isFidReady, environment, walletAddress, connectBaseWallet, applyWalletIdentity, applyFarcasterIdentity, clearWalletIdentity, firebaseUid, isFirebaseAuthReady]
   );
 
   const unifiedContextValue = useMemo(
