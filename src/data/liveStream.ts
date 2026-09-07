@@ -14,14 +14,14 @@ type LiveStreamerConfig = {
 };
 
 export const LIVE_STREAMERS = {
-  podplayrTeam: {
-    label: 'PODPLAYR Team',
+  will: {
+    label: 'Will',
     streamId: 'O6f9TGui400kDQY023IAtlKjfmXctYy1YcAUofPyHHGql',
     playbackId: 'kyG01vdLgiolO005FBlZ01TVrAXouGc4U9FK238N82QZ7E',
     rtmpUrl: 'rtmps://global-live.mux.com:443/app',
   },
-  guestStreamer1: {
-    label: 'Guest Streamer',
+  sazon: {
+    label: 'Sazon',
     // No separate Mux "Stream ID" on hand — the playback ID doubles as the chat
     // namespace key fine since it's already unique to this stream.
     streamId: 'sVDSlO11WykB6zMjrm0002m01g1Q6rHwaGNI5mUhdr6tNQ',
@@ -33,7 +33,7 @@ export const LIVE_STREAMERS = {
 } as const satisfies Record<string, LiveStreamerConfig>;
 
 /** Change this to switch which streamer's feed the whole app plays/chats around. */
-const ACTIVE_STREAMER = LIVE_STREAMERS.guestStreamer1;
+const ACTIVE_STREAMER = LIVE_STREAMERS.sazon;
 
 export const LIVE_STREAM_ID = ACTIVE_STREAMER.streamId;
 export const LIVE_PLAYBACK_ID = ACTIVE_STREAMER.playbackId;
