@@ -753,6 +753,8 @@ const DemoBase: React.FC = () => {
       // here in Demo.tsx and normally only unminimized by handlePlayNFT for
       // the suggested-music-videos rail) — force it open for a shared link.
       setIsPlayerMinimized(false);
+      setLiveActive(false);
+      setLiveMaximized(false);
       // No user gesture at page-load time, so browsers block autoplay outright
       // (NotAllowedError) — load the track paused and let the user's first
       // tap on the play button provide the gesture instead of showing a
@@ -809,15 +811,23 @@ const DemoBase: React.FC = () => {
     // handlePlayAudio uses flushSync internally, which React forbids while
     // still inside a lifecycle/commit phase (this effect). Defer to a fresh
     // macrotask so it runs after React is done committing this render.
-    const timer = window.setTimeout(() => {
+    // Do not clear this timer on cleanup — farcasterLocation arriving a
+    // moment later would cancel the load and leave /nft/:id on a blank
+    // page (HomeView is held back until loadNftFromDeepLink's finally).
+    window.setTimeout(() => {
       void loadNftFromDeepLinkRef.current(deepLink!.contract, deepLink!.tokenId);
     }, 0);
-    return () => window.clearTimeout(timer);
   }, [farcasterLocation]);
 
   useEffect(() => {
     if (liveLaunchHandledRef.current) return;
-    if (!isLiveLaunch(window.location.pathname, farcasterLocation?.embed)) return;
+    if (
+      !isLiveLaunch(
+        window.location.pathname,
+        window.location.search,
+        farcasterLocation?.embed
+      )
+    ) return;
     liveLaunchHandledRef.current = true;
     setLiveActive(true);
     setLiveMaximized(true);

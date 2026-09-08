@@ -82,13 +82,20 @@ export function useLiveHls(
       });
       hls.on(HlsLib.Events.MANIFEST_PARSED, () => {
         setLiveReady(true);
+        video.loop = false;
         video.play().then(() => setNeedsTap(false)).catch(() => setNeedsTap(true));
       });
+      hls.on(HlsLib.Events.LEVEL_LOADED, (_event, data) => {
+        if (data.details?.live === false) destroyHls();
+      });
+      video.onended = () => destroyHls();
       return;
     }
 
     if (video.canPlayType('application/vnd.apple.mpegurl')) {
       video.src = LIVE_HLS_URL;
+      video.loop = false;
+      video.onended = () => destroyHls();
       setLiveReady(true);
       video.play().then(() => setNeedsTap(false)).catch(() => setNeedsTap(true));
     }

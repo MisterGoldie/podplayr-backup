@@ -56,15 +56,26 @@ export function isLivePath(pathname: string): boolean {
   return pathname.replace(/\/$/, '') === '/live';
 }
 
-/** Pathname or a Farcaster embed URL that should open the live player. */
-export function isLiveLaunch(pathname: string, embed?: string | null): boolean {
-  if (isLivePath(pathname)) return true;
-  if (!embed) return false;
+function embedPathname(embed?: string | null): { pathname: string; search: string } | null {
+  if (!embed || typeof embed !== 'string') return null;
   try {
-    return isLivePath(new URL(embed).pathname);
+    const url = new URL(embed);
+    return { pathname: url.pathname, search: url.search };
   } catch {
+    return null;
+  }
+}
+
+/** Pathname or a Farcaster embed URL that should open the live player. */
+export function isLiveLaunch(pathname: string, search = '', embed?: string | null): boolean {
+  if (parseNftDeepLink(pathname, search) || parseProfileFid(pathname, search)) {
     return false;
   }
+  if (isLivePath(pathname)) return true;
+  const fromEmbed = embedPathname(embed);
+  if (!fromEmbed) return false;
+  if (parseNftDeepLink(fromEmbed.pathname, fromEmbed.search)) return false;
+  return isLivePath(fromEmbed.pathname);
 }
 
 export function getNftUrl(contract: string, tokenId: string, appUrl = getAppUrl()): string {
