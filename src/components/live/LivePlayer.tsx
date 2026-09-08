@@ -63,12 +63,29 @@ export function LivePlayer({
           />
 
           <div className="relative z-[1] flex-1 min-h-0 flex flex-col px-3">
+            <div
+              className={
+                chatHidden
+                  ? 'flex-1 min-h-0 w-full flex items-center justify-center [container-type:size]'
+                  : 'w-full shrink-0'
+              }
+            >
             <button
               type="button"
               onClick={togglePlayback}
-              className={`relative w-full aspect-video overflow-hidden rounded-2xl bg-black touch-manipulation ${
-                chatHidden ? 'flex-1 min-h-0 max-h-full' : 'max-h-[46vh] shrink-0'
-              }`}
+              className={
+                chatHidden
+                  ? 'relative overflow-hidden rounded-2xl bg-black touch-manipulation'
+                  : 'relative w-full max-h-[46vh] aspect-video overflow-hidden rounded-2xl bg-black touch-manipulation'
+              }
+              style={
+                chatHidden
+                  ? {
+                      width: 'min(100cqw, calc(100cqh * 16 / 9))',
+                      aspectRatio: '16 / 9',
+                    }
+                  : undefined
+              }
               aria-label={showLive ? (needsTap ? 'Play livestream' : 'Pause livestream') : 'Livestream offline'}
             >
               <video
@@ -110,6 +127,7 @@ export function LivePlayer({
                 </div>
               )}
             </button>
+            </div>
 
             <LiveChat
               online={online}
