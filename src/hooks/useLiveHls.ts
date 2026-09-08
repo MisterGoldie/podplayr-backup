@@ -48,12 +48,15 @@ export function useLiveHls(
 
     if (HlsLib.isSupported()) {
       const hls = new HlsLib({
-        enableWorker: false,
-        lowLatencyMode: true,
-        liveSyncDurationCount: 3,
-        maxBufferLength: 10,
-        maxMaxBufferLength: 20,
-        testBandwidth: false,
+        enableWorker: true,
+        lowLatencyMode: false,
+        liveSyncDurationCount: 7,
+        liveMaxLatencyDurationCount: 16,
+        maxBufferLength: 30,
+        maxMaxBufferLength: 60,
+        backBufferLength: 30,
+        testBandwidth: true,
+        abrEwmaDefaultEstimate: 500_000,
         startLevel: -1,
         xhrSetup: (xhr) => {
           xhr.withCredentials = false;
@@ -62,6 +65,14 @@ export function useLiveHls(
       hlsRef.current = hls;
       hls.on(HlsLib.Events.ERROR, (_event, data) => {
         if (!data.fatal) return;
+        if (data.type === HlsLib.ErrorTypes.NETWORK_ERROR) {
+          hls.startLoad();
+          return;
+        }
+        if (data.type === HlsLib.ErrorTypes.MEDIA_ERROR) {
+          hls.recoverMediaError();
+          return;
+        }
         destroyHls();
       });
       hls.attachMedia(video);
