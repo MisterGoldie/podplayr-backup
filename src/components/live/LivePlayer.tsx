@@ -24,6 +24,7 @@ export function LivePlayer({
     true
   );
   const [sharing, setSharing] = useState(false);
+  const [chatHidden, setChatHidden] = useState(false);
   const { visible: showMinimizeHint, dismiss: dismissMinimizeHint } = usePlayerArrowHint(
     'minimize',
     !isMinimized
@@ -65,7 +66,9 @@ export function LivePlayer({
             <button
               type="button"
               onClick={togglePlayback}
-              className="relative w-full max-h-[46vh] aspect-video shrink-0 overflow-hidden rounded-2xl bg-black touch-manipulation"
+              className={`relative w-full aspect-video overflow-hidden rounded-2xl bg-black touch-manipulation ${
+                chatHidden ? 'flex-1 min-h-0 max-h-full' : 'max-h-[46vh] shrink-0'
+              }`}
               aria-label={showLive ? (needsTap ? 'Play livestream' : 'Pause livestream') : 'Livestream offline'}
             >
               <video
@@ -108,7 +111,12 @@ export function LivePlayer({
               )}
             </button>
 
-            <LiveChat online={online} variant="player" />
+            <LiveChat
+              online={online}
+              variant="player"
+              collapsed={chatHidden}
+              onCollapsedChange={setChatHidden}
+            />
           </div>
 
           <div

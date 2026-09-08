@@ -22,14 +22,23 @@ function handleOf(message: LiveChatMessage) {
 export function LiveChat({
   online,
   variant = 'card',
+  collapsed,
+  onCollapsedChange,
 }: {
   online: boolean;
   variant?: 'card' | 'player';
+  collapsed?: boolean;
+  onCollapsedChange?: (collapsed: boolean) => void;
 }) {
   const fill = variant === 'player';
   const { fid } = useContext(UserFidContext);
   const { user } = useContext(UnifiedContext);
-  const [minimized, setMinimized] = useState(false);
+  const [internalMinimized, setInternalMinimized] = useState(false);
+  const minimized = collapsed ?? internalMinimized;
+  const setMinimized = (next: boolean) => {
+    if (collapsed === undefined) setInternalMinimized(next);
+    onCollapsedChange?.(next);
+  };
   const [session, setSession] = useState<LiveChatSession>({
     status: 'idle',
     activeSessionId: null,
@@ -143,28 +152,28 @@ export function LiveChat({
       ? 'Say something…'
       : 'Chat opens when we go live';
 
-  const chatCollapsed = fill ? false : minimized;
+  const chatCollapsed = minimized;
 
   return (
     <div
       className={
         fill
-          ? 'flex-1 min-h-0 flex flex-col overflow-hidden border-t border-white/10 bg-black/40 pb-[max(0.5rem,env(safe-area-inset-bottom))]'
+          ? chatCollapsed
+            ? 'flex-none mt-3 rounded-2xl border border-white/10 bg-black/40 overflow-hidden mb-[max(0.5rem,env(safe-area-inset-bottom))]'
+            : 'flex-1 min-h-0 flex flex-col overflow-hidden border-t border-white/10 bg-black/40 pb-[max(0.5rem,env(safe-area-inset-bottom))]'
           : 'mt-3 rounded-2xl border border-white/10 bg-black/35 overflow-hidden'
       }
     >
       <div className="flex items-center justify-between px-3 pt-2 pb-1">
         <p className="text-[10px] uppercase tracking-[0.18em] text-white/45">Live chat</p>
-        {!fill && (
-          <button
-            type="button"
-            onClick={() => setMinimized((m) => !m)}
-            className="text-white/40 hover:text-white/70 touch-manipulation text-xs px-1"
-            aria-label={minimized ? 'Expand chat' : 'Minimize chat'}
-          >
-            {minimized ? '▲ Show' : '▼ Hide'}
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={() => setMinimized(!minimized)}
+          className="text-white/40 hover:text-white/70 touch-manipulation text-xs px-1 py-1"
+          aria-label={minimized ? 'Show chat' : 'Hide chat'}
+        >
+          {minimized ? '▲ Show' : '▼ Hide'}
+        </button>
       </div>
       {!chatCollapsed && <div
         ref={listRef}
