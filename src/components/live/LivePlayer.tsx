@@ -19,7 +19,7 @@ export function LivePlayer({
   onMinimizeToggle: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const { online, needsTap, isPlaying, showLive, togglePlayback, onPlay, onPause } = useLiveHls(
+  const { online, viewerCount, needsTap, isPlaying, showLive, togglePlayback, onPlay, onPause } = useLiveHls(
     videoRef,
     true
   );
@@ -117,6 +117,9 @@ export function LivePlayer({
                 <span className="absolute left-3 top-3 flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-white">
                   <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-red-500" />
                   Live
+                  {viewerCount > 0 ? (
+                    <span className="font-medium normal-case tracking-normal text-white/80">{viewerCount}</span>
+                  ) : null}
                 </span>
               )}
               {showLive && needsTap && (

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import type Hls from 'hls.js';
 import { LIVE_HLS_URL } from '../data/liveStream';
 import { useLiveStatus } from './useLiveStatus';
+import { useLiveViewerCount } from './useLiveViewerCount';
 
 export function useLiveHls(
   videoRef: RefObject<HTMLVideoElement | null>,
@@ -49,11 +50,11 @@ export function useLiveHls(
     if (HlsLib.isSupported()) {
       const hls = new HlsLib({
         enableWorker: true,
-        lowLatencyMode: false,
-        liveSyncDurationCount: 7,
-        liveMaxLatencyDurationCount: 16,
-        maxBufferLength: 30,
-        maxMaxBufferLength: 60,
+        lowLatencyMode: true,
+        liveSyncDuration: 8,
+        liveMaxLatencyDuration: 16,
+        maxBufferLength: 18,
+        maxMaxBufferLength: 36,
         backBufferLength: 30,
         testBandwidth: true,
         abrEwmaDefaultEstimate: 500_000,
@@ -113,6 +114,7 @@ export function useLiveHls(
   }, [attachLive, destroyHls, enabled, online]);
 
   const showLive = enabled && (online || liveReady || isPlaying);
+  const viewerCount = useLiveViewerCount(enabled);
 
   const togglePlayback = () => {
     const video = videoRef.current;
@@ -131,6 +133,7 @@ export function useLiveHls(
 
   return {
     online,
+    viewerCount,
     needsTap,
     isPlaying,
     showLive,

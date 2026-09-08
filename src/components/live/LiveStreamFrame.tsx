@@ -12,7 +12,7 @@ export function LiveStreamFrame({
   streamInline?: boolean;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const { online, showLive } = useLiveHls(videoRef, streamInline);
+  const { online, showLive, viewerCount } = useLiveHls(videoRef, streamInline);
 
   return (
     <div className="w-full lg:max-w-2xl mx-auto">
@@ -46,6 +46,9 @@ export function LiveStreamFrame({
           <span className="absolute left-3 top-3 flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-white">
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-red-500" />
             Live
+            {viewerCount > 0 ? (
+              <span className="font-medium normal-case tracking-normal text-white/80">{viewerCount}</span>
+            ) : null}
           </span>
         ) : (
           <span className="absolute left-3 top-3 rounded-full border border-white/20 bg-black/50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-white/70">

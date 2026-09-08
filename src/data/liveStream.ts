@@ -47,6 +47,8 @@ export const LIVE_POLL_MS = 12_000;
 export const LIVE_OFFLINE_POLLS = 3;
 
 export const LIVE_CHAT_COLLECTION = 'live_chat';
+export const LIVE_VIEWER_HEARTBEAT_MS = 10_000;
+export const LIVE_VIEWER_STALE_MS = 90_000;
 export const LIVE_CHAT_MAX_LEN = 200;
 export const LIVE_CHAT_PAGE_SIZE = 150;
 export const LIVE_CHAT_RATE_MS = 2_000;
