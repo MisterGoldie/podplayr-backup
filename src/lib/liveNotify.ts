@@ -4,7 +4,7 @@ import {
   LIVE_PLAYBACK_ID,
   LIVE_POLL_MS,
 } from '../data/liveStream';
-import { LIVE_NOTIFY_BODY, LIVE_NOTIFY_TITLE, LIVE_TEST_NOTIFY_BODY, LIVE_TEST_NOTIFY_TITLE, fidsToNotify } from '../data/liveNotifications';
+import { LIVE_NOTIFY_BODY, LIVE_NOTIFY_TITLE, fidsToNotify } from '../data/liveNotifications';
 import { getAppUrl, getLiveUrl } from './miniapp';
 import {
   getLiveNotifyState,
@@ -109,32 +109,4 @@ export async function pollAndNotifyLive(): Promise<LiveNotifyPollResult> {
   }
 
   return { online: next.online, notified, results };
-}
-
-export async function sendTestNotifications(): Promise<{
-  configured: boolean;
-  storedFids: number[];
-  fids: number[];
-  results: SendFrameNotificationResult[];
-}> {
-  if (!isNotificationStoreConfigured()) {
-    return { configured: false, storedFids: [], fids: [], results: [] };
-  }
-
-  const storedFids = await listNotifiableFids();
-  const fids = fidsToNotify(storedFids);
-  const targetUrl = getLiveUrl(getAppUrl());
-  const results = await Promise.all(
-    fids.map((fid) =>
-      sendFrameNotification({
-        fid,
-        title: LIVE_TEST_NOTIFY_TITLE,
-        body: LIVE_TEST_NOTIFY_BODY,
-        notificationId: `test-${fid}-${Date.now()}`.slice(0, 128),
-        targetUrl,
-      })
-    )
-  );
-
-  return { configured: true, storedFids, fids, results };
 }

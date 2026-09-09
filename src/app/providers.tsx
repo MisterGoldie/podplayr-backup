@@ -266,6 +266,44 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
 
     initializeEnvironmentContext();
   }, [miniKitContext]);
+
+  useEffect(() => {
+    if (environment !== 'farcaster') return;
+    let remove = () => {};
+
+    void (async () => {
+      const { sdk } = await import('@farcaster/miniapp-sdk');
+      if (!(await sdk.isInMiniApp())) return;
+
+      const onEnabled = (payload?: { notificationDetails?: { token?: string; url?: string } }) => {
+        setClientContext((prev) => ({
+          clientFid: prev?.clientFid || 0,
+          added: true,
+          safeAreaInsets: prev?.safeAreaInsets,
+          notificationDetails: payload?.notificationDetails || prev?.notificationDetails,
+        }));
+      };
+
+      sdk.on('miniAppAdded', onEnabled);
+      sdk.on('notificationsEnabled', onEnabled);
+      sdk.on('miniAppRemoved', () => {
+        setClientContext((prev) =>
+          prev ? { ...prev, added: false, notificationDetails: undefined } : prev
+        );
+      });
+      sdk.on('notificationsDisabled', () => {
+        setClientContext((prev) =>
+          prev ? { ...prev, notificationDetails: undefined } : prev
+        );
+      });
+
+      remove = () => {
+        sdk.removeAllListeners();
+      };
+    })();
+
+    return () => remove();
+  }, [environment]);
   
   // Farcaster follow writes are owner-checked once a Firebase session exists,
   // so wait for that uid. Web and Base have no session and still follow.

@@ -14,6 +14,10 @@ function hideFarcasterSplash() {
       if (!(await sdk.isInMiniApp())) return;
       await sdk.context;
       if (!cancelled) await sdk.actions.ready();
+      if (!cancelled) {
+        const { promptEnableMiniAppNotifications } = await import('../lib/promptEnableNotifications');
+        await promptEnableMiniAppNotifications();
+      }
     } catch (error) {
       console.error('Error initializing Farcaster SDK:', error);
     }
