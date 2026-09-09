@@ -51,6 +51,7 @@ export function useLiveStatus() {
         if (!onlineRef.current) {
           onlineRef.current = true;
           setOnline(true);
+          void fetch('/api/live/notify', { method: 'POST' }).catch(() => {});
         }
         return;
       }
