@@ -33,7 +33,7 @@ export const LIVE_STREAMERS = {
 } as const satisfies Record<string, LiveStreamerConfig>;
 
 /** Change this to switch which streamer's feed the whole app plays/chats around. */
-const ACTIVE_STREAMER = LIVE_STREAMERS.will;
+const ACTIVE_STREAMER = LIVE_STREAMERS.sazon;
 
 export const LIVE_STREAM_ID = ACTIVE_STREAMER.streamId;
 export const LIVE_PLAYBACK_ID = ACTIVE_STREAMER.playbackId;
