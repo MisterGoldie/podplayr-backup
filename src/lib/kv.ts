@@ -24,6 +24,7 @@ export type LiveNotifyState = {
   misses: number;
   sessionId: string | null;
   notifiedSessionId: string | null;
+  showEnded: boolean;
 };
 
 export function isNotificationStoreConfigured(): boolean {

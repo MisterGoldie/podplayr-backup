@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useRef, useState } from 'react';
-import { LIVE_POSTER_URL, LIVE_TITLE } from '../../data/liveStream';
+import { LIVE_TITLE } from '../../data/liveStream';
 import { shareLiveToFarcaster } from '../../lib/shareToFarcaster';
 import { useLiveHls } from '../../hooks/useLiveHls';
 import { PlaybackButton } from '../buttons/PlaybackButton';
@@ -19,7 +19,7 @@ export function LivePlayer({
   onMinimizeToggle: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const { online, viewerCount, needsTap, isPlaying, showLive, togglePlayback, onPlay, onPause } = useLiveHls(
+  const { online, viewerCount, needsTap, isPlaying, showLive, posterUrl, togglePlayback, onPlay, onPause } = useLiveHls(
     videoRef,
     true
   );
@@ -48,7 +48,7 @@ export function LivePlayer({
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={LIVE_POSTER_URL}
+            src={posterUrl}
             alt=""
             className="w-full h-full object-cover scale-125 blur-3xl opacity-35"
           />
@@ -93,7 +93,7 @@ export function LivePlayer({
                 className={`absolute inset-0 h-full w-full object-cover ${showLive ? '' : 'invisible'}`}
                 data-podplayr-live="1"
                 playsInline
-                poster={LIVE_POSTER_URL}
+                poster={posterUrl}
                 controls={false}
                 onPlay={onPlay}
                 onPause={onPause}
@@ -102,7 +102,7 @@ export function LivePlayer({
                 <>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={LIVE_POSTER_URL}
+                    src={posterUrl}
                     alt=""
                     className="absolute inset-0 h-full w-full object-cover"
                   />
@@ -203,7 +203,7 @@ export function LivePlayer({
               >
                 <div className="relative w-12 h-12 flex-shrink-0 rounded-xl overflow-hidden bg-purple-900/20 ring-1 ring-white/10">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={LIVE_POSTER_URL} alt="" className="w-full h-full object-cover" />
+                  <img src={posterUrl} alt="" className="w-full h-full object-cover" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <h3 className="text-white text-sm font-medium truncate">{LIVE_TITLE}</h3>

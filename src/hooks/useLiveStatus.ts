@@ -63,6 +63,7 @@ export function useLiveStatus() {
       if (misses < LIVE_OFFLINE_POLLS || !onlineRef.current) return;
       onlineRef.current = false;
       setOnline(false);
+      void fetch('/api/live/notify', { method: 'POST' }).catch(() => {});
     };
 
     void poll();

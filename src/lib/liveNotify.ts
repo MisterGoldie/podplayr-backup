@@ -22,6 +22,7 @@ const emptyState = (): LiveNotifyState => ({
   misses: 0,
   sessionId: null,
   notifiedSessionId: null,
+  showEnded: false,
 });
 
 async function checkManifest(): Promise<{ status: 'live' | 'ended' | 'down'; seq: string | null }> {
@@ -57,13 +58,11 @@ async function notifyLiveStarted(sessionId: string): Promise<SendFrameNotificati
 export type LiveNotifyPollResult = {
   online: boolean;
   notified: boolean;
+  showEnded: boolean;
   results: SendFrameNotificationResult[];
 };
 
-export async function pollAndNotifyLive(): Promise<LiveNotifyPollResult> {
-  if (!isNotificationStoreConfigured()) {
-    return { online: false, notified: false, results: [] };
-  }
+export async function syncLiveStreamState(): Promise<LiveNotifyState> {
   const prev = (await getLiveNotifyState()) ?? emptyState();
   const { status, seq } = await checkManifest();
   const now = Date.now();
@@ -72,12 +71,13 @@ export async function pollAndNotifyLive(): Promise<LiveNotifyPollResult> {
     classified = 'ended';
   }
 
-  const next: LiveNotifyState = { ...prev };
+  const next: LiveNotifyState = { ...prev, showEnded: prev.showEnded === true };
 
   if (classified === 'live') {
     next.misses = 0;
     next.seq = seq;
     next.seqAt = now;
+    next.showEnded = false;
     if (!prev.online) {
       next.online = true;
       next.sessionId = `live-${LIVE_PLAYBACK_ID}-${now}`.slice(0, 128);
@@ -92,10 +92,22 @@ export async function pollAndNotifyLive(): Promise<LiveNotifyPollResult> {
       next.misses = 0;
       next.sessionId = null;
       next.notifiedSessionId = null;
+      next.showEnded = true;
     }
   }
 
-  await setLiveNotifyState(next);
+  if (isNotificationStoreConfigured()) {
+    await setLiveNotifyState(next);
+  }
+  return next;
+}
+
+export async function pollAndNotifyLive(): Promise<LiveNotifyPollResult> {
+  if (!isNotificationStoreConfigured()) {
+    const next = await syncLiveStreamState();
+    return { online: next.online, notified: false, showEnded: next.showEnded, results: [] };
+  }
+  const next = await syncLiveStreamState();
 
   let results: SendFrameNotificationResult[] = [];
   let notified = false;
@@ -108,5 +120,5 @@ export async function pollAndNotifyLive(): Promise<LiveNotifyPollResult> {
     }
   }
 
-  return { online: next.online, notified, results };
+  return { online: next.online, notified, showEnded: next.showEnded, results };
 }

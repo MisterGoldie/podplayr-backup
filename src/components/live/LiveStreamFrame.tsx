@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useRef } from 'react';
-import { LIVE_POSTER_URL, LIVE_TITLE } from '../../data/liveStream';
+import { LIVE_TITLE } from '../../data/liveStream';
 import { useLiveHls } from '../../hooks/useLiveHls';
 
 export function LiveStreamFrame({
@@ -12,7 +12,7 @@ export function LiveStreamFrame({
   streamInline?: boolean;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const { online, showLive, viewerCount } = useLiveHls(videoRef, streamInline);
+  const { online, showLive, viewerCount, posterUrl } = useLiveHls(videoRef, streamInline);
 
   return (
     <div className="w-full lg:max-w-2xl mx-auto">
@@ -28,14 +28,14 @@ export function LiveStreamFrame({
           className={`absolute inset-0 h-full w-full object-cover ${showLive ? '' : 'invisible'}`}
           data-podplayr-live="home"
           playsInline
-          poster={LIVE_POSTER_URL}
+          poster={posterUrl}
           controls={false}
         />
         {!showLive && (
           <>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={LIVE_POSTER_URL}
+              src={posterUrl}
               alt=""
               className="absolute inset-0 h-full w-full object-cover"
             />

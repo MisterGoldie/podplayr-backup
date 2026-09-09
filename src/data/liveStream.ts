@@ -39,8 +39,24 @@ export const LIVE_STREAM_ID = ACTIVE_STREAMER.streamId;
 export const LIVE_PLAYBACK_ID = ACTIVE_STREAMER.playbackId;
 
 export const LIVE_HLS_URL = `https://stream.mux.com/${LIVE_PLAYBACK_ID}.m3u8`;
-/** Branded 16:9 art shown while the stream is offline — never Mux's last-frame thumbnail. */
-export const LIVE_POSTER_URL = '/livedefault.png';
+
+export const LIVE_DEFAULT_POSTER_URL = '/livedefault.png';
+export const LIVE_WILL_POSTER_URL = '/willstream.png';
+
+/** Fallback poster. Prefer `livePosterUrl()` so Will’s art reverts after the stream ends. */
+export const LIVE_POSTER_URL = LIVE_DEFAULT_POSTER_URL;
+
+export function livePosterUrl({
+  online,
+  showEnded,
+}: {
+  online: boolean;
+  showEnded: boolean;
+}): string {
+  const willIsActive = ACTIVE_STREAMER === LIVE_STREAMERS.will;
+  if (willIsActive && (online || !showEnded)) return LIVE_WILL_POSTER_URL;
+  return LIVE_DEFAULT_POSTER_URL;
+}
 
 export const LIVE_TITLE = 'PODPLAYR Live';
 export const LIVE_POLL_MS = 12_000;

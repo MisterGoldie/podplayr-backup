@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import type Hls from 'hls.js';
 import { LIVE_HLS_URL } from '../data/liveStream';
 import { useLiveStatus } from './useLiveStatus';
+import { useLivePoster } from './useLivePoster';
 import { useLiveViewerCount } from './useLiveViewerCount';
 
 export function useLiveHls(
@@ -121,6 +122,7 @@ export function useLiveHls(
   }, [attachLive, destroyHls, enabled, online]);
 
   const showLive = enabled && (online || liveReady || isPlaying);
+  const posterUrl = useLivePoster(online);
   const viewerCount = useLiveViewerCount(enabled);
 
   const togglePlayback = () => {
@@ -140,6 +142,7 @@ export function useLiveHls(
 
   return {
     online,
+    posterUrl,
     viewerCount,
     needsTap,
     isPlaying,
