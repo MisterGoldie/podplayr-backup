@@ -73,6 +73,11 @@ export interface FarcasterLocationContext {
     fid: number;
     hash: string;
   };
+  notification?: {
+    notificationId?: string;
+    title?: string;
+    body?: string;
+  };
 }
 
 // Enhanced context that supports both Farcaster and MiniKit
@@ -204,7 +209,8 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
                 setLocationContext({
                   type: sdkLocation.type,
                   embed: sdkLocation.embed,
-                  cast: sdkLocation.cast
+                  cast: sdkLocation.cast,
+                  notification: sdkLocation.notification,
                 });
               }
             } else if (context) {
@@ -273,6 +279,16 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
       console.error('Error ensuring PODPlayr follow:', error);
     });
   }, [fid, firebaseUid, environment]);
+
+  useEffect(() => {
+    const details = clientContext?.notificationDetails;
+    if (!isRealFid(fid) || !details?.token || !details.url) return;
+    void fetch('/api/notifications/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fid, notificationDetails: details }),
+    }).catch(() => {});
+  }, [fid, clientContext?.notificationDetails]);
 
   useEffect(() => {
     if (!isFidReady) return;

@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "vercel-build": "node vercel-build.js && next build",
-    "tunnel": "cloudflared tunnel --url http://localhost:3000"
+    "tunnel": "cloudflared tunnel --url http://localhost:3000",
+    "notify:test": "node src/scripts/testNotification.mjs"
   },
   "dependencies": {
     "@base-org/account": "^2.5.10",

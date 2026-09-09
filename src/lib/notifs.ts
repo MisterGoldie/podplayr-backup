@@ -2,11 +2,10 @@ import {
   SendNotificationRequest,
   sendNotificationResponseSchema,
 } from "@farcaster/miniapp-sdk";
-import { getUserNotificationDetails } from "~/lib/kv";
+import { deleteUserNotificationDetails, getUserNotificationDetails } from "~/lib/kv";
+import { getAppUrl } from "~/lib/miniapp";
 
-const appUrl = process.env.NEXT_PUBLIC_URL || "";
-
-type SendFrameNotificationResult =
+export type SendFrameNotificationResult =
   | {
       state: "error";
       error: unknown;
@@ -19,10 +18,14 @@ export async function sendFrameNotification({
   fid,
   title,
   body,
+  notificationId,
+  targetUrl,
 }: {
   fid: number;
   title: string;
   body: string;
+  notificationId?: string;
+  targetUrl?: string;
 }): Promise<SendFrameNotificationResult> {
   const notificationDetails = await getUserNotificationDetails(fid);
   if (!notificationDetails) {
@@ -35,10 +38,10 @@ export async function sendFrameNotification({
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      notificationId: crypto.randomUUID(),
-      title,
-      body,
-      targetUrl: appUrl,
+      notificationId: (notificationId || crypto.randomUUID()).slice(0, 128),
+      title: title.slice(0, 32),
+      body: body.slice(0, 128),
+      targetUrl: (targetUrl || getAppUrl()).slice(0, 1024),
       tokens: [notificationDetails.token],
     } satisfies SendNotificationRequest),
   });
@@ -48,18 +51,20 @@ export async function sendFrameNotification({
   if (response.status === 200) {
     const responseBody = sendNotificationResponseSchema.safeParse(responseJson);
     if (responseBody.success === false) {
-      // Malformed response
       return { state: "error", error: responseBody.error.errors };
     }
 
+    const invalid = responseBody.data.result.invalidTokens;
+    if (invalid?.length) {
+      await deleteUserNotificationDetails(fid);
+    }
+
     if (responseBody.data.result.rateLimitedTokens.length) {
-      // Rate limited
       return { state: "rate_limit" };
     }
 
     return { state: "success" };
-  } else {
-    // Error response
-    return { state: "error", error: responseJson };
   }
+
+  return { state: "error", error: responseJson };
 }

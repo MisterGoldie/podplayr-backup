@@ -6,45 +6,21 @@ import {
 import { NextRequest } from "next/server";
 import {
   deleteUserNotificationDetails,
+  isNotificationStoreConfigured,
   setUserNotificationDetails,
 } from "~/lib/kv";
 import { sendFrameNotification } from "~/lib/notifs";
 
+function ensureNeynarApiKey() {
+  if (!process.env.NEYNAR_API_KEY && process.env.NEXT_PUBLIC_NEYNAR_API_KEY) {
+    process.env.NEYNAR_API_KEY = process.env.NEXT_PUBLIC_NEYNAR_API_KEY;
+  }
+}
+
 export async function POST(request: NextRequest) {
-  // Verify Vercel webhook signature
-  const signature = request.headers.get('x-vercel-signature');
-  const webhookSecret = process.env.VERCEL_WEBHOOK_SECRET;
-  
-  if (!signature || !webhookSecret) {
-    return new Response('Unauthorized', { status: 401 });
-  }
+  ensureNeynarApiKey();
 
-  // Compare signatures
-  const rawBody = await request.text();
-  const hmac = await crypto.subtle.importKey(
-    'raw',
-    new TextEncoder().encode(webhookSecret),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign']
-  );
-  const signature256 = await crypto.subtle.sign(
-    'HMAC',
-    hmac,
-    new TextEncoder().encode(rawBody)
-  );
-  const computedSignature = Array.from(new Uint8Array(signature256))
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('');
-
-  if (computedSignature !== signature) {
-    return new Response('Invalid signature', { status: 401 });
-  }
-
-  // Check if Redis is configured
-  const isRedisConfigured = process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN;
-
-  const requestJson = JSON.parse(rawBody);
+  const requestJson = await request.json();
 
   let data;
   try {
@@ -69,17 +45,25 @@ export async function POST(request: NextRequest) {
           { success: false, error: error.message },
           { status: 500 }
         );
+      default:
+        return Response.json(
+          { success: false, error: "Invalid webhook" },
+          { status: 400 }
+        );
     }
+  }
+
+  if (!data) {
+    return Response.json({ success: false, error: "Invalid webhook" }, { status: 400 });
   }
 
   const fid = data.fid;
   const event = data.event;
 
-  // If Redis isn't configured, just acknowledge the webhook
-  if (!isRedisConfigured) {
-    return Response.json({ 
-      success: true, 
-      message: 'Webhook received, notifications disabled (Redis not configured)' 
+  if (!isNotificationStoreConfigured()) {
+    return Response.json({
+      success: true,
+      message: "Webhook received, notifications disabled (Redis not configured)",
     });
   }
 
@@ -118,10 +102,13 @@ export async function POST(request: NextRequest) {
 
     return Response.json({ success: true });
   } catch (error) {
-    console.error('Error handling webhook:', error);
-    return Response.json({ 
-      success: false, 
-      error: 'Internal server error processing notification' 
-    }, { status: 500 });
+    console.error("Error handling webhook:", error);
+    return Response.json(
+      {
+        success: false,
+        error: "Internal server error processing notification",
+      },
+      { status: 500 }
+    );
   }
 }

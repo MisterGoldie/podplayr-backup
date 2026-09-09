@@ -821,7 +821,11 @@ const DemoBase: React.FC = () => {
 
   useEffect(() => {
     if (liveLaunchHandledRef.current) return;
+    const fromNotification =
+      farcasterLocation?.type === 'notification' &&
+      String(farcasterLocation.notification?.notificationId || '').startsWith('live-');
     if (
+      !fromNotification &&
       !isLiveLaunch(
         window.location.pathname,
         window.location.search,

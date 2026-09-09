@@ -7,6 +7,8 @@ declare namespace NodeJS {
     NEXT_PUBLIC_URL: string;
     KV_REST_API_URL?: string;
     KV_REST_API_TOKEN?: string;
+    CRON_SECRET?: string;
+    NEYNAR_API_KEY?: string;
     NEXT_PUBLIC_FIREBASE_API_KEY: string;
     NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: string;
     NEXT_PUBLIC_FIREBASE_PROJECT_ID: string;
