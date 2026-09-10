@@ -115,7 +115,7 @@ export function useLiveHls(
 
   const showLive = enabled && (online || liveReady || isPlaying);
   const posterUrl = useLivePoster(online);
-  const viewerCount = useLiveViewerCount(enabled);
+  const viewerCount = useLiveViewerCount(enabled && online);
 
   const togglePlayback = () => {
     const video = videoRef.current;
