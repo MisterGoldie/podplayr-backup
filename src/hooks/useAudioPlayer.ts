@@ -52,7 +52,7 @@ import {
   clearNftMediaUrlCache,
 } from '../utils/media';
 import { resolveCdnPlaybackUrls, isOrphanMuxPlaybackUrl, isMuxPlaybackUrl, isPollutedPlaybackUrl, isWeakPlaybackUrl, isMezzanineMuxUrl } from '../lib/mediaCdn';
-import { attachPlaybackSource, detachHlsPlayback, isHlsAttached, isHlsUrl, pauseHlsBuffering, resumeHlsBuffering, seekAttachedMedia } from '../lib/hlsPlayback';
+import { attachPlaybackSource, attachProgressivePlaybackSource, detachHlsPlayback, isHlsAttached, isHlsUrl, pauseHlsBuffering, resumeHlsBuffering, seekAttachedMedia } from '../lib/hlsPlayback';
 import { setActiveMainMedia, getActiveMainMedia, pauseActiveMainMedia } from '../lib/activeMainMedia';
 import { restorePageScroll } from '../utils/pageScroll';
 
@@ -502,15 +502,26 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       mediaUrlNeedsMimeProbe(probeUrl) &&
       !/\.(mp3|wav|m4a|aac|ogg|flac)(?:\?|#|$)/i.test(probeUrl || '');
     if ((mediaUrlNeedsMimeProbe(probeUrl) && !skipMimeProbe) || mustProbeAudioOnly) {
-      plan = await resolveNftPlaybackPlan(playNft);
-      playbackDebug('play:probed', {
-        name: playNft.name,
-        from: 'audio-only-or-unknown',
-        to: plan.mode,
-        probeUrl,
-        knownMime,
-        cachedMime,
-      });
+      // Awaiting HEAD here drops the iOS tap gesture. If metadata already
+      // routed this as video-with-audio, play now and probe in the background.
+      if (plan.mode === 'video-with-audio' && plan.videoUrl) {
+        void resolveNftPlaybackPlan(playNft);
+        playbackDebug('play:probe-deferred', {
+          name: playNft.name,
+          probeUrl,
+          planMode: plan.mode,
+        });
+      } else {
+        plan = await resolveNftPlaybackPlan(playNft);
+        playbackDebug('play:probed', {
+          name: playNft.name,
+          from: 'audio-only-or-unknown',
+          to: plan.mode,
+          probeUrl,
+          knownMime,
+          cachedMime,
+        });
+      }
     } else if (
       cachedMime.startsWith('video/') &&
       plan.mode === 'audio-only' &&
@@ -667,6 +678,14 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       name: playNft.name,
       planMode: plan.mode,
       rawAudioUrl,
+      playbackUrlCount: playbackUrls.length,
+      playbackHosts: playbackUrls.map((u) => {
+        try {
+          return new URL(u).hostname;
+        } catch {
+          return u.slice(0, 40);
+        }
+      }),
       audioUrls,
       cdnUrls,
       playbackUrls,
@@ -946,11 +965,15 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
         shouldProbeIpfsDirectory(currentUrlForTimer) &&
         !knownPlayMime.startsWith('audio/') &&
         !knownPlayMime.startsWith('video/');
+      const isIpfsFileCandidate =
+        /\/ipfs\/|\.ipfs\./i.test(currentUrlForTimer) && !isIpfsDirCandidate;
       const failoverMs = isHlsUrl(nextUrl)
         ? HLS_FIRST_BYTE_FAILOVER_MS
         : isIpfsDirCandidate
           ? IPFS_DIR_FAILOVER_MS
-          : FIRST_BYTE_FAILOVER_MS;
+          : isMobile && isIpfsFileCandidate
+            ? 4000
+            : FIRST_BYTE_FAILOVER_MS;
       playbackDebug('play:try-url', {
         name: nft.name,
         index,
@@ -993,8 +1016,11 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
         // Huge Arweave MP4s stay at readyState 0 for a long time while bytes
         // are in flight. networkState 2 = actually downloading — do not abort
         // (unless this is a bare IPFS directory that never yields bytes).
+        // Mobile IPFS: Pinata can sit in NETWORK_LOADING on a CF challenge
+        // with no frames — hop to the next gateway instead of waiting again.
         if (
           !hungIpfsDir &&
+          !(isMobile && isIpfsFileCandidate) &&
           (media.networkState === HTMLMediaElement.NETWORK_LOADING || !media.paused)
         ) {
           failoverTimerRef.current = setTimeout(() => {
@@ -1013,6 +1039,19 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
         });
         tryUrl(index + 1);
       }, failoverMs);
+
+      if (!isHlsUrl(nextUrl)) {
+        const attachedSrc = attachProgressivePlaybackSource(media, nextUrl);
+        switchingUrl = false;
+        playbackDebug('play:attached', {
+          name: nft.name,
+          candidate: nextUrl,
+          attachedSrc: attachedSrc.slice(0, 220),
+          tag: media.tagName,
+        });
+        kickPlay();
+        return;
+      }
 
       void attachPlaybackSource(media, nextUrl, () => {
         if (playAttempt !== playAttemptRef.current || urlIndex !== index) return;

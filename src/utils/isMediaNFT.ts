@@ -602,16 +602,18 @@ export const filterLivePlaybackUrls = (assetUrl: string, urls: string[]): string
   const source = getCachedMediaSourceUrl(assetUrl);
   // Never promote polluted Mux / broken Alchemy HLS from mime-source memory.
   const safeSource =
-    source && !isPollutedPlaybackUrl(source) ? source : '';
+    source && !isPollutedPlaybackUrl(source) && !isIpfsCorsHostileUrl(source) ? source : '';
   const ordered = safeSource
     ? [safeSource, ...urls.filter((u) => u !== safeSource)]
     : urls;
-  // ipfs.io 403s in-browser even if it was remembered from an older session.
-  const reachable = ordered.filter(
-    (u) => !isIpfsCorsHostileUrl(u) && !isPollutedPlaybackUrl(u)
-  );
-  const pool = reachable.length ? reachable : ordered.filter((u) => !isPollutedPlaybackUrl(u));
-  const finalPool = pool.length ? pool : ordered;
+  const notPolluted = ordered.filter((u) => !isPollutedPlaybackUrl(u));
+  // fetch/HEAD CORS ≠ <video src>. Pinata-first, then other IPFS gateways.
+  // Dropping w3s/dweb here left mobile with of:1 (Pinata only).
+  const preferred = notPolluted.filter((u) => !isIpfsCorsHostileUrl(u));
+  const fallbacks = notPolluted.filter((u) => isIpfsCorsHostileUrl(u));
+  const finalPool = (preferred.length || fallbacks.length)
+    ? [...preferred, ...fallbacks]
+    : ordered;
   if (!dead?.size) return finalPool;
   const live = finalPool.filter((u) => {
     try {

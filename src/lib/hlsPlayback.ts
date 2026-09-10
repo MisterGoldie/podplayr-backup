@@ -96,6 +96,20 @@ function canUseNativeHls(media: HTMLMediaElement): boolean {
 }
 
 /**
+ * Set a progressive (non-HLS) src on the same tick as the tap.
+ * `async attachPlaybackSource` always yields a microtask; iOS WKWebView
+ * then treats play() as not user-initiated (desktop Chrome still allows it).
+ */
+export function attachProgressivePlaybackSource(media: HTMLMediaElement, url: string): string {
+  detachHlsPlayback(media);
+  const src = withBrowserVideoHint(url, {
+    assumeVideo: typeof HTMLVideoElement !== 'undefined' && media instanceof HTMLVideoElement,
+  });
+  media.src = src;
+  return src;
+}
+
+/**
  * Attach a source to `media`. Progressive URLs set `src` immediately.
  * HLS prefers hls.js (MSE) on Chrome/Edge; native only on Safari/iOS.
  */
@@ -104,16 +118,12 @@ export async function attachPlaybackSource(
   url: string,
   onFatalError: () => void
 ): Promise<void> {
-  detachHlsPlayback(media);
-
   if (!isHlsUrl(url)) {
-    // Cover/img paths call withBrowserVideoHint without assumeVideo.
-    // Bare-CID `#.mp4` is only for the playback <video> clock.
-    media.src = withBrowserVideoHint(url, {
-      assumeVideo: typeof HTMLVideoElement !== 'undefined' && media instanceof HTMLVideoElement,
-    });
+    attachProgressivePlaybackSource(media, url);
     return;
   }
+
+  detachHlsPlayback(media);
 
   const { default: Hls } = await import('hls.js');
 
