@@ -45,10 +45,16 @@ function wordToPattern(word: string): string {
   return `${letters}${suffix}`;
 }
 
-const VULGAR_PATTERN = new RegExp(
-  `(?<![a-z0-9])(${VULGAR_WORDS.map(wordToPattern).join('|')})(?![a-z0-9])`,
-  'gi'
-);
+/**
+ * No lookbehind — older Farcaster / Base WebViews throw on `(?<! )`,
+ * which skipped this module and left chat uncensored.
+ */
+function vulgarPattern(): RegExp {
+  return new RegExp(
+    `(^|[^a-z0-9])(${VULGAR_WORDS.map(wordToPattern).join('|')})(?![a-z0-9])`,
+    'gi'
+  );
+}
 
 function maskWord(word: string): string {
   const chars = Array.from(word);
@@ -58,5 +64,13 @@ function maskWord(word: string): string {
 
 export function censorChatText(text: string): string {
   if (!text) return text;
-  return text.replace(VULGAR_PATTERN, maskWord);
+  const cleaned = text.replace(/[\u200b-\u200d\ufeff]/g, '');
+  try {
+    return cleaned.replace(
+      vulgarPattern(),
+      (_full, prefix: string, word: string) => `${prefix}${maskWord(word)}`
+    );
+  } catch {
+    return cleaned;
+  }
 }

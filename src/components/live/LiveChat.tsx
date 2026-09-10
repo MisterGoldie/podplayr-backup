@@ -215,7 +215,7 @@ export function LiveChat({
           type="text"
           value={draft}
           onChange={(event) => {
-            setDraft(event.target.value.slice(0, LIVE_CHAT_MAX_LEN));
+            setDraft(censorChatText(event.target.value).slice(0, LIVE_CHAT_MAX_LEN));
             if (error) setError(null);
           }}
           maxLength={LIVE_CHAT_MAX_LEN}
