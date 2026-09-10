@@ -11,6 +11,7 @@ import { withFeaturedHydration } from '~/data/featuredNfts';
 import { getNftCardCover } from '../../utils/nftCardCover';
 import { logNftCardSpamDebug } from '~/utils/nftSpamDebug';
 import { logNftCoverDebug } from '~/utils/imageDebug';
+import { isRealFid } from '~/utils/platform';
 
 interface NFTCardProps {
   nft: NFT;
@@ -39,8 +40,11 @@ const NFTCardInner: React.FC<NFTCardProps> = ({
   showLibraryBadge = false,
 }) => {
   const { fid } = useFarcasterContext();
-  // Use userFid prop if available, otherwise fall back to context fid
-  const effectiveFid = userFid ? parseInt(userFid) : fid;
+  // Use userFid prop if available, otherwise fall back to context fid.
+  // Callers used to pass "0" when logged out — `{0 && <button>}` renders a
+  // visible "0" in the thumbnail until the image covers it.
+  const parsedPropFid = userFid != null && userFid !== '' ? Number.parseInt(userFid, 10) : undefined;
+  const effectiveFid = isRealFid(parsedPropFid) ? parsedPropFid : fid;
   
   // When the caller already tracks liked state itself (isNFTLiked prop), skip our
   // own live "is this liked by me" subscription — it'd be a redundant listener,
@@ -143,7 +147,7 @@ const NFTCardInner: React.FC<NFTCardProps> = ({
             />
           )}
           
-          {effectiveFid && (
+          {isRealFid(effectiveFid) && (
             <button 
               onClick={handleLikeClick}
               className={`absolute top-2 right-2 ${smallCard ? 'w-8 h-8' : 'w-10 h-10'} flex items-center justify-center text-red-500 z-10 active:scale-95 touch-manipulation`}

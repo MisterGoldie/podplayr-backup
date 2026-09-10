@@ -107,7 +107,11 @@ export async function attachPlaybackSource(
   detachHlsPlayback(media);
 
   if (!isHlsUrl(url)) {
-    media.src = withBrowserVideoHint(url);
+    // Cover/img paths call withBrowserVideoHint without assumeVideo.
+    // Bare-CID `#.mp4` is only for the playback <video> clock.
+    media.src = withBrowserVideoHint(url, {
+      assumeVideo: typeof HTMLVideoElement !== 'undefined' && media instanceof HTMLVideoElement,
+    });
     return;
   }
 

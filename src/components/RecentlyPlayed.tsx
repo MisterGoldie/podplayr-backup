@@ -268,7 +268,7 @@ const RecentlyPlayed: React.FC<RecentlyPlayedProps> = ({
                     currentlyPlaying={currentlyPlaying || null}
                     handlePlayPause={handlePlayPause || (() => {})}
                     onLikeToggle={onLikeToggle ? () => onLikeToggle(nft) : undefined}
-                    userFid={(userFid ?? 0).toString()}
+                    userFid={isRealFid(userFid) ? String(userFid) : undefined}
                     isNFTLiked={isNFTLiked ? () => isNFTLiked(nft) : undefined}
                     animationDelay={0.2 + (index * 0.05)}
                     smallCard

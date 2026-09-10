@@ -10,6 +10,7 @@ import { sameLikedTrack } from '../../utils/likeDedupe';
 import { logger } from '~/utils/logger';
 import { UserFidContext } from '~/app/providers';
 import { LiveStreamFrame } from '../live/LiveStreamFrame';
+import { isRealFid } from '~/utils/platform';
 
 const homeLogger = logger.getModuleLogger('homeView');
 
@@ -163,7 +164,7 @@ const HomeView: React.FC<HomeViewProps> = ({
                           currentlyPlaying={currentlyPlaying}
                           handlePlayPause={handlePlayPause}
                           onLikeToggle={onLikeToggle}
-                          userFid={(fid ?? 0).toString()}
+                          userFid={isRealFid(fid) ? String(fid) : undefined}
                           isNFTLiked={() => checkDirectlyLiked(nft)}
                           animationDelay={index * 0.1}
                         />
@@ -183,7 +184,7 @@ const HomeView: React.FC<HomeViewProps> = ({
           isPlaying={isPlaying}
           onLikeToggle={onLikeToggle}
           isNFTLiked={checkDirectlyLiked}
-          userFid={(fid ?? 0).toString()}
+          userFid={isRealFid(fid) ? String(fid) : undefined}
         />
       </div>
     </>
