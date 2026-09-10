@@ -22,7 +22,7 @@ const emptyState = (): LiveNotifyState => ({
   misses: 0,
   sessionId: null,
   notifiedSessionId: null,
-  showEnded: false,
+  showEnded: true,
 });
 
 async function checkManifest(): Promise<{ status: 'live' | 'ended' | 'down'; seq: string | null }> {

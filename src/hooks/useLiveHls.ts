@@ -103,22 +103,14 @@ export function useLiveHls(
   }, [destroyHls, videoRef]);
 
   useEffect(() => {
-    if (!enabled) {
+    if (!enabled || !online) {
       destroyHls();
+      if (!enabled) sawOnlineRef.current = false;
       return;
     }
+    sawOnlineRef.current = true;
     void attachLive();
     return () => destroyHls();
-  }, [attachLive, destroyHls, enabled]);
-
-  useEffect(() => {
-    if (!enabled) return;
-    if (online) {
-      sawOnlineRef.current = true;
-      if (!attachedRef.current) void attachLive();
-      return;
-    }
-    if (sawOnlineRef.current) destroyHls();
   }, [attachLive, destroyHls, enabled, online]);
 
   const showLive = enabled && (online || liveReady || isPlaying);
