@@ -17,6 +17,11 @@ import {
 import { getMediaKey } from './nftIdentity';
 import { isDangerousResourceUrl } from './nftSafety';
 import { playbackDebug } from './playbackDebug';
+import {
+  ipfsFilenameLooksLikeMedia,
+  lastPathSegment,
+  urlLooksLikeExtensionlessVideo,
+} from './ipfsExtensionlessMedia';
 
 export {
   rewriteLegacyOpenSeaMediaUrl,
@@ -106,7 +111,8 @@ export type IpfsFallbackKind = 'image' | 'media';
 const looksLikeAudioFileUrl = (url: string): boolean =>
   /\.(mp3|wav|ogg|m4a|flac|aac)(?:\?|#|$)/i.test(url);
 
-const looksLikeVideoFileUrl = (url: string): boolean => VIDEO_FILE_EXT_RE.test(url);
+const looksLikeVideoFileUrl = (url: string): boolean =>
+  VIDEO_FILE_EXT_RE.test(url) || urlLooksLikeExtensionlessVideo(url);
 
 /** JPEG/PNG/etc or OpenSea i2c stills — never treat these as video covers.
  *  Collection-level i2c is handled separately — callers must not prefer it
@@ -157,6 +163,9 @@ export const shouldProbeIpfsDirectory = (url: string, ipfsPath?: string | null):
 
   if (parts.length > 1) {
     const last = parts[parts.length - 1];
+    // `CID/nft-gallery-1mov` is a file. Probing image.png / audio.mp3 404s and
+    // can failover off the real asset.
+    if (ipfsFilenameLooksLikeMedia(last)) return false;
     return !/\.[a-z0-9]{2,5}$/i.test(last);
   }
 
@@ -184,6 +193,7 @@ export const isBareIpfsDirectoryPath = (ipfsPath: string): boolean => {
   if (isRawIpfsCid(parts[0])) return false;
   if (parts.length === 1) return false; // ambiguous without URL trailing-slash signal
   const last = parts[parts.length - 1];
+  if (ipfsFilenameLooksLikeMedia(last)) return false;
   return !/\.[a-z0-9]{2,5}$/i.test(last);
 };
 
@@ -308,6 +318,115 @@ export const pickImageCandidates = (nft: UserNFT | null | undefined): string[] =
   out.sort((a, b) => coverScore(b) - coverScore(a));
   return out;
 };
+
+type IpfsVideoCoverNft = {
+  image?: string | null;
+  audio?: string | null;
+  animationUrl?: string | null;
+  videoUrl?: string | null;
+  metadata?: {
+    image?: string | null;
+    animation_url?: string | null;
+  } | null;
+};
+
+/**
+ * Last-resort cover when an IPFS directory has no still (`image.png` 404s) but
+ * animation/audio points at a video file in the same CID (`nft-gallery-1mov`).
+ * Never runs ahead of real stills — callers must only use this after image probes fail.
+ */
+export const pickSameCidIpfsVideoCover = (
+  nft: IpfsVideoCoverNft | null | undefined,
+  failedUrl?: string | null
+): string => {
+  if (!nft) return '';
+  const pool = [
+    nft.metadata?.animation_url,
+    nft.animationUrl,
+    nft.videoUrl,
+    nft.audio,
+    nft.image,
+    nft.metadata?.image,
+    failedUrl,
+  ];
+  const cid =
+    pool
+      .map((raw) => extractIPFSPath(sanitizeMediaUrl(raw) || '') || '')
+      .find((path) => path.split('/').filter(Boolean)[0])
+      ?.split('/')
+      .filter(Boolean)[0] || '';
+  if (!cid) return '';
+
+  for (const raw of pool) {
+    const trimmed = sanitizeMediaUrl(raw);
+    if (!trimmed || looksLikeAudioFileUrl(trimmed)) continue;
+    const path = extractIPFSPath(trimmed);
+    if (!path) continue;
+    const parts = path.split('/').filter(Boolean);
+    if (parts.length < 2) continue;
+    if (parts[0].toLowerCase() !== cid.toLowerCase()) continue;
+    const last = parts[parts.length - 1];
+    if (IMAGE_FILE_EXT_RE.test(last)) continue;
+    if (VIDEO_FILE_EXT_RE.test(last) || ipfsFilenameLooksLikeMedia(last, 'video')) {
+      return toIpfsGatewayUrl(path);
+    }
+  }
+  return '';
+};
+
+/** Last-resort: parse a gateway directory listing for a video file in this CID. */
+export async function listIpfsDirectoryVideoFile(url: string): Promise<string> {
+  const path = extractIPFSPath(url);
+  if (!path) return '';
+  const cid = path.split('/').filter(Boolean)[0];
+  if (!cid || isRawIpfsCid(cid)) return '';
+
+  const listingUrl = toIpfsGatewayUrl(`${cid}/`);
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 3500);
+  try {
+    const res = await fetch(listingUrl, { method: 'GET', mode: 'cors', signal: ctrl.signal });
+    if (!res.ok) return '';
+    const contentType = (res.headers.get('content-type') || '').toLowerCase();
+    if (contentType.startsWith('video/') || contentType.startsWith('audio/')) {
+      return '';
+    }
+    const html = await res.text();
+    const hrefs = [...html.matchAll(/href\s*=\s*["']([^"']+)["']/gi)].map((m) => m[1]);
+    for (const href of hrefs) {
+      let decoded = href.split(/[?#]/)[0] || '';
+      try {
+        decoded = decodeURIComponent(decoded);
+      } catch {
+        // keep raw
+      }
+      const listedPath = extractIPFSPath(
+        decoded.startsWith('http') || decoded.startsWith('ipfs://')
+          ? decoded
+          : decoded.includes('/ipfs/')
+            ? `https://gateway.pinata.cloud${decoded.startsWith('/') ? decoded : `/${decoded}`}`
+            : ''
+      );
+      let parts = (listedPath || '').replace(/^\/+/, '').split('/').filter(Boolean);
+      const relative = lastPathSegment(decoded);
+      if (parts.length < 2 && relative && !relative.includes('..')) {
+        parts = [cid, relative];
+      }
+      if (parts[0]?.toLowerCase() !== cid.toLowerCase() || parts.length < 2) continue;
+      const last = parts[parts.length - 1];
+      if (!last || last === cid || last === '.' || last === '..') continue;
+      if (IMAGE_FILE_EXT_RE.test(last)) continue;
+      if (VIDEO_FILE_EXT_RE.test(last) || ipfsFilenameLooksLikeMedia(last, 'video')) {
+        return toIpfsGatewayUrl(parts.join('/'));
+      }
+    }
+  } catch {
+    return '';
+  } finally {
+    clearTimeout(timer);
+  }
+  return '';
+}
 
 const isAlchemyCdnMediaUrl = (url?: string | null): boolean =>
   !!url && /nft2?-cdn\.alchemy\.com|res\.cloudinary\.com\/alchemyapi/i.test(url);
@@ -1158,14 +1277,20 @@ export function adoptPlaybackVideoElement(
   }
   const needsReparent = video.parentElement !== host;
   if (needsReparent) {
+    const resumeAfterReparent = !video.paused && !video.ended;
     playbackDebug('adopt:reparent', {
       contract,
       tokenId,
       wasPaused: video.paused,
       currentTime: video.currentTime,
       previousParent: video.parentElement?.tagName ?? null,
+      resumeAfterReparent,
     });
     host.appendChild(video);
+    // Moving the node can abort an in-flight play(). Restore if it was already going.
+    if (resumeAfterReparent) {
+      video.play().catch(() => {});
+    }
   }
   video.removeAttribute('data-podplayr-fallback');
   applyPlaybackVideoPresentation(video);

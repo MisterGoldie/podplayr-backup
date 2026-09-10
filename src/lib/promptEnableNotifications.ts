@@ -1,3 +1,5 @@
+import { isVerifiedMiniAppHost } from './miniapp';
+
 let prompted = false;
 
 /**
@@ -10,6 +12,12 @@ export async function promptEnableMiniAppNotifications(): Promise<void> {
   prompted = true;
 
   try {
+    // The accountAssociation signature is bound to podplayr.xyz. Calling
+    // addMiniApp on localhost / Cloudflare Tunnel logs
+    // "Mini app add rejected invalid_domain_manifest" and Next's overlay
+    // treats that console.error as a crash. Notifications still work in prod.
+    if (!isVerifiedMiniAppHost(window.location.hostname)) return;
+
     const { sdk } = await import('@farcaster/miniapp-sdk');
     if (!(await sdk.isInMiniApp())) return;
 

@@ -1,5 +1,13 @@
 const DEFAULT_APP_URL = 'https://podplayr.xyz';
 
+/** Domain the farcaster.json accountAssociation signature was issued for. */
+export const MINIAPP_VERIFIED_DOMAIN = 'podplayr.xyz';
+
+export function isVerifiedMiniAppHost(hostname: string): boolean {
+  const host = hostname.replace(/\.$/, '').toLowerCase();
+  return host === MINIAPP_VERIFIED_DOMAIN || host === `www.${MINIAPP_VERIFIED_DOMAIN}`;
+}
+
 function stripSlash(url: string): string {
   return url.replace(/\/$/, '');
 }

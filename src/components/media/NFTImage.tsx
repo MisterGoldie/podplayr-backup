@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { processMediaUrl, IPFS_GATEWAYS, isAudioUrlUsedAsImage, getCleanIPFSUrl, processArweaveUrl, getMediaKey, getNftIdentityKey, buildArweaveImageFallbackUrls, buildIpfsFallbackUrls, buildHttpCdnImageFallbackUrls, extractIPFSPath, getNftMediaUrl, toIpfsGatewayUrl, clearNftMediaUrlCache, pickImageCandidates, shouldProbeIpfsDirectory, sanitizeMediaUrl, looksLikeStillImageUrl, isCollectionOpenSeaStillUrl, isFragileSeaDnPosterUrl, nftHasSeaDnVideoAnimation, rememberNftDisplayCover, getRememberedNftDisplayCover } from '../../utils/media';
+import { processMediaUrl, IPFS_GATEWAYS, isAudioUrlUsedAsImage, getCleanIPFSUrl, processArweaveUrl, getMediaKey, getNftIdentityKey, buildArweaveImageFallbackUrls, buildIpfsFallbackUrls, buildHttpCdnImageFallbackUrls, extractIPFSPath, getNftMediaUrl, toIpfsGatewayUrl, clearNftMediaUrlCache, pickImageCandidates, shouldProbeIpfsDirectory, sanitizeMediaUrl, looksLikeStillImageUrl, isCollectionOpenSeaStillUrl, isFragileSeaDnPosterUrl, nftHasSeaDnVideoAnimation, rememberNftDisplayCover, getRememberedNftDisplayCover, pickSameCidIpfsVideoCover, listIpfsDirectoryVideoFile } from '../../utils/media';
+import { urlLooksLikeExtensionlessVideo, withBrowserVideoHint } from '../../utils/ipfsExtensionlessMedia';
 import { getCardThumbUrl, getCardThumbAlternates, shouldPreserveAnimation, nftHasAnimatedCover, isBrowserFriendlyCdnUrl, isArweaveMediaUrl, isIpfsMediaUrl, isVideoMediaUrl, isLikelyTokenVideoCoverUrl, getVideoCoverStillUrl, alchemyCoverIsPlaybackVideo, parseAlchemyCdnRef, resizeAlchemyCloudinaryThumb } from '../../utils/imageOptimizer';
 import { imageDebug, imageDebugUrlKind, logNftCoverDebug } from '../../utils/imageDebug';
 import Image from 'next/image';
@@ -218,13 +219,27 @@ export const NFTImage: React.FC<NFTImageProps> = ({
   placeholder = 'empty'
 }) => {
   const fallbackSrc = '/default-nft.png';
-  const [isVideo, setIsVideo] = useState(false);
   const cleanSrc = sanitizeMediaUrl(src);
-  // Don't fetch ipfs:// / ar:// on first paint — resolve picks SeaDN/Alchemy
+  const toPlayableCoverVideoUrl = (url?: string | null): string => {
+    const cleaned = sanitizeMediaUrl(url);
+    if (!cleaned || cleaned === fallbackSrc) return '';
+    const httpsUrl = processMediaUrl(cleaned, '', 'audio');
+    if (!httpsUrl || httpsUrl === fallbackSrc) return '';
+    return withBrowserVideoHint(httpsUrl);
+  };
+  const [isVideo, setIsVideo] = useState(
+    () => urlLooksLikeExtensionlessVideo(cleanSrc) || isVideoMediaUrl(cleanSrc)
+  );
+  // Don't fetch ipfs:// / ar:// stills on first paint — resolve picks SeaDN/Alchemy
   // first. A doomed gateway 404's onError would clobber that still (Recently Played).
+  // Extensionless IPFS video is already the cover; convert to https immediately.
   const protocolSrc = /^(ipfs|ar):\/\//i.test(cleanSrc);
-  const initialProcessed =
-    cleanSrc && !protocolSrc
+  const initialVideoCover = toPlayableCoverVideoUrl(
+    urlLooksLikeExtensionlessVideo(cleanSrc) ? cleanSrc : ''
+  );
+  const initialProcessed = initialVideoCover
+    ? initialVideoCover
+    : cleanSrc && !protocolSrc
       ? processMediaUrl(cleanSrc, fallbackSrc, 'image')
       : fallbackSrc;
   
@@ -275,6 +290,12 @@ export const NFTImage: React.FC<NFTImageProps> = ({
     originalUrlRef.current = url;
     if (!url || url === fallbackSrc || url.startsWith('/') || url.startsWith('data:')) {
       return url;
+    }
+    // Extensionless IPFS video (`nft-gallery-1mov`) — native <video> on https.
+    // ipfs:// cannot load in <img>/<video>; that's what forced default-nft.png.
+    // Real `.mp4` / SeaDN covers keep the still-extract path below.
+    if (urlLooksLikeExtensionlessVideo(url)) {
+      return toPlayableCoverVideoUrl(url) || url;
     }
     // Never send GIFs through the static WebP proxy — it freezes animation
     // and large Pinata GIFs often never finish loading.
@@ -350,11 +371,16 @@ export const NFTImage: React.FC<NFTImageProps> = ({
     if (!cleaned || cleaned === fallbackSrc) return;
     const videoOnlyCover =
       isVideoMediaUrl(cleaned) ||
+      urlLooksLikeExtensionlessVideo(cleaned) ||
       isLikelyTokenVideoCoverUrl(cleaned) ||
       (/raw2?\.seadn\.io/i.test(cleaned) &&
         !/\.(png|jpe?g|gif|webp|svg|avif)(?:\?|#|$)/i.test(cleaned));
     originalUrlRef.current = cleaned;
-    if (videoOnlyCover && useCardThumb) {
+    if (urlLooksLikeExtensionlessVideo(cleaned)) {
+      const playable = toPlayableCoverVideoUrl(cleaned);
+      setIsVideo(true);
+      setImgSrc(playable || cleaned);
+    } else if (videoOnlyCover && useCardThumb) {
       setIsVideo(true);
       setImgSrc(cleaned);
     } else {
@@ -504,6 +530,11 @@ export const NFTImage: React.FC<NFTImageProps> = ({
             nft?.metadata?.animation_url &&
             isTokenVideoCover(nft.metadata.animation_url) &&
             nft.metadata.animation_url) ||
+          (!alchemySrc &&
+            nft?.videoUrl &&
+            isTokenVideoCover(nft.videoUrl) &&
+            nft.videoUrl) ||
+          (!alchemySrc && nft?.audio && isTokenVideoCover(nft.audio) && nft.audio) ||
           '';
       // Collection image is last-resort only — never a durable primary when we
       // already have a token Alchemy / SeaDN cover (shared across the contract).
@@ -595,6 +626,9 @@ export const NFTImage: React.FC<NFTImageProps> = ({
         processedUrlCache.current[cacheKey] = tokenVideoSrc;
         clearNftMediaUrlCache(nft, 'image');
         resolvedForLog = toDisplaySrc(tokenVideoSrc);
+        setIsVideo(
+          urlLooksLikeExtensionlessVideo(tokenVideoSrc) || isVideoMediaUrl(resolvedForLog)
+        );
         setImgSrc(resolvedForLog);
       } else if (durableSrc && isAlchemyStillUrl(durableSrc)) {
         resolveBranch = 'alchemyDurable';
@@ -718,7 +752,7 @@ export const NFTImage: React.FC<NFTImageProps> = ({
     const { isAudio, isVideo } = isMediaUrl(derivedSrc || src);
     
     // If this is a video URL, set the video flag
-    if (isVideo) {
+    if (isVideo || urlLooksLikeExtensionlessVideo(derivedSrc || src)) {
       setIsVideo(true);
     }
 
@@ -1228,6 +1262,26 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       enrichInFlight: alchemyEnrichInFlightRef.current,
     });
 
+    // The cover URL is itself an extensionless IPFS video. Do not walk
+    // image.png/cover.jpg — those files are not in this folder.
+    const asVideoSrc = toPlayableCoverVideoUrl(
+      (urlLooksLikeExtensionlessVideo(failedSrc) && failedSrc) ||
+        (urlLooksLikeExtensionlessVideo(originalUrlRef.current) && originalUrlRef.current) ||
+        (urlLooksLikeExtensionlessVideo(src) && src) ||
+        ''
+    );
+    if (asVideoSrc && !attemptedFallbacks.current[`${asVideoSrc}-as-video`]) {
+      attemptedFallbacks.current[`${asVideoSrc}-as-video`] = true;
+      originalUrlRef.current = asVideoSrc;
+      setIsVideo(true);
+      setImgSrc(asVideoSrc);
+      setRetryCount((c) => c + 1);
+      setError(false);
+      setIsLoadingFallback(false);
+      setImgLoading(true);
+      return;
+    }
+
     const isThumbProxy =
       failedSrc.includes('wsrv.nl') ||
       failedSrc.includes('images.weserv.nl') ||
@@ -1336,7 +1390,11 @@ export const NFTImage: React.FC<NFTImageProps> = ({
           reason: 'native-video',
         });
         setIsVideo(true);
-        setImgSrc(nativeVideo);
+        setImgSrc(
+          urlLooksLikeExtensionlessVideo(nativeVideo)
+            ? toPlayableCoverVideoUrl(nativeVideo) || nativeVideo
+            : nativeVideo
+        );
         setError(false);
         setIsLoadingFallback(false);
         return;
@@ -1352,6 +1410,33 @@ export const NFTImage: React.FC<NFTImageProps> = ({
         alchemyPeer: parsedPeer || alchemyCdnPeer || null,
         altsTried: Object.keys(attemptedFallbacks.current).filter((k) => k.endsWith('-card')),
       });
+      const ipfsVideoCover = toPlayableCoverVideoUrl(
+        pickSameCidIpfsVideoCover(nft, failedSrc || src) ||
+          [nft?.metadata?.animation_url, nft?.animationUrl, nft?.videoUrl, nft?.audio].find(
+            (u) => !!u && urlLooksLikeExtensionlessVideo(u)
+          ) ||
+          ''
+      );
+      if (ipfsVideoCover && !attemptedFallbacks.current[`${ipfsVideoCover}-ipfs-video-cover`]) {
+        attemptedFallbacks.current[`${ipfsVideoCover}-ipfs-video-cover`] = true;
+        originalUrlRef.current = ipfsVideoCover;
+        setIsVideo(true);
+        setImgSrc(ipfsVideoCover);
+        setRetryCount((c) => c + 1);
+        setError(false);
+        setIsLoadingFallback(false);
+        setImgLoading(true);
+        imageDebug('cover:hop', {
+          name: nft?.name,
+          contract: nft?.contract,
+          tokenId: nft?.tokenId,
+          from: failedSrc,
+          to: ipfsVideoCover,
+          toKind: 'video-file',
+          reason: 'ipfs-same-cid-video-before-png',
+        });
+        return;
+      }
       if (
         nft &&
         !alchemyEnrichAttemptedRef.current &&
@@ -1767,20 +1852,25 @@ export const NFTImage: React.FC<NFTImageProps> = ({
         }
         const looksVideo =
           isVideoMediaUrl(candidate) ||
+          urlLooksLikeExtensionlessVideo(candidate) ||
           /\.(mp4|webm|mov|m4v)(?:\?|#|$)/i.test(candidate) ||
           /niftyisland\.com/i.test(candidate) ||
           (/raw2?\.seadn\.io/i.test(candidate) &&
             !/\.(png|jpe?g|gif|webp|svg)(?:\?|#|$)/i.test(candidate));
         const looksAudio = /\.(mp3|wav|m4a|aac|ogg|flac)(?:\?|#|$)/i.test(candidate);
         if (!looksVideo || looksAudio) continue;
-        if (/\/ipfs\//i.test(candidate) || candidate.startsWith('ipfs://')) continue;
+        const playable = urlLooksLikeExtensionlessVideo(candidate)
+          ? toPlayableCoverVideoUrl(candidate)
+          : candidate;
+        if (!playable) continue;
 
         attemptedFallbacks.current[`${candidate}-video-cover`] = true;
         if (nft.contract && nft.tokenId) {
-          processedUrlCache.current[`${nft.contract}-${nft.tokenId}`] = candidate;
+          processedUrlCache.current[`${nft.contract}-${nft.tokenId}`] = playable;
         }
-        originalUrlRef.current = candidate;
-        setImgSrc(toDisplaySrc(candidate));
+        originalUrlRef.current = playable;
+        setIsVideo(true);
+        setImgSrc(urlLooksLikeExtensionlessVideo(candidate) ? playable : toDisplaySrc(candidate));
         setRetryCount((c) => c + 1);
         setError(false);
         setIsLoadingFallback(false);
@@ -1802,6 +1892,66 @@ export const NFTImage: React.FC<NFTImageProps> = ({
         setIsLoadingFallback(false);
         return;
       }
+    }
+
+    // Last resort for IPFS folders with no still: same-CID video file, then
+    // directory listing. Runs only after Alchemy/OpenSea/collection stills failed.
+    const ipfsVideoCover = toPlayableCoverVideoUrl(
+      nft ? pickSameCidIpfsVideoCover(nft, failedSrc || src) : ''
+    );
+    if (ipfsVideoCover && !attemptedFallbacks.current[`${ipfsVideoCover}-ipfs-video-cover`]) {
+      attemptedFallbacks.current[`${ipfsVideoCover}-ipfs-video-cover`] = true;
+      originalUrlRef.current = ipfsVideoCover;
+      setIsVideo(true);
+      setImgSrc(ipfsVideoCover);
+      setRetryCount((c) => c + 1);
+      setError(false);
+      setIsLoadingFallback(false);
+      setImgLoading(true);
+      imageDebug('cover:hop', {
+        name: nft?.name,
+        contract: nft?.contract,
+        tokenId: nft?.tokenId,
+        from: failedSrc,
+        to: ipfsVideoCover,
+        toKind: 'video-file',
+        reason: 'ipfs-same-cid-video',
+      });
+      return;
+    }
+
+    const listSource = failedSrc || src || originalUrlRef.current;
+    const listCid = extractIPFSPath(listSource)?.split('/').filter(Boolean)[0] || '';
+    if (nft && listCid && !attemptedFallbacks.current[`${listCid}-ipfs-dir-list`]) {
+      attemptedFallbacks.current[`${listCid}-ipfs-dir-list`] = true;
+      void listIpfsDirectoryVideoFile(listSource).then((listed) => {
+        if (listed && !attemptedFallbacks.current[`${listed}-ipfs-video-cover`]) {
+          attemptedFallbacks.current[`${listed}-ipfs-video-cover`] = true;
+          originalUrlRef.current = listed;
+          setIsVideo(true);
+          setImgSrc(withBrowserVideoHint(processMediaUrl(listed, listed, 'audio')));
+          setRetryCount((c) => c + 1);
+          setError(false);
+          setIsLoadingFallback(false);
+          setImgLoading(true);
+          imageDebug('cover:hop', {
+            name: nft.name,
+            contract: nft.contract,
+            tokenId: nft.tokenId,
+            from: failedSrc,
+            to: listed,
+            toKind: 'video-file',
+            reason: 'ipfs-dir-list-video',
+          });
+          return;
+        }
+        if (loadedOkSrcRef.current) return;
+        markNftMediaDead(nft, 'image');
+        setError(true);
+        setIsLoadingFallback(true);
+        setImgSrc(fallbackSrc);
+      });
+      return;
     }
 
     // Every gateway/fallback has been tried at this point — safe to remember
@@ -1940,11 +2090,13 @@ export const NFTImage: React.FC<NFTImageProps> = ({
     !error &&
     !isLoadingFallback &&
     (isVideoMediaUrl(finalSrc) ||
+      urlLooksLikeExtensionlessVideo(finalSrc) ||
       isLikelyTokenVideoCoverUrl(finalSrc) ||
       alchemyCdnAsVideoCover.has(finalSrc) ||
       (!useCardThumb &&
         (isVideo ||
           isVideoMediaUrl(src) ||
+          urlLooksLikeExtensionlessVideo(src) ||
           alchemyCdnAsVideoCover.has(originalUrlRef.current || ''))));
   const useNativeImg =
     isLocalPublicPath(finalSrc) ||
@@ -1956,27 +2108,41 @@ export const NFTImage: React.FC<NFTImageProps> = ({
 
   // Video file used as card cover — <img>/Next Image cannot decode MP4.
   if (isVideoCover && !error && !isLoadingFallback && validateSrc(finalSrc)) {
+    const videoCoverSrc =
+      (urlLooksLikeExtensionlessVideo(finalSrc)
+        ? toPlayableCoverVideoUrl(finalSrc)
+        : '') || withBrowserVideoHint(finalSrc);
     return (
       <video
-        src={finalSrc}
+        src={videoCoverSrc}
         className={className}
         width={width || 300}
         height={height || 300}
         muted
         playsInline
-        preload="metadata"
+        preload={urlLooksLikeExtensionlessVideo(videoCoverSrc) ? 'auto' : 'metadata'}
         loop
         autoPlay={false}
         onError={handleError as unknown as (e: SyntheticEvent<HTMLVideoElement>) => void}
+        onLoadedMetadata={(e) => {
+          const vid = e.currentTarget;
+          if (vid.currentTime < 0.01) {
+            try {
+              vid.currentTime = 0.05;
+            } catch {
+              // Some browsers reject seeks before data; loadeddata still paints.
+            }
+          }
+        }}
         onLoadedData={(e) => {
           const vid = e.currentTarget;
           setImgLoading(false);
           // <video> uses videoWidth/videoHeight — naturalWidth is always 0.
           if (vid.videoWidth > 0 || vid.readyState >= 2) {
-            loadedOkSrcRef.current = finalSrc;
+            loadedOkSrcRef.current = videoCoverSrc;
             return;
           }
-          handleLoad(finalSrc, null);
+          handleLoad(videoCoverSrc, null);
         }}
         data-nft-image-status="video-cover"
         data-nft-id={nft ? `${nft.contract}-${nft.tokenId}` : 'unknown'}

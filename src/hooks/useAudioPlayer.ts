@@ -516,7 +516,7 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       plan.mode === 'audio-only' &&
       (plan.audioUrl || probeUrl)
     ) {
-      const videoUrl = plan.audioUrl || probeUrl;
+      const videoUrl = plan.audioUrl || probeUrl || null;
       plan = {
         mode: 'video-with-audio',
         audioUrl: videoUrl,
@@ -847,16 +847,29 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
         if (playAttempt !== playAttemptRef.current) return;
         if (err instanceof DOMException && err.name === 'AbortError') {
           // Re-parenting the shared <video> (cover enrich / player layout)
-          // aborts the original play() — retry once if this click is still live.
-          const src = media.currentSrc || media.src;
-          playbackDebug('play:abort-error', {
-            name: nft.name,
-            willRetry: Boolean(src && src !== window.location.href && media.paused),
-            media: mediaDebugSnapshot(media),
-          });
-          if (src && src !== window.location.href && media.paused) {
-            media.play().then(() => restorePageScroll()).catch(() => {});
-          }
+          // aborts the original play() — retry across a few frames.
+          const retryAbortedPlay = (attempt: number) => {
+            if (playAttempt !== playAttemptRef.current) return;
+            if (!media.paused || media.ended) return;
+            const src = media.currentSrc || media.src;
+            if (!src || src === window.location.href) return;
+            playbackDebug('play:abort-error', {
+              name: nft.name,
+              willRetry: true,
+              attempt,
+              media: mediaDebugSnapshot(media),
+            });
+            media.play().then(() => restorePageScroll()).catch((retryErr) => {
+              if (
+                retryErr instanceof DOMException &&
+                retryErr.name === 'AbortError' &&
+                attempt < 3
+              ) {
+                requestAnimationFrame(() => retryAbortedPlay(attempt + 1));
+              }
+            });
+          };
+          retryAbortedPlay(0);
           return;
         }
         if (err instanceof DOMException && err.name === 'NotAllowedError' && isMobile) {

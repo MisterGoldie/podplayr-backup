@@ -1,9 +1,4 @@
-import { getServerAppUrl } from '~/lib/miniapp';
-
-/** The domain the accountAssociation signature below was issued for. The
- * signature is bound to this exact domain, so it can only be served when we're
- * actually running there. */
-const VERIFIED_DOMAIN = 'podplayr.xyz';
+import { getServerAppUrl, isVerifiedMiniAppHost } from '~/lib/miniapp';
 
 const accountAssociation = {
   header: "eyJmaWQiOjEwOTkxNzksInR5cGUiOiJjdXN0b2R5Iiwia2V5IjoiMHg5YmEyMjgwNmNEOEY2NTEzMUU1YWQwMEUwMTdGQjhCMUFlM0EyZmFBIn0",
@@ -18,7 +13,7 @@ export async function GET() {
   // podplayr.xyz, treats that as a mismatch and bounces the webview to
   // homeUrl — which looked like shared NFT links "routing to the homepage".
   const appUrl = await getServerAppUrl();
-  const isVerifiedDomain = new URL(appUrl).hostname === VERIFIED_DOMAIN;
+  const isVerifiedDomain = isVerifiedMiniAppHost(new URL(appUrl).hostname);
 
   const miniapp = {
     version: "1", // Required: Must be '1'

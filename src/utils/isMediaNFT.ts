@@ -6,6 +6,7 @@ import {
   extractIPFSPath,
   processMediaUrl,
 } from './media';
+import { urlLooksLikeExtensionlessVideo } from './ipfsExtensionlessMedia';
 import { isNftMediaDead } from './deadNftRegistry';
 import { isBlockedNftContract, isPhishingSpamNft, isUnsafePlaybackUrl } from './nftSafety';
 import { isMuxPlaybackUrl, isPollutedPlaybackUrl, isWeakPlaybackUrl } from '../lib/mediaCdn';
@@ -75,7 +76,8 @@ const urlLooksLikeVideo = (url: string): boolean => {
     /\.m3u8(?:\?|#|$)/i.test(lower) ||
     /stream\.mux\.com/i.test(lower) ||
     lower.includes('video/') ||
-    /^ar:\/\/[^/]+\/[^/]+\.(mp4|webm|mov|m4v)$/i.test(url)
+    /^ar:\/\/[^/]+\/[^/]+\.(mp4|webm|mov|m4v)$/i.test(url) ||
+    urlLooksLikeExtensionlessVideo(url)
   );
 };
 

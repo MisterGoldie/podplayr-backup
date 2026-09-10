@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react';
 import { PrivyProvider } from '@privy-io/react-auth';
+import { isVerifiedMiniAppHost } from '~/lib/miniapp';
 
 export function hasPrivyAppId(): boolean {
   return Boolean(process.env.NEXT_PUBLIC_PRIVY_APP_ID);
@@ -13,14 +14,31 @@ declare global {
   }
 }
 
+function consoleArgText(arg: unknown): string {
+  if (typeof arg === 'string') return arg;
+  if (arg instanceof Error) return arg.message;
+  return '';
+}
+
 function isHarmlessPrivyWarning(args: unknown[]): boolean {
-  const strings = args.filter((arg): arg is string => typeof arg === 'string');
+  const strings = args.map(consoleArgText);
   const blob = strings.join(' ');
   if (blob.includes('Invalid DOM property') && (blob.includes('clip-path') || strings.includes('clip-path'))) {
     return true;
   }
   // Privy's login method list (minified `xe`/`ge`) omits keys on wallet rows.
-  return blob.includes('unique "key" prop') && blob.includes('from xe');
+  if (blob.includes('unique "key" prop') && blob.includes('from xe')) {
+    return true;
+  }
+  // Farcaster SDK logs this when addMiniApp runs on a tunnel/preview host.
+  if (
+    typeof window !== 'undefined' &&
+    !isVerifiedMiniAppHost(window.location.hostname) &&
+    (blob.includes('invalid_domain_manifest') || blob.includes('Mini app add rejected'))
+  ) {
+    return true;
+  }
+  return false;
 }
 
 // Privy's modal SVG/list warnings are internal and do not break login.

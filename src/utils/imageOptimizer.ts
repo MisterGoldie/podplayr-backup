@@ -1,5 +1,6 @@
 import { isOpenSeaCdnHost, toOpenSeaCdnProxyUrl } from './openSeaMedia';
 import { sanitizeMediaUrl } from './media';
+import { urlLooksLikeExtensionlessVideo } from './ipfsExtensionlessMedia';
 
 interface OptimizedImage {
   file: File;
@@ -565,6 +566,7 @@ export function isIpfsMediaUrl(url: string): boolean {
 export function isVideoMediaUrl(url: string): boolean {
   if (!url || isLocalOrDataUrl(url)) return false;
   if (/\.(mp4|webm|mov|m4v)(?:\?|#|$)/i.test(url)) return true;
+  if (urlLooksLikeExtensionlessVideo(url)) return true;
   try {
     const path = new URL(url).pathname.toLowerCase();
     return /\.(mp4|webm|mov|m4v)$/.test(path);
@@ -620,6 +622,9 @@ export function getVideoCoverStillUrl(
 
   if (!isLikelyTokenVideoCoverUrl(url) && !isVideoMediaUrl(url)) return null;
 
+  // Pinata/IPFS extensionless QuickTime — Cloudinary fetch 400s; native <video> instead.
+  if (urlLooksLikeExtensionlessVideo(url)) return null;
+
   // SeaDN / Nifty / other mp4 — extract frame via Alchemy video/fetch (PNG).
   if (/^https?:\/\//i.test(url)) {
     return `https://res.cloudinary.com/alchemyapi/video/fetch/w_${size},h_${size},c_fill,q_70,f_png,so_0/${url}`;
@@ -644,7 +649,8 @@ export function getCardThumbUrl(
     isLocalOrDataUrl(url) ||
     isAlreadyResized(url) ||
     /\.svg(\?|$)/i.test(url) ||
-    shouldPreserveAnimation(url)
+    shouldPreserveAnimation(url) ||
+    urlLooksLikeExtensionlessVideo(url)
   ) {
     return url;
   }

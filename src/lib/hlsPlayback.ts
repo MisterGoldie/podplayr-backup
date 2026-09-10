@@ -1,5 +1,6 @@
 import type Hls from 'hls.js';
 import { playbackDebug } from '../utils/playbackDebug'; // TEMP — remove with playbackDebug.ts
+import { withBrowserVideoHint } from '../utils/ipfsExtensionlessMedia';
 
 let currentHls: Hls | null = null;
 
@@ -106,7 +107,7 @@ export async function attachPlaybackSource(
   detachHlsPlayback(media);
 
   if (!isHlsUrl(url)) {
-    media.src = url;
+    media.src = withBrowserVideoHint(url);
     return;
   }
 
