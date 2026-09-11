@@ -56,6 +56,11 @@ import {
 import { resolveCdnPlaybackUrls, isOrphanMuxPlaybackUrl, isMuxPlaybackUrl, isPollutedPlaybackUrl, isWeakPlaybackUrl, isMezzanineMuxUrl, alchemyVideoFetchMp4Url, isAlchemyVideoFetchMp4Url } from '../lib/mediaCdn';
 import { attachPlaybackSource, attachProgressivePlaybackSource, detachHlsPlayback, isHlsAttached, isHlsUrl, pauseHlsBuffering, resumeHlsBuffering, seekAttachedMedia } from '../lib/hlsPlayback';
 import { setActiveMainMedia, getActiveMainMedia, pauseActiveMainMedia } from '../lib/activeMainMedia';
+import {
+  ensureMediaAudible,
+  mountClockAudioElement,
+  unlockPlaybackAudioSession,
+} from '../lib/playbackAudioSession';
 import { restorePageScroll } from '../utils/pageScroll';
 
 function findNftInQueue(queue: NFT[], nft: NFT): number {
@@ -96,29 +101,6 @@ import { mediaDebugSnapshot, playbackDebug } from '../utils/playbackDebug'; // T
 
 // Create a dedicated logger for this module
 const audioLogger = logger.getModuleLogger('audioPlayer');
-
-/** The clock must never stay muted. UI has no mute control; a NotAllowedError
- * fallback that plays muted looks like "audio died until refresh" in WKWebView. */
-function ensureClockAudible(media: HTMLMediaElement | null | undefined) {
-  if (!media) return;
-  media.muted = false;
-  if (media.volume === 0) media.volume = 0.7;
-}
-
-let webkitAudioUnlock: AudioContext | null = null;
-function unlockWebAudioFromGesture() {
-  if (typeof window === 'undefined') return;
-  try {
-    const Ctor = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!Ctor) return;
-    if (!webkitAudioUnlock) webkitAudioUnlock = new Ctor();
-    if (webkitAudioUnlock.state === 'suspended') {
-      void webkitAudioUnlock.resume();
-    }
-  } catch {
-    // ignore
-  }
-}
 
 // Extend Window interface to include our custom property
 declare global {
@@ -217,6 +199,7 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       audioRef.current.preload = 'auto';
       audioLogger.info('Created new audio element');
     }
+    mountClockAudioElement(audioRef.current);
     
     const audio = audioRef.current;
     if (!audio) return;
@@ -298,8 +281,8 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       if (video && video !== clock) video.pause();
       setIsPlaying(false);
     } else {
-      unlockWebAudioFromGesture();
-      ensureClockAudible(clock);
+      unlockPlaybackAudioSession();
+      ensureMediaAudible(clock);
       setIsPlaying(true);
       clock.play().catch((error) => {
         audioLogger.error('Error in handlePlayPause:', error);
@@ -350,8 +333,8 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     // links) pass autoplay:false to load/prepare the track and let the
     // user's first tap on the play button provide the gesture instead.
     const shouldAutoplay = context?.autoplay !== false;
-    unlockWebAudioFromGesture();
-    ensureClockAudible(visualPlaybackRef.current || audioRef.current);
+    unlockPlaybackAudioSession();
+    ensureMediaAudible(visualPlaybackRef.current || audioRef.current);
 
     // Always update queue context
     if (context?.queue) {
@@ -898,6 +881,7 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       audioRef.current = new Audio();
     }
     const audio = audioRef.current;
+    mountClockAudioElement(audio);
 
     const detachPlaybackHandlers = (el: HTMLMediaElement | null) => {
       if (!el) return;
@@ -914,6 +898,7 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       el.onseeking = null;
       el.onseeked = null;
       el.onended = null;
+      el.onvolumechange = null;
     };
     detachPlaybackHandlers(audio);
     detachPlaybackHandlers(visualPlaybackRef.current);
@@ -1011,7 +996,7 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       }
       playbackDebug('play:kick', { name: nft.name, media: mediaDebugSnapshot(media) });
       setIsPlaying(true);
-      ensureClockAudible(media);
+      ensureMediaAudible(media);
       const playPromise = media.play();
       if (!playPromise) {
         return;
@@ -1054,7 +1039,7 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
             name: nft.name,
             media: mediaDebugSnapshot(media),
           });
-          ensureClockAudible(media);
+          ensureMediaAudible(media);
           if (media.paused) setIsPlaying(false);
           return;
         }
@@ -1149,6 +1134,9 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       failoverTimerRef.current = setTimeout(() => {
         if (playAttempt !== playAttemptRef.current || playbackStarted) return;
         if (media.readyState > 0) return;
+        // Already outputting audio — hopping here pauses the clock from a
+        // timer, which WKWebView then refuses to play unmuted.
+        if (media.currentTime > 0.25 || !media.paused) return;
 
         // Directory CIDs often sit in NETWORK_LOADING forever then 404 — don't
         // wait 30s+; hop to the next audio/video candidate.
@@ -1319,9 +1307,14 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
 
     media.onstalled = () => {
       if (playAttempt !== playAttemptRef.current) return;
-      // First frame then starve (Pinata HTTP2 on a huge IPFS file): drop that
-      // gateway and try the next instead of freezing on a still.
-      if (playbackStarted && media.readyState <= 2 && media.currentTime < 8) {
+      // Only hop if we never actually started — mid-play stall on a live
+      // clock must not pause+replay from a timer (that mutes WKWebView).
+      if (
+        playbackStarted &&
+        media.readyState <= 1 &&
+        media.currentTime < 0.5 &&
+        media.paused
+      ) {
         const failedSrc = media.currentSrc || media.src;
         if (isHlsUrl(playbackUrls[urlIndex]) || isHlsUrl(failedSrc) || /stream\.mux\.com/i.test(failedSrc)) {
           return;
@@ -1361,6 +1354,7 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
 
     media.onplaying = () => {
       if (playAttempt !== playAttemptRef.current) return;
+      ensureMediaAudible(media);
       playbackStarted = true;
       clearStall();
       setIsPlaying(true);
@@ -1408,7 +1402,18 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
 
     media.onplay = () => {
       playbackDebug('event:onplay', { name: nft.name, media: mediaDebugSnapshot(media) });
+      ensureMediaAudible(media);
       resumeHlsBuffering();
+    };
+    media.onvolumechange = () => {
+      if (playAttempt !== playAttemptRef.current) return;
+      if (media.muted || media.volume === 0) {
+        playbackDebug('event:got-silent', {
+          name: nft.name,
+          media: mediaDebugSnapshot(media),
+        });
+        ensureMediaAudible(media);
+      }
     };
     media.onpause = () => {
       playbackDebug('event:onpause', {

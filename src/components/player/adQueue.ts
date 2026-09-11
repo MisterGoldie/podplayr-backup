@@ -109,6 +109,7 @@ export function adPlaybackUrl(ad: AdConfig) {
 
 function parkPreloadVideo(video: HTMLVideoElement) {
   video.id = 'podplayr-ad-preload';
+  video.setAttribute('data-podplayr-ad', 'preload');
   video.muted = true;
   video.autoplay = false;
   video.preload = 'auto';
@@ -125,6 +126,15 @@ function ensurePreloadElement() {
   if (preloadVideo && preloadVideo.isConnected) return preloadVideo;
   const video = document.createElement('video');
   parkPreloadVideo(video);
+  video.addEventListener('playing', () => {
+    if (video.id === 'podplayr-ad-preload') {
+      try {
+        video.pause();
+      } catch {
+        // ignore
+      }
+    }
+  });
   document.body.appendChild(video);
   preloadVideo = video;
   return video;

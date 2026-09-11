@@ -5,6 +5,7 @@ import { applyPlaybackPlanToNft, getNftPlaybackPlan } from '../../utils/isMediaN
 import type { NFT } from '../../types/user';
 import { logger } from '../../utils/logger';
 import { playbackDebug } from '../../utils/playbackDebug';
+import { getActiveMainMedia } from '../../lib/activeMainMedia';
 import { triggerHaptic } from '../../utils/haptics';
 import { PlaybackButton } from '../buttons/PlaybackButton';
 import InfoPanel from './InfoPanel';
@@ -518,6 +519,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
     if (clock) {
       video.preload = 'auto';
       video.loop = false;
+      video.muted = false;
       return () => {
         if (visualFailTimer) clearTimeout(visualFailTimer);
         video.removeEventListener('loadedmetadata', onLoadedMetadata);
@@ -603,6 +605,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
         return;
       }
 
+      if (getActiveMainMedia() === video) return;
       video.muted = true;
       // No seeking — see note in onLoadedData. Range requests aren't supported by
       // many Arweave gateways, so forcing currentTime causes a full re-fetch stall.
@@ -626,6 +629,10 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
     if (!playbackPlan.muteVideo) return;
     const video = videoRef.current;
     if (!video) return;
+    if (getActiveMainMedia() === video) {
+      video.muted = false;
+      return;
+    }
     video.muted = true;
     if (isPlaying) {
       video.play().catch(() => {});

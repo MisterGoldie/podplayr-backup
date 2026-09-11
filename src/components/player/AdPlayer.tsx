@@ -10,10 +10,15 @@ import {
 import {
   attachAdPlayback,
   destroyAdPlaybackHls,
+  destroyAdPreloadHls,
   promoteAdPreloadToPlayback,
 } from './adHls';
 import { playbackDebug, mediaDebugSnapshot } from '../../utils/playbackDebug';
 import { pauseActiveMainMedia } from '../../lib/activeMainMedia';
+import {
+  stopExclusiveAdMedia,
+  unlockPlaybackAudioSession,
+} from '../../lib/playbackAudioSession';
 
 interface AdPlayerProps {
   onAdComplete?: () => void;
@@ -24,6 +29,8 @@ function applyAdVideoPresentation(video: HTMLVideoElement) {
   video.playsInline = true;
   video.setAttribute('playsinline', 'true');
   video.setAttribute('webkit-playsinline', 'true');
+  video.setAttribute('data-podplayr-ad', '1');
+  video.autoplay = false;
   video.preload = 'auto';
   video.className = 'w-full h-full object-contain';
   video.style.cssText = 'width:100%;height:100%;object-fit:contain;opacity:1;';
@@ -90,7 +97,7 @@ export const AdPlayer: React.FC<AdPlayerProps> = ({ onAdComplete }) => {
     // here too, as a guarantee rather than relying solely on the caller.
     pauseActiveMainMedia();
     document.querySelectorAll<HTMLMediaElement>('audio, video').forEach((el) => {
-      if (el === video || el.id === 'podplayr-ad-preload') return;
+      if (el === video) return;
       if (!el.paused) {
         playbackDebug('ad mount: force-pausing lingering media', {
           id: el.id,
@@ -112,8 +119,21 @@ export const AdPlayer: React.FC<AdPlayerProps> = ({ onAdComplete }) => {
       setCanSkip(true);
     };
 
-    const handleEnded = () => {
+    const finishAd = () => {
+      try {
+        video.pause();
+      } catch {
+        // ignore
+      }
+      destroyAdPlaybackHls();
+      destroyAdPreloadHls();
+      stopExclusiveAdMedia();
+      unlockPlaybackAudioSession();
       onAdCompleteRef.current?.();
+    };
+
+    const handleEnded = () => {
+      finishAd();
     };
     const handleTimeUpdate = () => {
       if (!Number.isFinite(video.duration)) return;
@@ -139,25 +159,22 @@ export const AdPlayer: React.FC<AdPlayerProps> = ({ onAdComplete }) => {
     video.addEventListener('error', handleError);
     video.addEventListener('stalled', handleStalled);
 
-    // Mobile browsers reject unmuted autoplay once it's no longer tied to a
-    // direct user gesture — and the `await attachAdPlayback` above always
-    // breaks that association. Muted autoplay is essentially always
-    // allowed, so fall back to it rather than leaving the ad frozen and
-    // silently rejected with no recovery (the previous `.catch(console.error)`
-    // behavior).
+    // Never play the ad muted. A muted <video> in WKWebView takes the audio
+    // session; the NFT that follows then "plays" with no sound until refresh.
     const attemptPlay = async () => {
+      video.muted = false;
       try {
         await video.play();
         setNeedsSoundTap(false);
       } catch (err) {
-        playbackDebug('ad unmuted play() rejected, retrying muted', { error: String(err) });
+        playbackDebug('ad unmuted play() rejected — waiting for tap', { error: String(err) });
         try {
-          video.muted = true;
-          await video.play();
-          setNeedsSoundTap(true);
-        } catch (err2) {
-          failPlayback(`play-rejected-even-muted: ${String(err2)}`);
+          video.pause();
+        } catch {
+          // ignore
         }
+        video.muted = false;
+        setNeedsSoundTap(true);
       }
     };
 
@@ -236,7 +253,19 @@ export const AdPlayer: React.FC<AdPlayerProps> = ({ onAdComplete }) => {
         {canSkip && (
           <button
             type="button"
-            onClick={() => onAdCompleteRef.current?.()}
+            onClick={() => {
+              const video = videoRef.current;
+              try {
+                video?.pause();
+              } catch {
+                // ignore
+              }
+              destroyAdPlaybackHls();
+              destroyAdPreloadHls();
+              stopExclusiveAdMedia();
+              unlockPlaybackAudioSession();
+              onAdCompleteRef.current?.();
+            }}
             className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-1 rounded-full font-medium text-sm transition-colors"
           >
             Skip Ad
@@ -248,17 +277,17 @@ export const AdPlayer: React.FC<AdPlayerProps> = ({ onAdComplete }) => {
             onClick={() => {
               const video = videoRef.current;
               if (!video) return;
+              unlockPlaybackAudioSession();
               video.muted = false;
-              video.play().catch(() => {
-                // Some browsers reject unmuting mid-playback without a fresh
-                // gesture too — leave it muted rather than stalling again.
-                video.muted = true;
+              video.play().then(() => {
+                setNeedsSoundTap(false);
+              }).catch(() => {
+                playbackDebug('ad tap-to-play failed', { snapshot: mediaDebugSnapshot(video) });
               });
-              setNeedsSoundTap(false);
             }}
             className="bg-black/80 hover:bg-black text-white px-3 py-1 rounded-full text-sm transition-colors"
           >
-            🔇 Tap for sound
+            Tap for sound
           </button>
         )}
         <div className="bg-black/80 text-white px-3 py-1 rounded-full font-mono text-sm">

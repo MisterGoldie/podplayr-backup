@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Player } from './Player';
 import { AdPlayer } from './AdPlayer';
 import { preloadUpcomingAdWhenIdle } from './adQueue';
+import { unlockPlaybackAudioSession } from '../../lib/playbackAudioSession';
 import type { NFT } from '../../types/user';
 
 interface PlayerWithAdsProps {
@@ -50,6 +51,7 @@ export function usePrerollAd() {
   }, []);
 
   const beforePlay = (run: () => void, pauseCurrent?: () => void) => {
+    unlockPlaybackAudioSession();
     uniquePlaysRef.current += 1;
     const due = uniquePlaysRef.current >= playsUntilNextAdRef.current;
     const cooledDown =
@@ -73,6 +75,7 @@ export function usePrerollAd() {
     const run = afterAdRef.current;
     afterAdRef.current = null;
     setShowAd(false);
+    unlockPlaybackAudioSession();
     run?.();
   };
 
