@@ -68,11 +68,12 @@ const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|svg|avif)(?:\?|#|$)/i;
  * serves a tiny stub like {"keyName":...,"partialUpload":true,"bytes":...}
  * mislabeled `Content-Type: video/mp4`, which <video>/<audio> reject with
  * NotSupportedError. A cheap HEAD reveals the real Content-Length regardless
- * of what Alchemy's metadata claims. Only called when size is missing (real
- * animations almost always report one), and the result gets folded into the
- * Redis-cached NFT response, so this is at most one extra request ever per
- * token. Fails open (null) on any error/timeout so a probe hiccup never
- * breaks an animation that was already working.
+ * of what Alchemy's metadata claims. Also run when metadata *does* report a
+ * large size — Heno-style 500MB films sit in partialUpload while `size` is
+ * already the eventual byte count, so skipping the HEAD left a 121-byte JSON
+ * stub in front of Pinata. Stub verdicts are cached ~1h so a finished upload
+ * can still win later. Fails open (null) on any error/timeout so a probe
+ * hiccup never breaks an animation that was already working.
  */
 async function probeAlchemyCachedAnimationSize(url?: string): Promise<number | null> {
   if (!url || !/_animation(?:\?|#|$)/i.test(url)) return null;
@@ -130,6 +131,62 @@ async function probeOriginAnimationContentType(originalUrl?: string): Promise<st
   }
 }
 
+const ALCHEMY_ANIMATION_STUB_BYTES = 2048;
+const ALCHEMY_STUB_PROBE_TTL_SECONDS = 60 * 60;
+
+/**
+ * Fold live CDN Content-Length into Alchemy's animation object.
+ * Metadata `size` is often the *eventual* file; the CDN may still be a JSON stub.
+ */
+async function reconcileAlchemyAnimationCache(
+  animation?: {
+    cachedUrl?: string;
+    originalUrl?: string;
+    contentType?: string;
+    size?: number;
+  } | null
+): Promise<void> {
+  const cacheableUrl = animation?.cachedUrl;
+  if (!animation || !cacheableUrl || !/_animation(?:\?|#|$)/i.test(cacheableUrl)) {
+    return;
+  }
+  const cachedVerdict = await getCachedAnimationProbe(cacheableUrl);
+  if (cachedVerdict) {
+    animation.size = cachedVerdict.size;
+    if (cachedVerdict.contentType) {
+      animation.contentType = cachedVerdict.contentType;
+    }
+    return;
+  }
+  const realSize = await probeAlchemyCachedAnimationSize(cacheableUrl);
+  if (realSize === null) return;
+  if (typeof animation.size !== 'number' || realSize < ALCHEMY_ANIMATION_STUB_BYTES) {
+    animation.size = realSize;
+  }
+  if (realSize < ALCHEMY_ANIMATION_STUB_BYTES && !animation.contentType) {
+    const realType = await probeOriginAnimationContentType(animation.originalUrl);
+    if (realType) {
+      animation.contentType = realType;
+    }
+  }
+  await setCachedAnimationProbe(
+    cacheableUrl,
+    { size: realSize, contentType: animation.contentType || null },
+    realSize < ALCHEMY_ANIMATION_STUB_BYTES
+      ? ALCHEMY_STUB_PROBE_TTL_SECONDS
+      : undefined
+  );
+}
+
+function nftAlchemyAnimationPlaybackUrl(nft: NFT): string {
+  return (
+    [nft.videoUrl, nft.audio, nft.metadata?.animation_url].find(
+      (u): u is string =>
+        !!u && /nft2?-cdn\.alchemy\.com/i.test(u) && /_animation(?:\?|#|$)/i.test(u)
+    ) || ''
+  );
+}
+
 /**
  * Alchemy sometimes "caches" Arweave/IPFS videos as a tiny broken HLS playlist
  * (contentType application/x-mpegURL, partialUpload, ~128 bytes) OR as a
@@ -155,7 +212,7 @@ function isBrokenAlchemyAnimationCache(
   if (
     typeof animation.size === 'number' &&
     animation.size > 0 &&
-    animation.size < 2048 &&
+    animation.size < ALCHEMY_ANIMATION_STUB_BYTES &&
     /_animation(?:\?|#|$)/i.test(animation.cachedUrl)
   ) {
     return true;
@@ -686,12 +743,35 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
     // tokens we've already durably resolved with no fragile playback fields.
     const cachedFullResponse = await getCachedNftResponse(contract, tokenId, network);
     if (cachedFullResponse) {
-      console.log(`[podplayr:redis] full-nft cache HIT — skipping Alchemy/chain fetch entirely`, {
+      const alchemyPlay = nftAlchemyAnimationPlaybackUrl(cachedFullResponse);
+      let alchemyStub = false;
+      if (alchemyPlay) {
+        const verdict = await getCachedAnimationProbe(alchemyPlay);
+        const size = verdict?.size ?? (await probeAlchemyCachedAnimationSize(alchemyPlay));
+        if (typeof size === 'number' && size > 0 && size < ALCHEMY_ANIMATION_STUB_BYTES) {
+          alchemyStub = true;
+          if (!verdict) {
+            await setCachedAnimationProbe(
+              alchemyPlay,
+              { size, contentType: null },
+              ALCHEMY_STUB_PROBE_TTL_SECONDS
+            );
+          }
+        }
+      }
+      if (!alchemyStub) {
+        console.log(`[podplayr:redis] full-nft cache HIT — skipping Alchemy/chain fetch entirely`, {
+          contract,
+          tokenId,
+          network,
+        });
+        return cachedFullResponse;
+      }
+      console.log(`[podplayr:redis] full-nft cache SKIP — Alchemy _animation is a partialUpload stub`, {
         contract,
         tokenId,
         network,
       });
-      return cachedFullResponse;
     }
 
     const client = network === 'base' ? baseAlchemy : ethAlchemy;
@@ -722,43 +802,9 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
       image?: AlchemyImageFields;
       animation?: AlchemyImageFields;
     };
-    // See probeAlchemyCachedAnimationSize — stamping the real size here lets
-    // every isBrokenAlchemyAnimationCache() check below (there are several)
-    // correctly treat a still-uploading animation as broken for free. Tokens
-    // stuck in this state keep IPFS/Pinata playback, which makes the overall
-    // response too fragile for setCachedNftResponse below to durably cache
-    // (see nftNeedsChainMediaEnrich) — so this verdict gets its own small,
-    // independent cache to avoid re-probing on every single play/enrich call.
-    if (alchemyImage.animation && typeof alchemyImage.animation.size !== 'number') {
-      const cacheableUrl = alchemyImage.animation.cachedUrl;
-      const cachedVerdict = cacheableUrl ? await getCachedAnimationProbe(cacheableUrl) : null;
-      if (cachedVerdict) {
-        alchemyImage.animation.size = cachedVerdict.size;
-        if (cachedVerdict.contentType) {
-          alchemyImage.animation.contentType = cachedVerdict.contentType;
-        }
-      } else {
-        const realSize = await probeAlchemyCachedAnimationSize(alchemyImage.animation.cachedUrl);
-        if (realSize !== null) {
-          alchemyImage.animation.size = realSize;
-        }
-        // Confirmed broken + Alchemy never classified it either (contentType
-        // null) — recover the real type from the origin so this doesn't fall
-        // back to audio-only just because Alchemy's pipeline stalled.
-        if (realSize !== null && realSize < 2048 && !alchemyImage.animation.contentType) {
-          const realType = await probeOriginAnimationContentType(alchemyImage.animation.originalUrl);
-          if (realType) {
-            alchemyImage.animation.contentType = realType;
-          }
-        }
-        if (realSize !== null && cacheableUrl) {
-          await setCachedAnimationProbe(cacheableUrl, {
-            size: realSize,
-            contentType: alchemyImage.animation.contentType || null,
-          });
-        }
-      }
-    }
+    // See reconcileAlchemyAnimationCache — live Content-Length beats
+    // metadata `size` when the CDN is still a partialUpload JSON stub.
+    await reconcileAlchemyAnimationCache(alchemyImage.animation);
     const collectionOpenSeaImage =
       metadata.contract?.openSeaMetadata?.imageUrl || '';
     const { cover: alchemyVisualCover, audioFromImage: alchemyImageAsAudio } =

@@ -52,7 +52,8 @@ export async function getCachedAnimationProbe(
 
 export async function setCachedAnimationProbe(
   cachedUrl: string,
-  verdict: AnimationProbeVerdict
+  verdict: AnimationProbeVerdict,
+  ttlSeconds: number = REDIS_TTL_SECONDS
 ): Promise<void> {
   const key = probeCacheKey(cachedUrl);
   memoryCache.set(key, verdict);
@@ -60,7 +61,7 @@ export async function setCachedAnimationProbe(
   const redis = getRedisClient();
   if (!redis) return;
   try {
-    await redis.set(key, verdict, { ex: REDIS_TTL_SECONDS });
+    await redis.set(key, verdict, { ex: ttlSeconds });
   } catch (error) {
     console.warn('[podplayr:redis] anim-probe SET failed', { key, error });
   }

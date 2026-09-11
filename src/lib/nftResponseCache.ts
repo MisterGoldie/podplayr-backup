@@ -37,7 +37,9 @@ const REDIS_TTL_SECONDS = 60 * 60 * 24; // 24 hours — media is durable, but re
 // v4: Alchemy `audio/*` `_animation` caches are preferred over hanging Pinata CIDs
 // (Async Art / Token Jukebox).
 // v5: audio-only tokens no longer copy the MP3 onto `videoUrl`.
-const CACHE_SCHEMA_VERSION = 'v5';
+// v6: Alchemy `_animation` partialUpload JSON stubs (121B, labeled video/mp4)
+// must not be cached as playable — fall through to original_animation_url.
+const CACHE_SCHEMA_VERSION = 'v6';
 
 function responseCacheKey(contract: string, tokenId: string, network: 'base' | 'ethereum'): string {
   return `PODPLAYR:nft-full:${CACHE_SCHEMA_VERSION}:${network}:${contract.toLowerCase()}:${tokenId.trim()}`;

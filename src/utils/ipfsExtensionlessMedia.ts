@@ -194,6 +194,11 @@ export const withBrowserVideoHint = (
       : `${base}${base.includes('?') ? '&' : '?'}filename=video.${ext}`;
     return `${withName}#.${ext}`;
   }
+  // UnixFS `bafybei` (In The Meantime films): WebKit will not sniff mp4.
+  // Only when MIME is already video/mp4 — never default, never ProRes/quicktime.
+  if (isBareIpfsFileCid(url) && mimeExt === 'mp4') {
+    return `${url.replace(/#.*$/, '')}#.${mimeExt}`;
+  }
   // Extensionless Arweave tx (Brain Dead) — same WebKit sniffing hole as a bare CID.
   if (isExtensionlessArweaveTx(url)) {
     return `${url.replace(/#.*$/, '')}#.${mimeExt || 'mp4'}`;

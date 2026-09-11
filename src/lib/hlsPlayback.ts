@@ -2,6 +2,7 @@ import type Hls from 'hls.js';
 import { playbackDebug } from '../utils/playbackDebug'; // TEMP — remove with playbackDebug.ts
 import {
   isBareIpfsRawFileCid,
+  isBareIpfsFileCid,
   isExtensionlessArweaveTx,
   urlLooksLikeExtensionlessVideo,
   withBrowserVideoHint,
@@ -124,6 +125,7 @@ export function attachProgressivePlaybackSource(
     (type.startsWith('video/') ||
       urlLooksLikeExtensionlessVideo(url) ||
       isBareIpfsRawFileCid(url) ||
+      (isBareIpfsFileCid(url) && type.startsWith('video/')) ||
       isExtensionlessArweaveTx(url));
   const needsTypedAudioSource =
     assumeAudio &&

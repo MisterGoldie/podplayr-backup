@@ -51,6 +51,7 @@ import {
   FIRST_BYTE_FAILOVER_MS,
   HLS_FIRST_BYTE_FAILOVER_MS,
   ARWEAVE_FIRST_BYTE_FAILOVER_MS,
+  IPFS_KNOWN_MEDIA_FAILOVER_MS,
   IPFS_DIR_FAILOVER_MS,
   clearNftMediaUrlCache,
 } from '../utils/media';
@@ -406,6 +407,19 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       pauseActiveMainMedia();
       const clock = visualPlaybackRef.current || audioRef.current;
       if (clock && !clock.paused) clock.pause();
+    }
+
+    // Invalidate the previous play() AbortError retries / failover timers
+    // before await enrich — otherwise Part One keeps kicking while Part Three starts.
+    playAttemptRef.current += 1;
+    const playAttempt = playAttemptRef.current;
+    if (stallTimerRef.current) {
+      clearTimeout(stallTimerRef.current);
+      stallTimerRef.current = null;
+    }
+    if (failoverTimerRef.current) {
+      clearTimeout(failoverTimerRef.current);
+      failoverTimerRef.current = null;
     }
 
     // Likes / recently-played often store raw IPFS URLs. When public gateways
@@ -847,17 +861,6 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       strippedOrphanMux: orphanMux || null,
     });
 
-    playAttemptRef.current += 1;
-    const playAttempt = playAttemptRef.current;
-    if (stallTimerRef.current) {
-      clearTimeout(stallTimerRef.current);
-      stallTimerRef.current = null;
-    }
-    if (failoverTimerRef.current) {
-      clearTimeout(failoverTimerRef.current);
-      failoverTimerRef.current = null;
-    }
-
     if (audioRef.current) {
       audioLogger.info('Stopping current audio');
       abortMediaElement(audioRef.current);
@@ -1140,7 +1143,12 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       }
 
       const currentUrlForTimer = playbackUrls[index] || '';
-      const knownPlayMime = getCachedMediaMime(currentUrlForTimer);
+      const knownPlayMime = (
+        getCachedMediaMime(currentUrlForTimer) ||
+        (isIpfsPlaybackUrl(currentUrlForTimer)
+          ? String(playNft.metadata?.mimeType || playNft.metadata?.mime_type || '')
+          : '')
+      ).toLowerCase();
       const isIpfsDirCandidate =
         shouldProbeIpfsDirectory(currentUrlForTimer) &&
         !knownPlayMime.startsWith('audio/') &&
@@ -1154,12 +1162,18 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       const isAudioElement =
         typeof HTMLAudioElement !== 'undefined' && media instanceof HTMLAudioElement;
       const isArweaveCandidate = isExtensionlessArweaveTx(currentUrlForTimer);
+      const knownIpfsMedia =
+        isIpfsFileCandidate &&
+        !ipfsHasMediaExt &&
+        (knownPlayMime.startsWith('video/') || knownPlayMime.startsWith('audio/'));
       const failoverMs = isHlsUrl(nextUrl)
         ? HLS_FIRST_BYTE_FAILOVER_MS
         : isIpfsDirCandidate
           ? IPFS_DIR_FAILOVER_MS
           : isArweaveCandidate
             ? ARWEAVE_FIRST_BYTE_FAILOVER_MS
+            : knownIpfsMedia
+              ? IPFS_KNOWN_MEDIA_FAILOVER_MS
             : isIpfsFileCandidate && !ipfsHasMediaExt
             ? isAudioElement
               ? FIRST_BYTE_FAILOVER_MS
@@ -1184,9 +1198,9 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       failoverTimerRef.current = setTimeout(() => {
         if (playAttempt !== playAttemptRef.current || playbackStarted) return;
         if (media.readyState > 0) return;
-        // Already outputting audio — hopping here pauses the clock from a
-        // timer, which WKWebView then refuses to play unmuted.
-        if (media.currentTime > 0.25 || !media.paused) return;
+        // Real playback — hopping pauses the clock and WKWebView mutes.
+        // Fake `onplay` with 0 bytes (cold Pinata) must still hop.
+        if (media.currentTime > 0.25) return;
 
         // Directory CIDs often sit in NETWORK_LOADING forever then 404 — don't
         // wait 30s+; hop to the next audio/video candidate.
@@ -1207,21 +1221,24 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
           return;
         }
 
-        // Huge Arweave MP4s stay at readyState 0 for a long time while bytes
-        // are in flight. networkState 2 = actually downloading — do not abort
-        // (unless this is a bare IPFS directory that never yields bytes).
-        // Mobile IPFS: Pinata can sit in NETWORK_LOADING on a CF challenge
-        // with no frames — hop to the next gateway instead of waiting again.
+        // Huge Arweave files stay at readyState 0 while bytes are in flight.
+        // Known IPFS mp4s (In The Meantime) can `onplay` with 0 frames on a
+        // hung Pinata CF challenge — hop to 4everland / Zora at 25s.
         const forceHopExtensionlessIpfsVideo =
-          isIpfsFileCandidate && !ipfsHasMediaExt && !isAudioElement;
+          isIpfsFileCandidate &&
+          !ipfsHasMediaExt &&
+          !isAudioElement &&
+          !knownIpfsMedia;
         if (
           !hungIpfsDir &&
           !forceHopExtensionlessIpfsVideo &&
-          (media.networkState === HTMLMediaElement.NETWORK_LOADING || !media.paused)
+          !knownIpfsMedia &&
+          media.networkState === HTMLMediaElement.NETWORK_LOADING
         ) {
           failoverTimerRef.current = setTimeout(() => {
             if (playAttempt !== playAttemptRef.current || playbackStarted) return;
             if (media.readyState > 0) return;
+            if (media.currentTime > 0.25) return;
             tryUrl(index + 1);
           }, isExtensionlessArweaveTx(playbackUrls[index] || '')
             ? ARWEAVE_FIRST_BYTE_FAILOVER_MS

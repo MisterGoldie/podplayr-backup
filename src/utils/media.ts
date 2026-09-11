@@ -109,6 +109,9 @@ const COMMON_IPFS_MEDIA_NAMES = [
 /** Extra CORS-friendly playback gateways — never dweb/w3s/ipfs.io (CORP 403). */
 export const PLAYBACK_IPFS_GATEWAYS = [
   PRIMARY_IPFS_GATEWAY,
+  // Zora's gateway is often a CF HIT for Zora mints (In The Meantime Part One
+  // is 506MB; public Pinata is a MISS). Pinata stays first.
+  'https://ipfs.decentralized-content.com/ipfs/',
   'https://ipfs.4everland.io/ipfs/',
 ];
 
@@ -1131,6 +1134,8 @@ export const FIRST_BYTE_FAILOVER_MS = 8000;
 export const HLS_FIRST_BYTE_FAILOVER_MS = 25000;
 /** Huge extensionless Arweave WAVs (FORCE ~132MB) sit at readyState 0 while the first byte lands. */
 export const ARWEAVE_FIRST_BYTE_FAILOVER_MS = 25000;
+/** Cold Pinata MISS on a 500MB UnixFS mp4 — hop to Zora's warm gateway. */
+export const IPFS_KNOWN_MEDIA_FAILOVER_MS = 8000;
 /** Faster hop when the URL is clearly a bare IPFS directory (often unreplicated). */
 export const IPFS_DIR_FAILOVER_MS = 3000;
 export const MAX_PLAYBACK_CANDIDATES = 6;
