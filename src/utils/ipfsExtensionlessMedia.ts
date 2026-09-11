@@ -173,6 +173,12 @@ export const withBrowserVideoHint = (
     if (/nft2?-cdn\.alchemy\.com/i.test(url)) {
       return `${url.replace(/#.*$/, '')}#.${audioExt}`;
     }
+    // Extensionless Arweave WAV/MP3 (FORCE / similar). Default wav when the
+    // probe has not stamped a type — audio/mpeg was rejecting real WAVs.
+    if (isExtensionlessArweaveTx(url)) {
+      const arExt = hintAudioExtFromMime(opts.mime) || 'wav';
+      return `${url.replace(/#.*$/, '')}#.${arExt}`;
+    }
     return url;
   }
   if (!opts?.assumeVideo) return url;

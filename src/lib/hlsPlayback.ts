@@ -116,7 +116,9 @@ export function attachProgressivePlaybackSource(
   const assumeAudio =
     typeof HTMLAudioElement !== 'undefined' && media instanceof HTMLAudioElement;
   const type = (mime || '').split(';')[0].trim().toLowerCase();
-  const src = withBrowserVideoHint(url, { assumeVideo, assumeAudio, mime: type });
+  const audioType =
+    type === 'audio/wave' || type === 'audio/x-wav' ? 'audio/wav' : type;
+  const src = withBrowserVideoHint(url, { assumeVideo, assumeAudio, mime: audioType || type });
   const needsTypedSource =
     assumeVideo &&
     (type.startsWith('video/') ||
@@ -125,7 +127,9 @@ export function attachProgressivePlaybackSource(
       isExtensionlessArweaveTx(url));
   const needsTypedAudioSource =
     assumeAudio &&
-    (type.startsWith('audio/') || isBareIpfsRawFileCid(url));
+    (audioType.startsWith('audio/') ||
+      isBareIpfsRawFileCid(url) ||
+      isExtensionlessArweaveTx(url));
 
   while (media.firstChild) media.removeChild(media.firstChild);
   media.removeAttribute('src');
@@ -143,7 +147,11 @@ export function attachProgressivePlaybackSource(
   } else if (needsTypedAudioSource) {
     const source = document.createElement('source');
     source.src = src;
-    source.type = type.startsWith('audio/') ? type : 'audio/mpeg';
+    source.type = audioType.startsWith('audio/')
+      ? audioType
+      : isExtensionlessArweaveTx(url)
+        ? 'audio/wav'
+        : 'audio/mpeg';
     media.appendChild(source);
     try {
       media.load();

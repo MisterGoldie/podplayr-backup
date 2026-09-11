@@ -50,6 +50,7 @@ import {
   PLAYBACK_STALL_MS,
   FIRST_BYTE_FAILOVER_MS,
   HLS_FIRST_BYTE_FAILOVER_MS,
+  ARWEAVE_FIRST_BYTE_FAILOVER_MS,
   IPFS_DIR_FAILOVER_MS,
   clearNftMediaUrlCache,
 } from '../utils/media';
@@ -62,6 +63,15 @@ import {
   unlockPlaybackAudioSession,
 } from '../lib/playbackAudioSession';
 import { restorePageScroll } from '../utils/pageScroll';
+
+/** Path/host check — do not use isExtensionlessArweaveTx here (that one is for hints). */
+function isArweavePlaybackUrl(url?: string | null): boolean {
+  return !!url && /arweave\.net|permagate\.io|turbo-gateway\.com|(?:^|:)ar:\/\//i.test(url);
+}
+
+function isAlchemyCdnPlaybackUrl(url?: string | null): boolean {
+  return !!url && /nft2?-cdn\.alchemy\.com/i.test(url);
+}
 
 function findNftInQueue(queue: NFT[], nft: NFT): number {
   const mediaKey = nft.mediaKey || getMediaKey(nft);
@@ -95,7 +105,7 @@ import { logger } from '../utils/logger';
 import { useToast } from './useToast';
 import { reviveNftMedia } from '../utils/deadNftRegistry';
 import { enrichNftMediaFromChain, isIpfsPlaybackUrl, ipfsUrlNeedsDirectoryResolve, isOnChainNftIdentity, nftNeedsChainMediaEnrich, collectNftOriginPlaybackUrls, alchemyAnimationUrlFromCover } from '../lib/nft';
-import { coerceIpfsUrl } from '../utils/ipfsExtensionlessMedia';
+import { coerceIpfsUrl, isExtensionlessArweaveTx } from '../utils/ipfsExtensionlessMedia';
 import { withFeaturedPlayback } from '../data/featuredNfts';
 import { mediaDebugSnapshot, playbackDebug } from '../utils/playbackDebug'; // TEMP — remove with playbackDebug.ts
 
@@ -368,6 +378,7 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       animationUrl: nft.metadata?.animation_url || nft.animationUrl,
       mime: nft.metadata?.mimeType || nft.metadata?.mime_type,
       mediaKey: nft.mediaKey,
+      build: 'force-wav-2',
     });
 
     // Pause/resume must not wait on Alchemy or MIME probes.
@@ -782,26 +793,45 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
               ];
       }
     }
-    if (plan.mode === 'audio-only') {
-      const derivedAlchemy = alchemyAnimationUrlFromCover(
-        playNft.image || playNft.metadata?.image || playNft.metadata?.image_url || ''
-      );
-      if (
-        derivedAlchemy &&
-        !playbackUrls.includes(derivedAlchemy) &&
-        !isPollutedPlaybackUrl(derivedAlchemy) &&
-        !isWeakPlaybackUrl(derivedAlchemy)
-      ) {
-        playbackUrls = [derivedAlchemy, ...playbackUrls];
-        playbackDebug('play:alchemy-audio-cover', {
-          name: playNft.name,
-          derivedAlchemy,
-        });
+    const arweaveOrigin =
+      isArweavePlaybackUrl(rawAudioUrl) ||
+      originCandidates.some((u) => isArweavePlaybackUrl(u)) ||
+      playbackUrls.some((u) => isArweavePlaybackUrl(u));
+    const coverAlchemy = alchemyAnimationUrlFromCover(
+      playNft.image || playNft.metadata?.image || playNft.metadata?.image_url || ''
+    );
+    if (plan.mode === 'audio-only' && arweaveOrigin) {
+      if (coverAlchemy) {
+        playbackUrls = playbackUrls.filter((u) => u !== coverAlchemy);
+      }
+      playbackDebug('play:skip-alchemy-cover', {
+        name: playNft.name,
+        rawAudioUrl,
+        strippedCover: coverAlchemy || null,
+      });
+    } else if (plan.mode === 'audio-only') {
+      const originIsIpfs =
+        isIpfsPlaybackUrl(rawAudioUrl) || originCandidates.some((u) => isIpfsPlaybackUrl(u));
+      // Async Art: cover hash recovers the CDN MP3. Never for Arweave.
+      if (originIsIpfs && coverAlchemy) {
+        if (
+          !playbackUrls.includes(coverAlchemy) &&
+          !isPollutedPlaybackUrl(coverAlchemy) &&
+          !isWeakPlaybackUrl(coverAlchemy)
+        ) {
+          playbackUrls = [coverAlchemy, ...playbackUrls];
+          playbackDebug('play:alchemy-audio-cover', {
+            name: playNft.name,
+            derivedAlchemy: coverAlchemy,
+          });
+        }
       }
     }
     playbackDebug('play:urls', {
       name: playNft.name,
       planMode: plan.mode,
+      arweaveOrigin,
+      firstUrl: playbackUrls[0] || null,
       rawAudioUrl,
       playbackUrlCount: playbackUrls.length,
       playbackHosts: playbackUrls.map((u) => {
@@ -1077,13 +1107,30 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
         return;
       }
 
+      const nextUrl = playbackUrls[index];
+      // Cover-hash `_animation` is not the Arweave WAV. Skip it — do not
+      // burn the first-byte timer on a still.
+      if (
+        arweaveOrigin &&
+        isAlchemyCdnPlaybackUrl(nextUrl) &&
+        playbackUrls.some((u, i) => i > index && isArweavePlaybackUrl(u))
+      ) {
+        playbackDebug('play:skip-url', {
+          name: nft.name,
+          reason: 'alchemy-cover-on-arweave',
+          index,
+          url: nextUrl,
+        });
+        tryUrl(index + 1);
+        return;
+      }
+
       urlIndex = index;
       playbackStarted = false;
       clearStall();
       switchingUrl = true;
       media.pause();
       media.preload = 'auto';
-      const nextUrl = playbackUrls[index];
       if (!isHlsUrl(nextUrl)) {
         const existing = media.currentSrc || media.src;
         if (existing && existing !== nextUrl && existing !== window.location.href) {
@@ -1106,11 +1153,14 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
         );
       const isAudioElement =
         typeof HTMLAudioElement !== 'undefined' && media instanceof HTMLAudioElement;
+      const isArweaveCandidate = isExtensionlessArweaveTx(currentUrlForTimer);
       const failoverMs = isHlsUrl(nextUrl)
         ? HLS_FIRST_BYTE_FAILOVER_MS
         : isIpfsDirCandidate
           ? IPFS_DIR_FAILOVER_MS
-          : isIpfsFileCandidate && !ipfsHasMediaExt
+          : isArweaveCandidate
+            ? ARWEAVE_FIRST_BYTE_FAILOVER_MS
+            : isIpfsFileCandidate && !ipfsHasMediaExt
             ? isAudioElement
               ? FIRST_BYTE_FAILOVER_MS
               : 4000
@@ -1173,7 +1223,9 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
             if (playAttempt !== playAttemptRef.current || playbackStarted) return;
             if (media.readyState > 0) return;
             tryUrl(index + 1);
-          }, FIRST_BYTE_FAILOVER_MS);
+          }, isExtensionlessArweaveTx(playbackUrls[index] || '')
+            ? ARWEAVE_FIRST_BYTE_FAILOVER_MS
+            : FIRST_BYTE_FAILOVER_MS);
           return;
         }
         playbackDebug('play:failover', {
@@ -1192,13 +1244,27 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
           playNft.metadata?.mime_type ||
           ''
         ).toLowerCase();
+        const cachedPlayMime = getCachedMediaMime(nextUrl);
+        const arweaveAudio =
+          plan.mode === 'audio-only' &&
+          isAudioElement &&
+          isExtensionlessArweaveTx(nextUrl);
         const playMime =
-          getCachedMediaMime(nextUrl) ||
+          (cachedPlayMime &&
+          !(arweaveAudio && /^audio\/(mpeg|mp3)(?:;|$)/i.test(cachedPlayMime))
+            ? cachedPlayMime
+            : '') ||
           (isAlchemyVideoFetchMp4Url(nextUrl) ? 'video/mp4' : '') ||
-          (plan.mode === 'audio-only' && metaMime.startsWith('audio/') ? metaMime : '') ||
+          (plan.mode === 'audio-only' &&
+          metaMime.startsWith('audio/') &&
+          !(arweaveAudio && /^audio\/(mpeg|mp3)(?:;|$)/i.test(metaMime))
+            ? metaMime
+            : '') ||
+          (arweaveAudio ? 'audio/wav' : '') ||
           (plan.mode === 'audio-only' &&
           isAudioElement &&
           !ipfsHasMediaExt &&
+          !arweaveAudio &&
           !/\.mypinata\.cloud/i.test(nextUrl)
             ? 'audio/mpeg'
             : '');
@@ -1212,6 +1278,7 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
           name: nft.name,
           candidate: nextUrl,
           attachedSrc: attachedSrc.slice(0, 220),
+          playMime: playMime || null,
           tag: media.tagName,
         });
         kickPlay();
@@ -1467,6 +1534,13 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
             !isWeakPlaybackUrl(u)
         );
         if (!alchemy) return;
+        if (arweaveOrigin || isArweavePlaybackUrl(rawAudioUrl)) {
+          playbackDebug('play:enrich-skip-alchemy-arweave', {
+            name: playNft.name,
+            alchemy,
+          });
+          return;
+        }
         const extras: string[] = [];
         if (!playbackUrls.includes(alchemy)) extras.push(alchemy);
         if (
@@ -1493,7 +1567,7 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
           hungOnIpfs,
           hungAudio,
         });
-        if (hungOnIpfs || hungAudio) {
+        if (hungOnIpfs || (hungAudio && isIpfsPlaybackUrl(current))) {
           tryUrl(0);
         }
       });

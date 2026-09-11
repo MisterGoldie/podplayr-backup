@@ -4,6 +4,7 @@ import {
   buildIpfsFallbackUrls,
   isIpfsCorsHostileUrl,
   extractIPFSPath,
+  parseArweaveMediaPath,
   processMediaUrl,
 } from './media';
 import { isBareIpfsFileCid, isExtensionlessArweaveTx, urlLooksLikeExtensionlessVideo } from './ipfsExtensionlessMedia';
@@ -750,13 +751,14 @@ export const probeMediaContentType = async (url: string): Promise<string> => {
   loadMimeCache();
   const cacheKey = mediaAssetId(url);
   const cachedMime = mimeProbeCache.get(cacheKey);
-  // Stale audio/* on an extensionless CID is how Dumpster Fire got stuck —
-  // a prior <audio> play or a timed-out probe cached the wrong type.
+  // Stale generic audio/mpeg on an extensionless CID is how Dumpster Fire
+  // got stuck. Specific types (wav/flac) from a live HEAD are trusted.
   const cachedAudioUntrusted =
     !!cachedMime &&
     cachedMime.startsWith('audio/') &&
     mediaUrlNeedsMimeProbe(url) &&
-    !urlLooksLikeAudio(url);
+    !urlLooksLikeAudio(url) &&
+    !/^audio\/(wav|x-wav|wave|flac|ogg|aac|mp4|m4a)(?:;|$)/i.test(cachedMime);
   if (cachedMime && !cachedAudioUntrusted) {
     return cachedMime;
   }
@@ -766,6 +768,12 @@ export const probeMediaContentType = async (url: string): Promise<string> => {
     if (url.startsWith('http')) candidates.add(url);
     const primary = processMediaUrl(url, '', 'audio');
     if (primary) candidates.add(primary);
+    const { fileTxId } = parseArweaveMediaPath(url);
+    // Path gateways 302 HTML; arweave.net/raw answers Content-Type (FORCE WAV).
+    // Probe-only — playback still tries turbo → permagate → arweave.net first.
+    if (fileTxId) {
+      candidates.add(`https://arweave.net/raw/${fileTxId}`);
+    }
     buildArweaveMediaFallbackUrls(url).slice(0, 4).forEach((u) => candidates.add(u));
   } else if (url.startsWith('ipfs://') || extractIPFSPath(url)) {
     // Dedicated collection Pinata first, then public fallbacks.
@@ -812,14 +820,26 @@ export const probeMediaContentType = async (url: string): Promise<string> => {
     );
   };
 
-  const probeList = filterLivePlaybackUrls(url, Array.from(candidates)).filter(
+  const rankedProbeList = filterLivePlaybackUrls(url, Array.from(candidates)).filter(
     (u) => !isIpfsCorsHostileUrl(u)
   );
+  const arweaveRawMimeProbe = rankedProbeList.filter((u) =>
+    /arweave\.net\/raw\//i.test(u)
+  );
+  const probeList = [
+    ...arweaveRawMimeProbe,
+    ...rankedProbeList.filter((u) => !arweaveRawMimeProbe.includes(u)),
+  ];
 
   for (const probeUrl of probeList) {
     try {
       const head = await timedFetch(probeUrl, { method: 'HEAD' });
       const headCt = head.headers.get('content-type');
+      if (head.status === 401 || head.status === 402 || head.status === 403) {
+        // Paid / auth gateways (turbo /raw 402) — try the next hop, do not
+        // poison the host (turbo path still serves the file).
+        continue;
+      }
       if (head.status === 404 || head.status === 410 || head.status >= 500) {
         const originParts = (extractIPFSPath(url) || '').split('/').filter(Boolean);
         const probeParts = (extractIPFSPath(probeUrl) || '').split('/').filter(Boolean);
@@ -847,6 +867,9 @@ export const probeMediaContentType = async (url: string): Promise<string> => {
         headers: { Range: 'bytes=0-0' },
       });
       const getCt = get.headers.get('content-type');
+      if (get.status === 401 || get.status === 402 || get.status === 403) {
+        continue;
+      }
       if (get.status === 404 || get.status === 410 || get.status >= 500) {
         rememberDeadGateway(url, probeUrl);
         continue;
