@@ -575,7 +575,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
   }, [isMinimized]);
 
   const iconButtonClass =
-    'p-2 rounded-full bg-black/45 backdrop-blur-md text-white/90 active:scale-95 transition-transform touch-manipulation outline-none focus:outline-none focus-visible:outline-none';
+    'p-2 text-white/90 active:scale-95 transition-transform touch-manipulation outline-none focus:outline-none focus-visible:outline-none';
   const progressPercent = safeProgressPercent(
     scrubPosition !== null ? scrubPosition : progress,
     duration
