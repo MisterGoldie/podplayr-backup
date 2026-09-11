@@ -97,6 +97,29 @@ import { mediaDebugSnapshot, playbackDebug } from '../utils/playbackDebug'; // T
 // Create a dedicated logger for this module
 const audioLogger = logger.getModuleLogger('audioPlayer');
 
+/** The clock must never stay muted. UI has no mute control; a NotAllowedError
+ * fallback that plays muted looks like "audio died until refresh" in WKWebView. */
+function ensureClockAudible(media: HTMLMediaElement | null | undefined) {
+  if (!media) return;
+  media.muted = false;
+  if (media.volume === 0) media.volume = 0.7;
+}
+
+let webkitAudioUnlock: AudioContext | null = null;
+function unlockWebAudioFromGesture() {
+  if (typeof window === 'undefined') return;
+  try {
+    const Ctor = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!Ctor) return;
+    if (!webkitAudioUnlock) webkitAudioUnlock = new Ctor();
+    if (webkitAudioUnlock.state === 'suspended') {
+      void webkitAudioUnlock.resume();
+    }
+  } catch {
+    // ignore
+  }
+}
+
 // Extend Window interface to include our custom property
 declare global {
   interface Window {
@@ -275,6 +298,8 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       if (video && video !== clock) video.pause();
       setIsPlaying(false);
     } else {
+      unlockWebAudioFromGesture();
+      ensureClockAudible(clock);
       setIsPlaying(true);
       clock.play().catch((error) => {
         audioLogger.error('Error in handlePlayPause:', error);
@@ -325,7 +350,9 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     // links) pass autoplay:false to load/prepare the track and let the
     // user's first tap on the play button provide the gesture instead.
     const shouldAutoplay = context?.autoplay !== false;
-    
+    unlockWebAudioFromGesture();
+    ensureClockAudible(visualPlaybackRef.current || audioRef.current);
+
     // Always update queue context
     if (context?.queue) {
       setCurrentQueue(context.queue);
@@ -984,6 +1011,7 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       }
       playbackDebug('play:kick', { name: nft.name, media: mediaDebugSnapshot(media) });
       setIsPlaying(true);
+      ensureClockAudible(media);
       const playPromise = media.play();
       if (!playPromise) {
         return;
@@ -1020,22 +1048,14 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
           return;
         }
         if (err instanceof DOMException && err.name === 'NotAllowedError' && isMobile) {
-          media.muted = true;
-          media.play()
-            .then(() => {
-              restorePageScroll();
-              setTimeout(() => { media.muted = false; }, 300);
-            })
-            .catch((mutedErr) => {
-              playbackDebug('play:muted-retry-failed', {
-                name: nft.name,
-                errorName: mutedErr instanceof Error ? mutedErr.name : undefined,
-                errorMessage: mutedErr instanceof Error ? mutedErr.message : String(mutedErr),
-              });
-              // Autoplay is blocked outright — don't leave the button showing
-              // "pause" for media that never actually started.
-              setIsPlaying(false);
-            });
+          // Do NOT play muted. WKWebView then keeps the session silent until
+          // a full refresh, while the UI still looks like it's playing.
+          playbackDebug('play:not-allowed', {
+            name: nft.name,
+            media: mediaDebugSnapshot(media),
+          });
+          ensureClockAudible(media);
+          if (media.paused) setIsPlaying(false);
           return;
         }
         audioLogger.error('Error playing media:', {

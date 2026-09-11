@@ -110,6 +110,7 @@ export function adPlaybackUrl(ad: AdConfig) {
 function parkPreloadVideo(video: HTMLVideoElement) {
   video.id = 'podplayr-ad-preload';
   video.muted = true;
+  video.autoplay = false;
   video.preload = 'auto';
   video.playsInline = true;
   video.setAttribute('playsinline', 'true');
@@ -142,11 +143,19 @@ function loadIntoPreloader(ad: AdConfig) {
     // ignore
   }
   video.setAttribute('data-ad-key', ad.video);
-  void attachAdPreload(video, adPlaybackUrl(ad)).catch(() => {
-    destroyAdPreloadHls();
-    video.src = ad.video;
-    video.load();
-  });
+  void attachAdPreload(video, adPlaybackUrl(ad))
+    .catch(() => {
+      destroyAdPreloadHls();
+      video.src = ad.video;
+      video.load();
+    })
+    .finally(() => {
+      try {
+        video.pause();
+      } catch {
+        // ignore
+      }
+    });
 }
 
 export function peekNextAd(): AdConfig {

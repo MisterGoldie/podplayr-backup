@@ -62,6 +62,8 @@ export function mediaDebugSnapshot(media?: HTMLMediaElement | null) {
     videoWidth: media instanceof HTMLVideoElement ? media.videoWidth : undefined,
     videoHeight: media instanceof HTMLVideoElement ? media.videoHeight : undefined,
     paused: media.paused,
+    muted: media.muted,
+    volume: media.volume,
     currentTime: Number(media.currentTime.toFixed?.(2) ?? media.currentTime),
     duration: media.duration,
   };
