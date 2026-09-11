@@ -34,7 +34,10 @@ const REDIS_TTL_SECONDS = 60 * 60 * 24; // 24 hours — media is durable, but re
 // — old keys just age out on their own TTL instead of serving stale shapes.
 // v3: animation extraction now also reads OpenSea-shaped `original_animation_url` /
 // `display_animation_url`. Entries cached before that resolved with empty media.
-const CACHE_SCHEMA_VERSION = 'v3';
+// v4: Alchemy `audio/*` `_animation` caches are preferred over hanging Pinata CIDs
+// (Async Art / Token Jukebox).
+// v5: audio-only tokens no longer copy the MP3 onto `videoUrl`.
+const CACHE_SCHEMA_VERSION = 'v5';
 
 function responseCacheKey(contract: string, tokenId: string, network: 'base' | 'ethereum'): string {
   return `PODPLAYR:nft-full:${CACHE_SCHEMA_VERSION}:${network}:${contract.toLowerCase()}:${tokenId.trim()}`;

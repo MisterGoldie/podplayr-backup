@@ -4,6 +4,7 @@ import { processMediaUrl, getMediaKey, formatTime, safeProgressPercent, getDispl
 import { applyPlaybackPlanToNft, getNftPlaybackPlan } from '../../utils/isMediaNFT';
 import type { NFT } from '../../types/user';
 import { logger } from '../../utils/logger';
+import { playbackDebug } from '../../utils/playbackDebug';
 import { triggerHaptic } from '../../utils/haptics';
 import { PlaybackButton } from '../buttons/PlaybackButton';
 import InfoPanel from './InfoPanel';
@@ -133,16 +134,39 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
 
   useEffect(() => {
     const sync = getNftPlaybackPlan(nft);
-    // Avoid a redundant re-render (and possible reload) when the plan hasn't actually changed
+    // Probe may have already stamped video-with-audio on an extensionless
+    // Arweave tx. Sync heuristics can still miss that URL — keep the probed
+    // video layer so the shared <video> is adopted instead of a still.
+    const probedUrl =
+      (nft.playbackMode === 'video-with-audio' || nft.isVideo) &&
+      (nft.videoUrl || nft.audio)
+        ? nft.videoUrl || nft.audio || null
+        : null;
+    const next =
+      sync.mode === 'audio-only' && probedUrl
+        ? {
+            mode: 'video-with-audio' as const,
+            audioUrl: probedUrl,
+            videoUrl: probedUrl,
+            muteVideo: false,
+          }
+        : sync;
+    playbackDebug('player:plan', {
+      name: nft.name,
+      syncMode: sync.mode,
+      nextMode: next.mode,
+      videoUrl: next.videoUrl,
+      isMinimized,
+    });
     setPlaybackPlan((prev) =>
-      prev.mode === sync.mode &&
-      prev.videoUrl === sync.videoUrl &&
-      prev.audioUrl === sync.audioUrl
+      prev.mode === next.mode &&
+      prev.videoUrl === next.videoUrl &&
+      prev.audioUrl === next.audioUrl
         ? prev
-        : sync
+        : next
     );
-    if (sync.videoUrl) {
-      applyPlaybackPlanToNft(nft, sync);
+    if (next.videoUrl) {
+      applyPlaybackPlanToNft(nft, next);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nft.contract, nft.tokenId, nft.audio, nft.videoUrl, nft.isVideo, nft.playbackMode, nft.metadata?.animation_url]);
@@ -401,7 +425,15 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
   useLayoutEffect(() => {
     if (!rawVideoSrc) return;
     const host = videoHostRef.current;
-    if (!host) return;
+    if (!host) {
+      playbackDebug('adopt:no-host', {
+        name: nft.name,
+        contract: nft.contract,
+        tokenId: nft.tokenId,
+        isMinimized,
+      });
+      return;
+    }
 
     const video = adoptPlaybackVideoElement(host, nft.contract, nft.tokenId);
     videoRef.current = video;
@@ -453,11 +485,21 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
       return true;
     };
     const scheduleVisualFail = () => {
-      if (visualFailTimer || hasVisualTrack()) return;
+      if (isMinimized || visualFailTimer || hasVisualTrack()) return;
       visualFailTimer = setTimeout(() => {
         visualFailTimer = null;
-        if (!hasVisualTrack()) setVideoLayerFailed(true);
-      }, 1500);
+        if (hasVisualTrack() || isMinimized) return;
+        // Large extensionless mp4s (Brain Dead ~116MB) often play audio
+        // before moov/video dimensions arrive. Keep the picture layer.
+        if (
+          video.networkState === HTMLMediaElement.NETWORK_LOADING ||
+          video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA
+        ) {
+          scheduleVisualFail();
+          return;
+        }
+        setVideoLayerFailed(true);
+      }, 8000);
     };
     const onLoadedMetadata = () => {
       if (confirmVisualTrack()) return;
@@ -515,7 +557,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
       video.removeEventListener('playing', onPlayingOrData);
       video.removeEventListener('error', onError);
     };
-  }, [rawVideoSrc, nft.contract, nft.tokenId, nft.network, playbackPlan.mode, playbackPlan.muteVideo, playbackPlan.videoUrl]);
+  }, [rawVideoSrc, nft.contract, nft.tokenId, nft.network, playbackPlan.mode, playbackPlan.muteVideo, playbackPlan.videoUrl, isMinimized]);
 
   const handleMinimizeToggle = () => {
     dismissMinimizeHint();

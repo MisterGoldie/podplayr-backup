@@ -292,6 +292,22 @@ export function isWeakPlaybackUrl(url?: string | null): boolean {
   return isPollutedPlaybackUrl(url) || isMezzanineMuxUrl(url);
 }
 
+/**
+ * Alchemy Cloudinary `video/fetch` remux to H.264 mp4.
+ * Use only for playback — never as a card cover (`f_png` stills live in imageOptimizer).
+ * ProRes / QuickTime `_animation` caches fail in Chrome and most WebViews;
+ * this is the same host we already use for video stills.
+ */
+export function alchemyVideoFetchMp4Url(sourceUrl: string): string | null {
+  if (!sourceUrl || /res\.cloudinary\.com/i.test(sourceUrl)) return null;
+  if (!/nft2?-cdn\.alchemy\.com/i.test(sourceUrl)) return null;
+  return `https://res.cloudinary.com/alchemyapi/video/fetch/f_mp4/${sourceUrl}`;
+}
+
+export function isAlchemyVideoFetchMp4Url(url?: string | null): boolean {
+  return !!url && /res\.cloudinary\.com\/alchemyapi\/video\/fetch\/[^/\s]*f_mp4/i.test(url);
+}
+
 /** CDN / transcoded URLs to try *before* the original Arweave/IPFS file. */
 export function resolveCdnPlaybackUrls(
   sourceUrl: string,

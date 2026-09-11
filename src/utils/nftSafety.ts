@@ -121,6 +121,27 @@ export const isDangerousResourceUrl = (url?: string | null): boolean => {
   return false;
 };
 
+/**
+ * HTML apps (Crypto Coven, Feeshes baggy, Art Blocks generators) — not
+ * <audio>/<video>. Host-scoped so IPFS / Arweave / Alchemy / Pinata stay unchanged.
+ */
+export const urlLooksLikeInteractivePage = (url?: string | null): boolean => {
+  if (!url) return false;
+  try {
+    const host = new URL(url.startsWith('http') ? url : `https://${url}`).hostname.toLowerCase();
+    return (
+      host === 'cryptocoven.xyz' ||
+      host.endsWith('.cryptocoven.xyz') ||
+      host === 'feeshes.com' ||
+      host.endsWith('.feeshes.com') ||
+      host === 'generator.artblocks.io' ||
+      host.endsWith('.generator.artblocks.io')
+    );
+  } catch {
+    return false;
+  }
+};
+
 /** True when metadata is trying to execute or render a document, not play audio/video. */
 export const isUnsafePlaybackUrl = (url?: string | null): boolean => {
   if (!url || typeof url !== 'string') return false;

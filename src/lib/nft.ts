@@ -7,7 +7,8 @@ import {
   isPlayableMediaNFT,
   getNftPlaybackPlan,
 } from '../utils/isMediaNFT';
-import { isBlockedNftContract, isDangerousResourceUrl, isPhishingSpamNft } from '../utils/nftSafety';
+import { isBlockedNftContract, isDangerousResourceUrl, isPhishingSpamNft, urlLooksLikeInteractivePage } from '../utils/nftSafety';
+import { coerceIpfsUrl } from '../utils/ipfsExtensionlessMedia';
 import { isPollutedPlaybackUrl, isMezzanineMuxUrl, isWeakPlaybackUrl } from './mediaCdn';
 import { isCuratedFeaturedCover } from '../data/featuredNfts';
 import { getOpenSeaNftMedia } from './opensea';
@@ -18,6 +19,11 @@ import { normalizeNftTokenId } from '../utils/nftIdentity';
 
 const PINATA_IPFS = 'https://gateway.pinata.cloud/ipfs/';
 
+function animationDetailsLookLike3d(meta?: NFTMetadata | null): boolean {
+  const format = String(meta?.animation_details?.format || '').toLowerCase();
+  return /^(glb|gltf|gltf-binary|vrm|usdz|fbx|obj|stl)$/i.test(format);
+}
+
 /** Server-safe URL rewrite — do not import processMediaUrl (client module). */
 function processMediaUrlServer(
   url: string,
@@ -27,6 +33,7 @@ function processMediaUrlServer(
   if (!url || typeof url !== 'string') return '';
   url = url.replace(/^[\s\x00-\x1f\x7f]+|[\s\x00-\x1f\x7f]+$/g, '');
   if (!url || isDangerousResourceUrl(url)) return '';
+  url = coerceIpfsUrl(url);
   if (url.startsWith('ipfs://')) {
     return `${PINATA_IPFS}${url.slice(7).replace(/^ipfs\//, '')}`;
   }
@@ -134,6 +141,13 @@ function isBrokenAlchemyAnimationCache(
 ): boolean {
   if (!animation?.cachedUrl) return false;
   const type = (animation.contentType || '').toLowerCase();
+  // Art Blocks / generative HTML pages get cached as `_animation` with text/html.
+  if (type.startsWith('text/') || type.includes('html') || type.includes('javascript')) {
+    return true;
+  }
+  if (urlLooksLikeInteractivePage(animation.cachedUrl) || urlLooksLikeInteractivePage(animation.originalUrl)) {
+    return true;
+  }
   if (type.includes('mpegurl') || type === 'application/x-mpegurl') return true;
   if (/\.m3u8(?:\?|#|$)/i.test(animation.cachedUrl)) return true;
   if (isPollutedPlaybackUrl(animation.cachedUrl)) return true;
@@ -156,20 +170,78 @@ function isUsableOriginPlaybackUrl(url?: string | null): url is string {
   // Never play orphan stream.mux.com HLS (only PLAYBACK_OVERRIDES may).
   if (isPollutedPlaybackUrl(u)) return false;
   if (/\.m3u8(?:\?|#|$)/i.test(u) && !/stream\.mux\.com/i.test(u)) return false;
+  // Art Blocks generators / Coven / Feeshes HTML apps.
+  if (urlLooksLikeInteractivePage(u)) return false;
   return true;
 }
 
 export function isIpfsPlaybackUrl(url?: string | null): boolean {
   if (!url || typeof url !== 'string') return false;
-  return (
-    url.startsWith('ipfs://') ||
-    /\/ipfs\//i.test(url) ||
-    /\.ipfs\./i.test(url)
-  );
+  const u = coerceIpfsUrl(url.trim());
+  return u.startsWith('ipfs://') || /\/ipfs\//i.test(u) || /\.ipfs\./i.test(u);
+}
+
+/** Bare `bafybei…` UnixFS CID — usually a folder, not a playable file. */
+export function ipfsUrlNeedsDirectoryResolve(url?: string | null): boolean {
+  if (!url || !isIpfsPlaybackUrl(url)) return false;
+  if (/\.(mp3|wav|m4a|aac|ogg|flac|mp4|webm|mov|m4v)(?:\?|#|$)/i.test(url)) return false;
+  const path = url
+    .replace(/^ipfs:\/\//i, '')
+    .replace(/^https?:\/\/[^/]+\/ipfs\//i, '')
+    .replace(/^https?:\/\/([^.]+)\.ipfs\.[^/?#]+\/?/i, '$1/')
+    .split(/[?#]/)[0]
+    .replace(/^\/+|\/+$/g, '');
+  const parts = path.split('/').filter(Boolean);
+  if (parts.length !== 1) return false;
+  const cid = parts[0];
+  return /^bafy/i.test(cid) && !/^bafkrei/i.test(cid);
 }
 
 function isAlchemyCdnPlaybackUrl(url?: string | null): boolean {
   return !!url && /nft2?-cdn\.alchemy\.com/i.test(url);
+}
+
+/** On-chain / gateway origin — never an Alchemy `_animation` cache or Mux stub. */
+function pickDurableOriginPlaybackUrl(
+  ...urls: Array<string | null | undefined>
+): string {
+  for (const url of urls) {
+    if (typeof url !== 'string') continue;
+    const trimmed = url.trim();
+    if (
+      !trimmed ||
+      !isUsableOriginPlaybackUrl(trimmed) ||
+      isAlchemyCdnPlaybackUrl(trimmed) ||
+      isWeakPlaybackUrl(trimmed) ||
+      isPollutedPlaybackUrl(trimmed)
+    ) {
+      continue;
+    }
+    return trimmed;
+  }
+  return '';
+}
+
+/** Origins to try after a broken Alchemy `_animation` (Variant Fellowship). */
+export function collectNftOriginPlaybackUrls(nft: NFT): string[] {
+  const files = (nft.metadata?.properties?.files || []).map((f) => f?.uri || f?.url);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const url of [
+    nft.metadata?.original_animation_url,
+    nft.metadata?.display_animation_url,
+    nft.metadata?.animation_url_alternative,
+    nft.metadata?.content?.uri,
+    nft.metadata?.properties?.video,
+    nft.metadata?.properties?.animation_url,
+    ...files,
+  ]) {
+    const origin = pickDurableOriginPlaybackUrl(url);
+    if (!origin || seen.has(origin)) continue;
+    seen.add(origin);
+    out.push(origin);
+  }
+  return out;
 }
 
 /** Alchemy `_animation` caches are video/mp4 even when contentType is missing. */
@@ -177,9 +249,21 @@ function alchemyAnimationLooksLikeVideo(
   animation?: { cachedUrl?: string; originalUrl?: string; contentType?: string; size?: number } | null
 ): boolean {
   const type = (animation?.contentType || '').toLowerCase();
+  if (type.startsWith('audio/')) return false;
   if (type.startsWith('video/')) return true;
+  if (type.startsWith('model/') || type.includes('gltf') || type.includes('html')) {
+    return false;
+  }
+  // Generative HTML (Art Blocks) is often cached as `_animation` — never video.
+  if (type.startsWith('text/') || type.includes('html') || type.includes('javascript')) {
+    return false;
+  }
+  if (isBrokenAlchemyAnimationCache(animation)) return false;
   const cached = (animation?.cachedUrl || '').trim();
-  if (!cached || isBrokenAlchemyAnimationCache(animation)) return false;
+  if (!cached) return false;
+  if (urlLooksLikeInteractivePage(cached) || urlLooksLikeInteractivePage(animation?.originalUrl)) {
+    return false;
+  }
   if (/nft2?-cdn\.alchemy\.com\/[^?\s]+_animation(?:\?|#|$)/i.test(cached)) return true;
   if (typeof animation?.size === 'number' && animation.size > 2048 && /_animation/i.test(cached)) {
     return true;
@@ -210,13 +294,15 @@ function pickAlchemyAnimationPlaybackUrl(
   const cached = (animation?.cachedUrl || '').trim();
   const type = (animation?.contentType || '').toLowerCase();
   const cachedIsVideo = alchemyAnimationLooksLikeVideo(animation);
+  const cachedIsAudio = type.startsWith('audio/');
 
-  // Real Alchemy CDN video bytes beat IPFS gateways (CORS/429 in mini-apps) and
-  // signed mezzanine URLs (signatures expire → 403).
+  // Real Alchemy CDN bytes beat IPFS gateways (CORS/429 in mini-apps) and
+  // signed mezzanine URLs (signatures expire → 403). Audio caches (Async Art
+  // / Token Jukebox) must win too — they are not video, but Pinata hangs.
   if (
     !isBrokenAlchemyAnimationCache(animation) &&
     isUsableOriginPlaybackUrl(cached) &&
-    cachedIsVideo &&
+    (cachedIsVideo || cachedIsAudio) &&
     !isWeakPlaybackUrl(cached)
   ) {
     return cached;
@@ -234,10 +320,29 @@ function pickAlchemyAnimationPlaybackUrl(
   if (isBrokenAlchemyAnimationCache(animation) || !isUsableOriginPlaybackUrl(cached)) {
     return '';
   }
-  if (cachedIsVideo && !isWeakPlaybackUrl(cached)) {
+  if ((cachedIsVideo || cachedIsAudio) && !isWeakPlaybackUrl(cached)) {
     return cached;
   }
   return '';
+}
+
+/**
+ * Token stills (thumbnailv2 / nft-cdn) share Alchemy's media hash with `_animation`.
+ * Async Art audio NFTs keep a hanging Pinata CID on `audio` — this recovers the
+ * CDN MP3 without waiting on enrich. Isolation-style tokens use a *different*
+ * cover hash; callers must only prepend this for audio-only IPFS.
+ */
+export function alchemyAnimationUrlFromCover(image?: string | null): string | null {
+  if (!image || typeof image !== 'string') return null;
+  const cleaned = image.trim();
+  const match =
+    cleaned.match(/nft2?-cdn\.alchemy\.com\/([^/?#]+)\/([^/?#_]+)/i) ||
+    cleaned.match(/thumbnailv2\/([^/?#]+)\/([^/?#_]+)/i);
+  if (!match) return null;
+  const network = match[1];
+  const hash = match[2].replace(/_animation$/i, '').replace(/\.[a-z0-9]{2,5}$/i, '');
+  if (!/^[a-f0-9]{24,64}$/i.test(hash)) return null;
+  return `https://nft2-cdn.alchemy.com/${network}/${hash}_animation`;
 }
 
 type AlchemyImageFields = {
@@ -740,10 +845,19 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
     // Prefer on-chain Arweave when Alchemy only has Mux mezzanine / empty.
     // stay-in-tune journals are ERC-1155; uri(tokenId) → Arweave JSON.
     let effectiveMeta: NFTMetadata = rawMeta;
+    const mappedOrigin = pickDurableOriginPlaybackUrl(
+      rawMeta.original_animation_url,
+      alchemyImage.animation?.originalUrl,
+      rawMeta.animation_url,
+      contentUri,
+      fileVideoUri,
+      rawMeta.display_animation_url
+    );
     const needsChainOrigin =
       !alchemyAnimation ||
       isMezzanineMuxUrl(alchemyAnimation) ||
-      isPollutedPlaybackUrl(alchemyAnimation);
+      isPollutedPlaybackUrl(alchemyAnimation) ||
+      (isAlchemyCdnPlaybackUrl(alchemyAnimation) && !mappedOrigin);
     if (needsChainOrigin) {
       const tokenMetaUri = await readContractTokenMetadataUri(
         contract,
@@ -782,13 +896,19 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
         contentMime ||
         ''
     ).toLowerCase();
-    const resolvedAnimType =
-      alchemyAnimationLooksLikeVideo(alchemyImage.animation) ||
-      imageVideoType.startsWith('video/') ||
-      (alchemyAnimation &&
-        (alchemyAnimation.startsWith('ar://') ||
-          /arweave\.net\//i.test(alchemyAnimation) ||
-          recoveredMime.startsWith('video/')))
+    const is3dAnimation =
+      animationDetailsLookLike3d(effectiveMeta) ||
+      animationDetailsLookLike3d(rawMeta) ||
+      recoveredMime.startsWith('model/') ||
+      recoveredMime.includes('gltf');
+    const resolvedAnimType = is3dAnimation
+      ? 'model/gltf-binary'
+      : alchemyAnimationLooksLikeVideo(alchemyImage.animation) ||
+          imageVideoType.startsWith('video/') ||
+          (alchemyAnimation &&
+            (alchemyAnimation.startsWith('ar://') ||
+              /arweave\.net\//i.test(alchemyAnimation) ||
+              recoveredMime.startsWith('video/')))
         ? recoveredMime.startsWith('video/')
           ? recoveredMime
           : imageVideoType.startsWith('video/')
@@ -796,9 +916,19 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
             : 'video/mp4'
         : alchemyAnimType;
 
+    const originAnimation = pickDurableOriginPlaybackUrl(
+      effectiveMeta.original_animation_url,
+      alchemyImage.animation?.originalUrl,
+      effectiveMeta.animation_url,
+      contentUri,
+      fileVideoUri,
+      rawMeta.original_animation_url,
+      rawMeta.display_animation_url
+    );
     const mergedMeta: NFTMetadata = {
       ...effectiveMeta,
-      // Prefer durable playback origin; keep raw on-chain URL for profile classification.
+      original_animation_url: effectiveMeta.original_animation_url || originAnimation || undefined,
+      // Prefer Alchemy CDN for the first hop; keep the origin for failover.
       animation_url:
         alchemyAnimation ||
         contentUri ||
@@ -883,9 +1013,7 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
     const resolvedVideo = isUsableOriginPlaybackUrl(resolvedVideoCandidate) &&
       !isWeakPlaybackUrl(resolvedVideoCandidate)
       ? resolvedVideoCandidate
-      : isUsableOriginPlaybackUrl(audioUrl) && !isWeakPlaybackUrl(audioUrl)
-        ? audioUrl
-        : undefined;
+      : undefined;
     const playbackMode = isAlchemyVideo ? 'video-with-audio' : plan.mode;
 
     const nft: NFT = {
@@ -895,7 +1023,7 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
       description: metadata.description || effectiveMeta.description || rawMeta.description || '',
       image: imageUrl || '',
       audio: resolvedVideo || (isUsableOriginPlaybackUrl(audioUrl) ? audioUrl : '') || '',
-      videoUrl: resolvedVideo,
+      videoUrl: plan.mode === 'audio-only' ? undefined : resolvedVideo,
       playbackMode,
       hasValidAudio:
         Boolean(resolvedVideo || (isUsableOriginPlaybackUrl(audioUrl) && audioUrl)) ||
@@ -1197,15 +1325,31 @@ export const enrichNftMediaFromChain = async (nft: NFT): Promise<NFT> => {
         data.metadata?.image ||
         data.metadata?.image_url ||
         '';
+      const keptOrigin =
+        pickDurableOriginPlaybackUrl(
+          data.metadata?.original_animation_url,
+          nft.metadata?.original_animation_url,
+          nft.audio,
+          nft.videoUrl,
+          nft.metadata?.animation_url,
+          nft.animationUrl
+        ) || undefined;
+      const apiMime = String(
+        data.metadata?.mimeType || data.metadata?.mime_type || ''
+      ).toLowerCase();
+      const apiIsAudio =
+        apiMime.startsWith('audio/') || data.playbackMode === 'audio-only';
       return {
         ...nft,
         name: data.name || nft.name,
         image: cover,
         audio: apiPlayback,
-        videoUrl: apiPlayback,
-        animationUrl: apiPlayback,
-        playbackMode: data.playbackMode || 'video-with-audio',
-        isVideo: data.isVideo ?? true,
+        videoUrl: apiIsAudio ? undefined : apiPlayback,
+        animationUrl: apiIsAudio ? nft.animationUrl : apiPlayback,
+        playbackMode: apiIsAudio
+          ? 'audio-only'
+          : data.playbackMode || 'video-with-audio',
+        isVideo: apiIsAudio ? false : (data.isVideo ?? true),
         hasValidAudio: data.hasValidAudio ?? true,
         collection: {
           ...nft.collection,
@@ -1218,10 +1362,17 @@ export const enrichNftMediaFromChain = async (nft: NFT): Promise<NFT> => {
           image: cover || nft.metadata?.image,
           image_url: data.metadata?.image_url || cover || nft.metadata?.image_url,
           animation_url: apiPlayback,
+          original_animation_url: keptOrigin || data.metadata?.original_animation_url,
           mimeType:
-            data.metadata?.mimeType || data.metadata?.mime_type || nft.metadata?.mimeType || 'video/mp4',
+            data.metadata?.mimeType ||
+            data.metadata?.mime_type ||
+            nft.metadata?.mimeType ||
+            (apiIsAudio ? 'audio/mpeg' : 'video/mp4'),
           mime_type:
-            data.metadata?.mime_type || data.metadata?.mimeType || nft.metadata?.mime_type || 'video/mp4',
+            data.metadata?.mime_type ||
+            data.metadata?.mimeType ||
+            nft.metadata?.mime_type ||
+            (apiIsAudio ? 'audio/mpeg' : 'video/mp4'),
         },
       };
     }
@@ -1589,8 +1740,20 @@ export const fetchOwnedNftsFromAlchemy = async (address: string): Promise<NFT[]>
             nft.image?.cachedUrl,
           ],
         });
+        const originAnimation = pickDurableOriginPlaybackUrl(
+          (meta as NFTMetadata).original_animation_url,
+          nft.animation?.originalUrl,
+          typeof meta.animation_url === 'string' ? meta.animation_url : '',
+          (meta as NFTMetadata).content?.uri,
+          meta.properties?.video,
+          meta.properties?.animation_url,
+          (meta as NFTMetadata).display_animation_url,
+          fromMedia?.raw
+        );
         const mergedMeta = {
           ...meta,
+          original_animation_url:
+            (meta as NFTMetadata).original_animation_url || originAnimation || undefined,
           animation_url:
             animationFromAlchemy ||
             (typeof (meta as NFTMetadata).content?.uri === 'string'
@@ -1631,17 +1794,12 @@ export const fetchOwnedNftsFromAlchemy = async (address: string): Promise<NFT[]>
           return null;
         }
 
-        const candidate = {
-          audio: plan.audioUrl || audioUrl,
-          animationUrl: plan.videoUrl || mergedMeta.animation_url,
-          metadata: mergedMeta,
-        };
-
-        const hasAudio = Boolean(soundRaw) || hasPlayableAudio(candidate);
+        const hasAudio = Boolean(soundRaw) && !animationDetailsLookLike3d(mergedMeta);
         const isVideo =
-          plan.mode !== 'audio-only' ||
-          alchemyAnimationLooksLikeVideo(nft.animation) ||
-          /\.(mp4|webm|mov|m4v)(?:\?|#|$)/i.test(animationFromAlchemy || '');
+          !animationDetailsLookLike3d(mergedMeta) &&
+          (plan.mode !== 'audio-only' ||
+            alchemyAnimationLooksLikeVideo(nft.animation) ||
+            /\.(mp4|webm|mov|m4v)(?:\?|#|$)/i.test(animationFromAlchemy || ''));
 
         const playbackUrl = rewrite(
           animationFromAlchemy ||
@@ -1688,6 +1846,19 @@ export const fetchOwnedNftsFromAlchemy = async (address: string): Promise<NFT[]>
               rewrite(visualCover || '') ||
               '',
             animation_url: playbackUrl || rewrite(mergedMeta.animation_url || plan.videoUrl || '') || '',
+            original_animation_url:
+              rewrite(mergedMeta.original_animation_url || originAnimation || '') ||
+              mergedMeta.original_animation_url,
+            mimeType:
+              (typeof meta.mimeType === 'string' && meta.mimeType) ||
+              (typeof (meta as NFTMetadata).mime_type === 'string' && (meta as NFTMetadata).mime_type) ||
+              nft.animation?.contentType ||
+              undefined,
+            mime_type:
+              (typeof (meta as NFTMetadata).mime_type === 'string' && (meta as NFTMetadata).mime_type) ||
+              (typeof meta.mimeType === 'string' && meta.mimeType) ||
+              nft.animation?.contentType ||
+              undefined,
             audio:
               mergedMeta.audio ||
               mergedMeta.audio_url ||

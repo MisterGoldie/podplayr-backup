@@ -15,7 +15,7 @@ import {
   nftHasSeaDnVideoAnimation,
 } from './openSeaMedia';
 import { getMediaKey } from './nftIdentity';
-import { isDangerousResourceUrl } from './nftSafety';
+import { isDangerousResourceUrl, urlLooksLikeInteractivePage } from './nftSafety';
 import { playbackDebug } from './playbackDebug';
 import {
   ipfsFilenameLooksLikeMedia,
@@ -88,6 +88,12 @@ const COMMON_IPFS_IMAGE_NAMES = [
 
 /** Common playable filenames when `animation_url` / `audio` points at a directory CID. */
 const COMMON_IPFS_MEDIA_NAMES = [
+  'video.mp4',
+  'animation.mp4',
+  'media.mp4',
+  'video.webm',
+  'animation.webm',
+  'media.webm',
   'audio.mp3',
   'audio.wav',
   'audio.m4a',
@@ -98,15 +104,28 @@ const COMMON_IPFS_MEDIA_NAMES = [
   'music.mp3',
   'track.mp3',
   'song.mp3',
-  'animation.mp4',
-  'video.mp4',
-  'media.mp4',
-  'animation.webm',
-  'video.webm',
-  'media.webm',
 ];
 
-export type IpfsFallbackKind = 'image' | 'media';
+/** Extra CORS-friendly playback gateways — never dweb/w3s/ipfs.io (CORP 403). */
+export const PLAYBACK_IPFS_GATEWAYS = [
+  PRIMARY_IPFS_GATEWAY,
+  'https://ipfs.4everland.io/ipfs/',
+];
+
+export type IpfsFallbackKind = 'image' | 'media' | 'audio';
+
+const COMMON_IPFS_AUDIO_NAMES = [
+  'audio.wav',
+  'audio.mp3',
+  'audio.m4a',
+  'audio.ogg',
+  'audio.aac',
+  'audio.flac',
+  'sound.mp3',
+  'music.mp3',
+  'track.mp3',
+  'song.mp3',
+];
 
 const looksLikeAudioFileUrl = (url: string): boolean =>
   /\.(mp3|wav|ogg|m4a|flac|aac)(?:\?|#|$)/i.test(url);
@@ -169,18 +188,10 @@ export const shouldProbeIpfsDirectory = (url: string, ipfsPath?: string | null):
     return !/\.[a-z0-9]{2,5}$/i.test(last);
   }
 
-  // Trailing slash after the CID in the original URL
+  // Trailing slash after the CID in the original URL (path-style directory).
+  // Do not treat `Qm….ipfs.dweb.link/` as a folder — file CIDs also have pathname `/`.
   if (/\/ipfs\/[^/?#]+\/(?:\?|#|$)/i.test(url) || /ipfs:\/\/[^/?#]+\/(?:\?|#|$)/i.test(url)) {
     return true;
-  }
-  // Subdomain gateway with trailing path slash: cid.ipfs.w3s.link/
-  try {
-    const u = new URL(url);
-    if (/\.ipfs\./i.test(u.hostname) && (u.pathname === '/' || u.pathname === '')) {
-      return true;
-    }
-  } catch {
-    // ignore
   }
   return false;
 };
@@ -212,15 +223,26 @@ export const expandIpfsDirectoryImagePaths = (
 ): string[] => {
   const clean = ipfsPath.replace(/^\/+/, '').replace(/\/+$/, '');
   if (!clean) return [];
+  const cid = clean.split('/')[0] || '';
+  // Do not treat every bare `bafybei` as a folder. Variant Fellowship is a
+  // UnixFS *file* (ProRes MOV); guessing /video.mp4 404s and steals slots.
+  // Real folders still expand when the URL has a trailing slash / subpath,
+  // or when listIpfsDirectoryVideoFile finds a file.
   const probe =
     sourceUrl != null
       ? shouldProbeIpfsDirectory(sourceUrl, clean)
       : isBareIpfsDirectoryPath(clean);
   if (!probe) return [clean];
-  const cid = clean.split('/')[0];
-  const names = kind === 'media' ? COMMON_IPFS_MEDIA_NAMES : COMMON_IPFS_IMAGE_NAMES;
-  // Bare CID first (some gateways resolve a single wrapped file), then names.
-  return [clean, ...names.map((name) => `${cid}/${name}`)];
+  const names =
+    kind === 'audio'
+      ? COMMON_IPFS_AUDIO_NAMES
+      : kind === 'media'
+        ? COMMON_IPFS_MEDIA_NAMES
+        : COMMON_IPFS_IMAGE_NAMES;
+  const files = names.map((name) => `${cid}/${name}`);
+  // Playback: filenames first so <video>/<audio> is not pointed at a listing.
+  // Images: bare CID first (wrapped stills / Alchemy hashes).
+  return kind === 'media' || kind === 'audio' ? [...files, clean] : [clean, ...files];
 };
 
 /**
@@ -239,6 +261,12 @@ export const pickImageCandidates = (nft: UserNFT | null | undefined): string[] =
     // Skip dedicated audio. Allow video covers (Nifty Island / SeaDN mp4).
     if (looksLikeAudioFileUrl(trimmed)) return;
     if (looksLikeVideoFileUrl(trimmed) && !opts?.allowVideo) return;
+    // Feeshes ` /baggy/N` is an HTML app. `/feesh/N` is the jpg still.
+    if (/feeshes\.com\/baggy\/(\d+)/i.test(trimmed)) {
+      raw.push(trimmed.replace(/\/baggy\/(\d+)/i, '/feesh/$1'));
+      return;
+    }
+    if (urlLooksLikeInteractivePage(trimmed) && /\/(map|artifacts)\//i.test(trimmed)) return;
     raw.push(trimmed);
   };
 
@@ -246,6 +274,7 @@ export const pickImageCandidates = (nft: UserNFT | null | undefined): string[] =
   push(nft.image, { allowVideo: true });
   push(meta?.image, { allowVideo: true });
   push(meta?.image_url);
+  push(meta?.external_url);
   push(meta?.properties?.image);
   push(meta?.properties?.visual?.url);
   // Animation URL as cover only when it's clearly video (not the audio track).
@@ -381,17 +410,26 @@ export async function listIpfsDirectoryVideoFile(url: string): Promise<string> {
   const cid = path.split('/').filter(Boolean)[0];
   if (!cid || isRawIpfsCid(cid)) return '';
 
-  const listingUrl = toIpfsGatewayUrl(`${cid}/`);
+  const listingUrls = PLAYBACK_IPFS_GATEWAYS.map((g) => toIpfsGatewayUrl(`${cid}/`, g));
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 3500);
+  const timer = setTimeout(() => ctrl.abort(), 6000);
   try {
-    const res = await fetch(listingUrl, { method: 'GET', mode: 'cors', signal: ctrl.signal });
-    if (!res.ok) return '';
-    const contentType = (res.headers.get('content-type') || '').toLowerCase();
-    if (contentType.startsWith('video/') || contentType.startsWith('audio/')) {
-      return '';
+    let html = '';
+    for (const listingUrl of listingUrls) {
+      try {
+        const res = await fetch(listingUrl, { method: 'GET', mode: 'cors', signal: ctrl.signal });
+        if (!res.ok) continue;
+        const contentType = (res.headers.get('content-type') || '').toLowerCase();
+        if (contentType.startsWith('video/') || contentType.startsWith('audio/')) {
+          return '';
+        }
+        html = await res.text();
+        if (html) break;
+      } catch {
+        continue;
+      }
     }
-    const html = await res.text();
+    if (!html) return '';
     const hrefs = [...html.matchAll(/href\s*=\s*["']([^"']+)["']/gi)].map((m) => m[1]);
     for (const href of hrefs) {
       let decoded = href.split(/[?#]/)[0] || '';
@@ -473,6 +511,25 @@ const DEAD_IPFS_HOSTS = new Set([
   'cf-ipfs.com',
 ]);
 
+/** Keep a dedicated `*.mypinata.cloud` (or other) host when swapping CID → CID/file. */
+const replaceIpfsPathOnSameHost = (url: string, ipfsPath: string): string => {
+  try {
+    const parsed = new URL(url);
+    const idx = parsed.pathname.toLowerCase().indexOf('/ipfs/');
+    if (idx < 0) return toIpfsGatewayUrl(ipfsPath);
+    const encoded = ipfsPath.replace(/^\/+/, '').split('/').map((segment) => {
+      try {
+        return encodeURIComponent(decodeURIComponent(segment));
+      } catch {
+        return encodeURIComponent(segment);
+      }
+    }).join('/');
+    return `${parsed.origin}${parsed.pathname.slice(0, idx + 6)}${encoded}`;
+  } catch {
+    return toIpfsGatewayUrl(ipfsPath);
+  }
+};
+
 /** Build https gateway URL for an IPFS path (CID or CID/file...). */
 export const toIpfsGatewayUrl = (
   ipfsPath: string,
@@ -520,8 +577,10 @@ export const buildIpfsFallbackUrls = (
 
   const isHttp = url.startsWith('http://') || url.startsWith('https://');
   const originalHostile = isHttp && isIpfsCorsHostileUrl(url);
-  const isDir = shouldProbeIpfsDirectory(url, path);
   const pathVariants = expandIpfsDirectoryImagePaths(path, url, kind);
+  const isDir =
+    shouldProbeIpfsDirectory(url, path) ||
+    ((kind === 'media' || kind === 'audio') && pathVariants.length > 1);
 
   if (isDir) {
     const bare = path.replace(/\/+$/, '');
@@ -533,18 +592,32 @@ export const buildIpfsFallbackUrls = (
         ? IPFS_GATEWAYS.filter((g) => !/w3s\.link|nftstorage\.link|dweb\.link|ipfs\.io/i.test(g))
         : IPFS_GATEWAYS;
 
-    if (kind === 'media') {
-      // Playback budget is tiny (MAX_PLAYBACK_CANDIDATES=6). Do NOT fill it with
-      // the same bare CID on 6 gateways — include audio/video filenames early.
+    if (kind === 'media' || kind === 'audio') {
+      // Dedicated collection gateways (*.mypinata.cloud) first — they often
+      // serve the wrapped file at the CID. Guessed /video.mp4 on public
+      // Pinata 404s (Hot Coffee wav) and must not steal the first slot.
+      const files = pathVariants.filter((p) => p !== bare);
+      if (isHttp && !originalHostile) {
+        push(url);
+        if (kind === 'audio') {
+          for (const variant of files.slice(0, 2)) {
+            push(replaceIpfsPathOnSameHost(url, variant));
+          }
+        }
+      }
+      if (kind === 'media') {
+        for (const variant of files.slice(0, 3)) {
+          push(toIpfsGatewayUrl(variant, PRIMARY_IPFS_GATEWAY));
+        }
+      } else {
+        for (const variant of files.slice(0, 2)) {
+          push(toIpfsGatewayUrl(variant, PRIMARY_IPFS_GATEWAY));
+        }
+      }
       push(toIpfsGatewayUrl(bare, PRIMARY_IPFS_GATEWAY));
-      for (const variant of fileVariants.slice(0, 4)) {
-        push(toIpfsGatewayUrl(variant, PRIMARY_IPFS_GATEWAY));
-      }
-      for (const gateway of gateways.slice(1)) {
-        push(toIpfsGatewayUrl(bare, gateway));
-      }
-      if (gateways[1] && fileVariants[0]) {
-        push(toIpfsGatewayUrl(fileVariants[0], gateways[1]));
+      const extra = PLAYBACK_IPFS_GATEWAYS.find((g) => g !== PRIMARY_IPFS_GATEWAY);
+      if (extra) {
+        push(toIpfsGatewayUrl(bare, extra));
       }
       return urls;
     }
@@ -567,7 +640,9 @@ export const buildIpfsFallbackUrls = (
   if (isHttp && !originalHostile) {
     push(url);
   }
-  for (const gateway of IPFS_GATEWAYS) {
+  const gateways =
+    kind === 'media' || kind === 'audio' ? PLAYBACK_IPFS_GATEWAYS : IPFS_GATEWAYS;
+  for (const gateway of gateways) {
     push(toIpfsGatewayUrl(path, gateway));
   }
   if (isHttp && originalHostile) {
@@ -1087,7 +1162,7 @@ export const canonicalizeArweaveGatewayUrl = (url: string): string => {
 /** Short candidate list so hanging gateways cannot stall playback for minutes. */
 export const buildFastPlaybackUrls = (
   rawUrl: string,
-  opts?: { contract?: string; network?: string }
+  opts?: { contract?: string; network?: string; kind?: IpfsFallbackKind }
 ): string[] => {
   if (!rawUrl || typeof rawUrl !== 'string') return [];
   rawUrl = canonicalizeArweaveGatewayUrl(
@@ -1106,19 +1181,21 @@ export const buildFastPlaybackUrls = (
     rawUrl.startsWith('ar://') ||
     /arweave\.(net|dev)|permagate\.io|turbo-gateway\.com|irys\.xyz|ar-io\.dev|g8way\.io/i.test(rawUrl)
   ) {
-    if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) {
-      push(rawUrl);
-    }
     const { fileTxId, manifestId, filePath } = parseArweaveMediaPath(rawUrl);
     if (fileTxId) {
-      // Path URLs first. /raw/ often returns 206 on a Range probe but is not a
-      // playable <video> source (NotSupportedError) for these Featured MP4s.
+      // Path URLs first. arweave.net 302s to HTML; turbo/permagate actually
+      // serve the mp4. /raw/ often 206s a probe then NotSupportedError on <video>.
       for (const gateway of PLAYBACK_ARWEAVE_GATEWAYS) {
         push(`${gateway}${fileTxId}`);
+      }
+      if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) {
+        push(rawUrl);
       }
       for (const gateway of PLAYBACK_ARWEAVE_GATEWAYS) {
         push(toArweaveRawUrl(fileTxId, gateway));
       }
+    } else if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) {
+      push(rawUrl);
     }
     if (manifestId && filePath) {
       push(`${PLAYBACK_ARWEAVE_GATEWAYS[0]}${manifestId}/${filePath}`);
@@ -1128,7 +1205,9 @@ export const buildFastPlaybackUrls = (
 
   if (rawUrl.startsWith('ipfs://') || extractIPFSPath(rawUrl)) {
     // Playback: probe audio/video filenames inside directory CIDs — never image.png.
-    return buildIpfsFallbackUrls(rawUrl, { kind: 'media' }).slice(0, MAX_PLAYBACK_CANDIDATES);
+    return buildIpfsFallbackUrls(rawUrl, {
+      kind: opts?.kind === 'audio' ? 'audio' : 'media',
+    }).slice(0, MAX_PLAYBACK_CANDIDATES);
   }
 
   // OpenSea user media: rewrite dead hosts → raw2, then proxy as last resort.

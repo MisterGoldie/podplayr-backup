@@ -59,6 +59,8 @@ export function mediaDebugSnapshot(media?: HTMLMediaElement | null) {
       : null,
     networkState: NETWORK[media.networkState] || media.networkState,
     readyState: READY[media.readyState] || media.readyState,
+    videoWidth: media instanceof HTMLVideoElement ? media.videoWidth : undefined,
+    videoHeight: media instanceof HTMLVideoElement ? media.videoHeight : undefined,
     paused: media.paused,
     currentTime: Number(media.currentTime.toFixed?.(2) ?? media.currentTime),
     duration: media.duration,

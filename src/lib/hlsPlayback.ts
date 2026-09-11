@@ -1,6 +1,11 @@
 import type Hls from 'hls.js';
 import { playbackDebug } from '../utils/playbackDebug'; // TEMP — remove with playbackDebug.ts
-import { withBrowserVideoHint } from '../utils/ipfsExtensionlessMedia';
+import {
+  isBareIpfsRawFileCid,
+  isExtensionlessArweaveTx,
+  urlLooksLikeExtensionlessVideo,
+  withBrowserVideoHint,
+} from '../utils/ipfsExtensionlessMedia';
 
 let currentHls: Hls | null = null;
 
@@ -100,12 +105,54 @@ function canUseNativeHls(media: HTMLMediaElement): boolean {
  * `async attachPlaybackSource` always yields a microtask; iOS WKWebView
  * then treats play() as not user-initiated (desktop Chrome still allows it).
  */
-export function attachProgressivePlaybackSource(media: HTMLMediaElement, url: string): string {
+export function attachProgressivePlaybackSource(
+  media: HTMLMediaElement,
+  url: string,
+  mime?: string
+): string {
   detachHlsPlayback(media);
-  const src = withBrowserVideoHint(url, {
-    assumeVideo: typeof HTMLVideoElement !== 'undefined' && media instanceof HTMLVideoElement,
-  });
-  media.src = src;
+  const assumeVideo =
+    typeof HTMLVideoElement !== 'undefined' && media instanceof HTMLVideoElement;
+  const assumeAudio =
+    typeof HTMLAudioElement !== 'undefined' && media instanceof HTMLAudioElement;
+  const type = (mime || '').split(';')[0].trim().toLowerCase();
+  const src = withBrowserVideoHint(url, { assumeVideo, assumeAudio, mime: type });
+  const needsTypedSource =
+    assumeVideo &&
+    (type.startsWith('video/') ||
+      urlLooksLikeExtensionlessVideo(url) ||
+      isBareIpfsRawFileCid(url) ||
+      isExtensionlessArweaveTx(url));
+  const needsTypedAudioSource =
+    assumeAudio &&
+    (type.startsWith('audio/') || isBareIpfsRawFileCid(url));
+
+  while (media.firstChild) media.removeChild(media.firstChild);
+  media.removeAttribute('src');
+
+  if (needsTypedSource) {
+    const source = document.createElement('source');
+    source.src = src;
+    source.type = type.startsWith('video/') ? type : 'video/mp4';
+    media.appendChild(source);
+    try {
+      media.load();
+    } catch {
+      // ignore
+    }
+  } else if (needsTypedAudioSource) {
+    const source = document.createElement('source');
+    source.src = src;
+    source.type = type.startsWith('audio/') ? type : 'audio/mpeg';
+    media.appendChild(source);
+    try {
+      media.load();
+    } catch {
+      // ignore
+    }
+  } else {
+    media.src = src;
+  }
   return src;
 }
 

@@ -51,6 +51,8 @@ export interface NFTMetadata {
   description?: string;
   image?: string;
   image_url?: string;
+  /** Project page or still (Feeshes `/feesh/N`, Coven artifact pages). */
+  external_url?: string;
   display_image_url?: string;
   /** OpenSea-shaped metadata: the untranscoded origin behind display_image_url. */
   original_image_url?: string;

@@ -45,13 +45,15 @@ import {
   playbackVideoElementId,
   releaseOrphanPlaybackVideos,
   shouldProbeIpfsDirectory,
+  listIpfsDirectoryVideoFile,
+  extractIPFSPath,
   PLAYBACK_STALL_MS,
   FIRST_BYTE_FAILOVER_MS,
   HLS_FIRST_BYTE_FAILOVER_MS,
   IPFS_DIR_FAILOVER_MS,
   clearNftMediaUrlCache,
 } from '../utils/media';
-import { resolveCdnPlaybackUrls, isOrphanMuxPlaybackUrl, isMuxPlaybackUrl, isPollutedPlaybackUrl, isWeakPlaybackUrl, isMezzanineMuxUrl } from '../lib/mediaCdn';
+import { resolveCdnPlaybackUrls, isOrphanMuxPlaybackUrl, isMuxPlaybackUrl, isPollutedPlaybackUrl, isWeakPlaybackUrl, isMezzanineMuxUrl, alchemyVideoFetchMp4Url, isAlchemyVideoFetchMp4Url } from '../lib/mediaCdn';
 import { attachPlaybackSource, attachProgressivePlaybackSource, detachHlsPlayback, isHlsAttached, isHlsUrl, pauseHlsBuffering, resumeHlsBuffering, seekAttachedMedia } from '../lib/hlsPlayback';
 import { setActiveMainMedia, getActiveMainMedia, pauseActiveMainMedia } from '../lib/activeMainMedia';
 import { restorePageScroll } from '../utils/pageScroll';
@@ -87,7 +89,8 @@ import {
 import { logger } from '../utils/logger';
 import { useToast } from './useToast';
 import { reviveNftMedia } from '../utils/deadNftRegistry';
-import { enrichNftMediaFromChain, isIpfsPlaybackUrl, isOnChainNftIdentity, nftNeedsChainMediaEnrich } from '../lib/nft';
+import { enrichNftMediaFromChain, isIpfsPlaybackUrl, ipfsUrlNeedsDirectoryResolve, isOnChainNftIdentity, nftNeedsChainMediaEnrich, collectNftOriginPlaybackUrls, alchemyAnimationUrlFromCover } from '../lib/nft';
+import { coerceIpfsUrl } from '../utils/ipfsExtensionlessMedia';
 import { withFeaturedPlayback } from '../data/featuredNfts';
 import { mediaDebugSnapshot, playbackDebug } from '../utils/playbackDebug'; // TEMP — remove with playbackDebug.ts
 
@@ -397,27 +400,49 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     ];
     const needsPlaybackRecovery = playbackFields.some((u) => isWeakPlaybackUrl(u));
     const needsIpfsPlaybackRefresh = playbackFields.some((u) => isIpfsPlaybackUrl(u));
-    const hasReadyPlayback = playbackFields.some(
-      (u) =>
-        !!u &&
-        !isWeakPlaybackUrl(u) &&
-        (isMuxPlaybackUrl(u) ||
-          /\.(mp3|wav|m4a|aac|ogg|flac|mp4|webm|mov|m4v)(?:\?|#|$)/i.test(u) ||
-          /gateway\.pinata\.cloud|nft2?-cdn\.alchemy\.com|raw2?\.seadn\.io|arweave\.net|turbo-gateway\.com/i.test(
-            u
-          ))
-    );
+    const hasOriginSibling = collectNftOriginPlaybackUrls(nft).length > 0;
+    const alchemyAnimationOnly =
+      playbackFields.some((u) => !!u && /nft2?-cdn\.alchemy\.com/i.test(u) && /_animation/i.test(u)) &&
+      playbackFields.filter(Boolean).every((u) => !u || /nft2?-cdn\.alchemy\.com/i.test(u));
+    const looksLikeVideoNft =
+      nft.isVideo ||
+      nft.playbackMode === 'video-with-audio' ||
+      nft.playbackMode === 'video-plus-audio';
+    const hasReadyPlayback = playbackFields.some((u) => {
+      if (
+        !u ||
+        isWeakPlaybackUrl(u) ||
+        ipfsUrlNeedsDirectoryResolve(u) ||
+        (alchemyAnimationOnly && !hasOriginSibling)
+      ) {
+        return false;
+      }
+      if (isMuxPlaybackUrl(u)) return true;
+      if (/\.(mp3|wav|m4a|aac|ogg|flac|mp4|webm|mov|m4v)(?:\?|#|$)/i.test(u)) return true;
+      if (/nft2?-cdn\.alchemy\.com|raw2?\.seadn\.io|arweave\.net|turbo-gateway\.com/i.test(u)) {
+        return true;
+      }
+      // Pinata HTTPS is tap-ready for video (Relic). Extensionless audio CIDs
+      // hang in WKWebView — wait for Alchemy `_animation` instead.
+      if (/gateway\.pinata\.cloud|\.mypinata\.cloud/i.test(u)) {
+        return looksLikeVideoNft;
+      }
+      return false;
+    });
     const shouldBlockOnEnrich =
       needsPlaybackRecovery ||
       (!hasReadyPlayback &&
         (needsIpfsPlaybackRefresh || nftNeedsChainMediaEnrich(nft)));
+    let enrichPromise: Promise<NFT> | null = null;
     if (
       isOnChainNftIdentity(nft.contract, nft.tokenId) &&
       (needsPlaybackRecovery || needsIpfsPlaybackRefresh || nftNeedsChainMediaEnrich(nft))
     ) {
       if (!shouldBlockOnEnrich) {
         // Cover / IPFS refresh can finish after play starts — don't stall the switch.
-        void enrichNftMediaFromChain(nft);
+        // Gutter Punks: Pinata hangs, Alchemy `_animation` is the real mp4 —
+        // inject that URL into this attempt when enrich returns.
+        enrichPromise = enrichNftMediaFromChain(nft);
         playbackDebug('play:enrich-background', { name: nft.name, hasReadyPlayback: true });
       } else {
       playNft = await enrichNftMediaFromChain(nft);
@@ -490,14 +515,22 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     // Skipping that HEAD left those tokens stuck audio-only with a still
     // in the maximized player. Only trust a cached audio mime when the URL
     // itself looks like audio (Late #7).
+    const trustedAudioMime =
+      /^audio\/(wav|x-wav|mpeg|mp3|mp4|m4a|aac|ogg|flac|webm)(?:;|$)/i.test(knownMime) &&
+      !playNft.isVideo &&
+      playNft.playbackMode !== 'video-with-audio' &&
+      playNft.playbackMode !== 'video-plus-audio';
     const skipMimeProbe =
       cachedMime.startsWith('video/') ||
+      trustedAudioMime ||
       (cachedMime.startsWith('audio/') && /\.(mp3|wav|m4a|aac|ogg|flac)(?:\?|#|$)/i.test(probeUrl || ''));
     // Extensionless IPFS/Alchemy hashes classified audio-only must always
-    // probe — a stale metadata.mimeType of audio/* used to skip this and
-    // leave real videos (Dumpster Fire) on the <audio> + still path.
+    // probe — a stale generic audio/* used to skip this and leave real
+    // videos (Dumpster Fire) on the <audio> + still path. Specific types
+    // like audio/wav on a bonus track are trusted (Hot Coffee).
     const mustProbeAudioOnly =
       plan.mode === 'audio-only' &&
+      !trustedAudioMime &&
       !cachedMime.startsWith('video/') &&
       mediaUrlNeedsMimeProbe(probeUrl) &&
       !/\.(mp3|wav|m4a|aac|ogg|flac)(?:\?|#|$)/i.test(probeUrl || '');
@@ -537,6 +570,14 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     }
     applyPlaybackPlanToNft(playNft, plan);
     applyPlaybackPlanToNft(nft, plan);
+    if (plan.mode === 'audio-only' && plan.audioUrl) {
+      const stamp = String(
+        playNft.metadata?.mimeType || playNft.metadata?.mime_type || ''
+      ).toLowerCase();
+      if (stamp.startsWith('audio/')) {
+        rememberMediaMime(plan.audioUrl, stamp);
+      }
+    }
     if (!plan.audioUrl && !plan.videoUrl) {
       playbackDebug('play:skip-empty-plan', { name: playNft.name, plan, probeUrl, knownMime });
       showErrorToast(`"${playNft.name || 'This NFT'}" isn't playable audio or video.`);
@@ -559,10 +600,12 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       playNft.videoUrl,
       playNft.metadata?.animation_url,
       playNft.animationUrl,
-    ].filter(
-      (url): url is string =>
-        Boolean(url) && !urlLooksLike3dModel(url) && !urlLooksLikeImage(url)
-    );
+    ]
+      .map((url) => (typeof url === 'string' ? coerceIpfsUrl(url) : url))
+      .filter(
+        (url): url is string =>
+          Boolean(url) && !urlLooksLike3dModel(url) && !urlLooksLikeImage(url)
+      );
     const originCandidates = playbackCandidates.filter((url) => !isPollutedPlaybackUrl(url));
     const strongOrigins = originCandidates.filter((url) => !isWeakPlaybackUrl(url));
     const orphanMux = playbackCandidates.find((url) => isOrphanMuxPlaybackUrl(url));
@@ -622,6 +665,7 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     const audioUrls = buildFastPlaybackUrls(rawAudioUrl, {
       contract: playNft.contract,
       network: playNft.network,
+      kind: plan.mode === 'audio-only' ? 'audio' : 'media',
     });
     // Always try Alchemy CDN first when enrich provided a *real* video cache
     // (not a broken …_animation HLS stub).
@@ -640,12 +684,18 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     ) {
       audioUrls.unshift(playNft.audio);
     }
+    // Alchemy `_animation` can  NotSupportedError (HLS stub / incomplete
+    // ingest). Keep the on-chain origin as the next hop — do not of:1.
+    for (const origin of collectNftOriginPlaybackUrls(playNft)) {
+      if (!originCandidates.includes(origin)) originCandidates.push(origin);
+    }
     // Extra origin gateways when raw was scrubbed from mux.
     for (const origin of originCandidates) {
       if (origin === rawAudioUrl || isMuxPlaybackUrl(origin)) continue;
       for (const u of buildFastPlaybackUrls(origin, {
         contract: playNft.contract,
         network: playNft.network,
+        kind: plan.mode === 'audio-only' ? 'audio' : 'media',
       })) {
         if (!audioUrls.includes(u)) audioUrls.push(u);
       }
@@ -673,6 +723,71 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
         ...cdnUrls,
         ...playbackUrls.filter((url) => !cdnUrls.includes(url)),
       ];
+    }
+    // ProRes / QuickTime Alchemy caches (Variant Fellowship) fail in Chrome
+    // and most WebViews. Cloudinary f_mp4 is already H.264.
+    const alchemyAnimationUrl = [
+      playNft.videoUrl,
+      playNft.audio,
+      playNft.metadata?.animation_url,
+      rawAudioUrl,
+      ...playbackUrls,
+    ].find(
+      (u): u is string =>
+        !!u && /nft2?-cdn\.alchemy\.com/i.test(u) && /_animation(?:\?|#|$)/i.test(u)
+    );
+    const transcodedAlchemy = alchemyAnimationUrl
+      ? alchemyVideoFetchMp4Url(alchemyAnimationUrl)
+      : null;
+    const alchemyPlaybackMime = (
+      getCachedMediaMime(alchemyAnimationUrl || '') ||
+      playNft.metadata?.mimeType ||
+      playNft.metadata?.mime_type ||
+      ''
+    ).toLowerCase();
+    if (
+      transcodedAlchemy &&
+      !playbackUrls.includes(transcodedAlchemy) &&
+      plan.mode !== 'audio-only' &&
+      !alchemyPlaybackMime.startsWith('audio/')
+    ) {
+      const alchemyMime = alchemyPlaybackMime;
+      const preferTranscode =
+        alchemyMime.includes('quicktime') ||
+        alchemyMime.includes('prores') ||
+        (alchemyMime.startsWith('video/') &&
+          typeof document !== 'undefined' &&
+          document.createElement('video').canPlayType(alchemyMime.split(';')[0]) === '');
+      if (preferTranscode) {
+        playbackUrls = [transcodedAlchemy, ...playbackUrls];
+      } else if (alchemyAnimationUrl) {
+        const alchemyIndex = playbackUrls.indexOf(alchemyAnimationUrl);
+        playbackUrls =
+          alchemyIndex === -1
+            ? [transcodedAlchemy, ...playbackUrls]
+            : [
+                ...playbackUrls.slice(0, alchemyIndex + 1),
+                transcodedAlchemy,
+                ...playbackUrls.slice(alchemyIndex + 1),
+              ];
+      }
+    }
+    if (plan.mode === 'audio-only') {
+      const derivedAlchemy = alchemyAnimationUrlFromCover(
+        playNft.image || playNft.metadata?.image || playNft.metadata?.image_url || ''
+      );
+      if (
+        derivedAlchemy &&
+        !playbackUrls.includes(derivedAlchemy) &&
+        !isPollutedPlaybackUrl(derivedAlchemy) &&
+        !isWeakPlaybackUrl(derivedAlchemy)
+      ) {
+        playbackUrls = [derivedAlchemy, ...playbackUrls];
+        playbackDebug('play:alchemy-audio-cover', {
+          name: playNft.name,
+          derivedAlchemy,
+        });
+      }
     }
     playbackDebug('play:urls', {
       name: playNft.name,
@@ -783,7 +898,20 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
 
     visualPlaybackRef.current = null;
     let media: HTMLMediaElement = audio;
-    if (plan.mode === 'video-with-audio' && plan.videoUrl) {
+    const mediaUrl = plan.audioUrl || rawAudioUrl;
+    const mimeForElement = (
+      getCachedMediaMime(mediaUrl) ||
+      playNft.metadata?.mimeType ||
+      playNft.metadata?.mime_type ||
+      ''
+    ).toLowerCase();
+    // <audio> cannot play mp4. Use <video> only when this extensionless URL
+    // is still unknown — not when Alchemy already stamped audio/mpeg.
+    const unknownExtensionless =
+      plan.mode === 'audio-only' &&
+      mediaUrlNeedsMimeProbe(mediaUrl) &&
+      !mimeForElement.startsWith('audio/');
+    if ((plan.mode === 'video-with-audio' && plan.videoUrl) || unknownExtensionless) {
       abortMediaElement(audio);
       audio.removeAttribute('src');
       const mounted = document.getElementById(
@@ -967,12 +1095,20 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
         !knownPlayMime.startsWith('video/');
       const isIpfsFileCandidate =
         /\/ipfs\/|\.ipfs\./i.test(currentUrlForTimer) && !isIpfsDirCandidate;
+      const ipfsHasMediaExt =
+        /\.(mp4|webm|mov|m4v|mp3|wav|m4a|ogg|flac|aac)(?:\?|#|$)/i.test(
+          currentUrlForTimer.split('#')[0]
+        );
+      const isAudioElement =
+        typeof HTMLAudioElement !== 'undefined' && media instanceof HTMLAudioElement;
       const failoverMs = isHlsUrl(nextUrl)
         ? HLS_FIRST_BYTE_FAILOVER_MS
         : isIpfsDirCandidate
           ? IPFS_DIR_FAILOVER_MS
-          : isMobile && isIpfsFileCandidate
-            ? 4000
+          : isIpfsFileCandidate && !ipfsHasMediaExt
+            ? isAudioElement
+              ? FIRST_BYTE_FAILOVER_MS
+              : 4000
             : FIRST_BYTE_FAILOVER_MS;
       playbackDebug('play:try-url', {
         name: nft.name,
@@ -1018,9 +1154,11 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
         // (unless this is a bare IPFS directory that never yields bytes).
         // Mobile IPFS: Pinata can sit in NETWORK_LOADING on a CF challenge
         // with no frames — hop to the next gateway instead of waiting again.
+        const forceHopExtensionlessIpfsVideo =
+          isIpfsFileCandidate && !ipfsHasMediaExt && !isAudioElement;
         if (
           !hungIpfsDir &&
-          !(isMobile && isIpfsFileCandidate) &&
+          !forceHopExtensionlessIpfsVideo &&
           (media.networkState === HTMLMediaElement.NETWORK_LOADING || !media.paused)
         ) {
           failoverTimerRef.current = setTimeout(() => {
@@ -1041,7 +1179,26 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       }, failoverMs);
 
       if (!isHlsUrl(nextUrl)) {
-        const attachedSrc = attachProgressivePlaybackSource(media, nextUrl);
+        const metaMime = (
+          playNft.metadata?.mimeType ||
+          playNft.metadata?.mime_type ||
+          ''
+        ).toLowerCase();
+        const playMime =
+          getCachedMediaMime(nextUrl) ||
+          (isAlchemyVideoFetchMp4Url(nextUrl) ? 'video/mp4' : '') ||
+          (plan.mode === 'audio-only' && metaMime.startsWith('audio/') ? metaMime : '') ||
+          (plan.mode === 'audio-only' &&
+          isAudioElement &&
+          !ipfsHasMediaExt &&
+          !/\.mypinata\.cloud/i.test(nextUrl)
+            ? 'audio/mpeg'
+            : '');
+        const attachedSrc = attachProgressivePlaybackSource(
+          media,
+          nextUrl,
+          playMime || undefined
+        );
         switchingUrl = false;
         playbackDebug('play:attached', {
           name: nft.name,
@@ -1095,7 +1252,23 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
         media: mediaDebugSnapshot(media),
       });
 
-      if (!isHlsUrl(failedSrc) && !/stream\.mux\.com/i.test(failedSrc)) {
+      // ProRes / QuickTime Alchemy `_animation` — next tap leads with Cloudinary f_mp4.
+      const failedCandidate = playbackUrls[urlIndex] || failedSrc;
+      if (
+        /nft2?-cdn\.alchemy\.com/i.test(failedCandidate) &&
+        /_animation(?:\?|#|$)/i.test(failedCandidate)
+      ) {
+        rememberMediaMime(failedCandidate, 'video/quicktime');
+      }
+
+      const originParts = (extractIPFSPath(rawAudioUrl) || '').split('/').filter(Boolean);
+      const failedParts = (extractIPFSPath(failedSrc) || '').split('/').filter(Boolean);
+      const guessedFilename = failedParts.length > Math.max(1, originParts.length);
+      if (
+        !isHlsUrl(failedSrc) &&
+        !/stream\.mux\.com/i.test(failedSrc) &&
+        !guessedFilename
+      ) {
         rememberDeadGateway(rawAudioUrl, failedSrc);
       }
       playbackStarted = false;
@@ -1143,10 +1316,25 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       const playingUrl = playbackUrls[urlIndex];
       const toRemember = isHlsUrl(playingUrl) ? playingUrl : (media.currentSrc || media.src);
       if (!toRemember || toRemember.startsWith('blob:')) return;
+      if (plan.mode === 'audio-only') {
+        const audioMime = (
+          getCachedMediaMime(toRemember) ||
+          playNft.metadata?.mimeType ||
+          playNft.metadata?.mime_type ||
+          'audio/mpeg'
+        ).toLowerCase();
+        if (audioMime.startsWith('audio/')) {
+          rememberMediaMime(toRemember, audioMime);
+        }
+        return;
+      }
       if (media instanceof HTMLVideoElement) {
         const existingMime = getCachedMediaMime(toRemember);
         if (!existingMime || existingMime.startsWith('audio/')) {
           rememberMediaMime(toRemember, 'video/mp4');
+        }
+        if (alchemyAnimationUrl && isAlchemyVideoFetchMp4Url(playingUrl)) {
+          rememberMediaMime(alchemyAnimationUrl, 'video/quicktime');
         }
       }
     };
@@ -1231,6 +1419,76 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       setIsPlaying(false);
       setAudioProgress(0);
     };
+
+    const listSource = [
+      ...collectNftOriginPlaybackUrls(playNft),
+      playNft.metadata?.original_animation_url,
+      playNft.metadata?.animation_url,
+      playNft.audio,
+      rawAudioUrl,
+    ].find((u) => !!u && ipfsUrlNeedsDirectoryResolve(u));
+    if (enrichPromise) {
+      void enrichPromise.then((enriched) => {
+        if (playAttempt !== playAttemptRef.current || playbackStarted) return;
+        const alchemy = [
+          enriched.videoUrl,
+          enriched.audio,
+          enriched.metadata?.animation_url,
+        ].find(
+          (u): u is string =>
+            !!u &&
+            /nft2?-cdn\.alchemy\.com/i.test(u) &&
+            !isPollutedPlaybackUrl(u) &&
+            !isWeakPlaybackUrl(u)
+        );
+        if (!alchemy) return;
+        const extras: string[] = [];
+        if (!playbackUrls.includes(alchemy)) extras.push(alchemy);
+        if (
+          plan.mode !== 'audio-only' &&
+          /_animation(?:\?|#|$)/i.test(alchemy)
+        ) {
+          const transcoded = alchemyVideoFetchMp4Url(alchemy);
+          if (transcoded && !playbackUrls.includes(transcoded) && !extras.includes(transcoded)) {
+            extras.push(transcoded);
+          }
+        }
+        if (!extras.length) return;
+        const current = playbackUrls[urlIndex] || '';
+        const hungOnIpfs =
+          isIpfsPlaybackUrl(current) &&
+          media.readyState === 0 &&
+          !playbackStarted;
+        const hungAudio =
+          plan.mode === 'audio-only' && media.readyState === 0 && !playbackStarted;
+        playbackUrls = [...extras, ...playbackUrls.filter((u) => !extras.includes(u))];
+        playbackDebug('play:enrich-inject', {
+          name: playNft.name,
+          extras,
+          hungOnIpfs,
+          hungAudio,
+        });
+        if (hungOnIpfs || hungAudio) {
+          tryUrl(0);
+        }
+      });
+    }
+
+    if (listSource) {
+      void listIpfsDirectoryVideoFile(listSource).then((listed) => {
+        if (!listed || playAttempt !== playAttemptRef.current || playbackStarted) return;
+        const listedPath = extractIPFSPath(listed);
+        if (
+          listedPath &&
+          playbackUrls.some((u) => extractIPFSPath(u) === listedPath)
+        ) {
+          return;
+        }
+        playbackDebug('play:ipfs-dir-listed', { name: playNft.name, listed });
+        playbackUrls = [listed, ...playbackUrls.filter((u) => u !== listed)];
+        tryUrl(0);
+      });
+    }
 
     tryUrl(0);
 

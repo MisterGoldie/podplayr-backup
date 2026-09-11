@@ -6,9 +6,9 @@ import {
   extractIPFSPath,
   processMediaUrl,
 } from './media';
-import { urlLooksLikeExtensionlessVideo } from './ipfsExtensionlessMedia';
+import { isBareIpfsFileCid, isExtensionlessArweaveTx, urlLooksLikeExtensionlessVideo } from './ipfsExtensionlessMedia';
 import { isNftMediaDead } from './deadNftRegistry';
-import { isBlockedNftContract, isPhishingSpamNft, isUnsafePlaybackUrl } from './nftSafety';
+import { isBlockedNftContract, isPhishingSpamNft, isUnsafePlaybackUrl, urlLooksLikeInteractivePage } from './nftSafety';
 import { isMuxPlaybackUrl, isPollutedPlaybackUrl, isWeakPlaybackUrl } from '../lib/mediaCdn';
 
 const AUDIO_EXT_RE = /\.(mp3|wav|m4a|aac|ogg|flac)(?:\?|#|$)/i;
@@ -50,6 +50,15 @@ const collectUrls = (candidate: MediaCandidate): string[] => {
 
 const getMimeType = (candidate: MediaCandidate): string => {
   const meta = candidate.metadata;
+  const format = String(meta?.animation_details?.format || '').toLowerCase();
+  // OpenSea/Alchemy often stamp video/mp4 on GLB animations (Smiling Hound).
+  if (format === 'glb' || format === 'gltf' || format === 'gltf-binary') {
+    return 'model/gltf-binary';
+  }
+  if (format === 'vrm') return 'model/gltf-binary';
+  if (format === 'usdz' || format === 'fbx' || format === 'obj' || format === 'stl') {
+    return `model/${format}`;
+  }
   return (
     meta?.mimeType ||
     meta?.mime_type ||
@@ -97,6 +106,8 @@ export const urlLooksLikeImage = (url?: string | null): boolean => {
   if (!url) return false;
   return IMAGE_EXT_RE.test(url);
 };
+
+export { urlLooksLikeInteractivePage } from './nftSafety';
 
 const mimeLooksLike3d = (mime: string): boolean =>
   mime.startsWith('model/') || mime.includes('gltf');
@@ -170,7 +181,13 @@ export const isPlayableMediaNFT = (candidate: MediaCandidate | NFT): boolean => 
     const mime = getMimeType(candidate);
     if (mimeLooksLike3d(mime) || mimeLooksLikeNonMedia(mime)) return false;
     const urls = collectUrls(candidate);
-    if (urls.length > 0 && urls.every((url) => urlLooksLike3dModel(url) || urlLooksLikeImage(url))) {
+    if (
+      urls.length > 0 &&
+      urls.every(
+        (url) =>
+          urlLooksLike3dModel(url) || urlLooksLikeImage(url) || urlLooksLikeInteractivePage(url)
+      )
+    ) {
       return false;
     }
     const plan = getNftPlaybackPlan(candidate);
@@ -179,7 +196,8 @@ export const isPlayableMediaNFT = (candidate: MediaCandidate | NFT): boolean => 
       Boolean(playUrl) &&
       !isUnsafePlaybackUrl(playUrl) &&
       !urlLooksLike3dModel(playUrl) &&
-      !urlLooksLikeImage(playUrl)
+      !urlLooksLikeImage(playUrl) &&
+      !urlLooksLikeInteractivePage(playUrl)
     );
   } catch {
     return false;
@@ -346,6 +364,30 @@ export const pickVideoUrl = (candidate: MediaCandidate | NFT): string | null => 
   });
   if (imageVideo) return imageVideo;
 
+  // Bare IPFS CID + isVideo (Relic in Spring). No .mp4 in the path, so the
+  // URL checks above miss it; iOS then mounts <audio> and refuses the file.
+  const typedNft = candidate as NFT;
+  const typedIsVideo =
+    typedNft.isVideo || typedNft.playbackMode === 'video-with-audio';
+  if (typedIsVideo) {
+    const stored =
+      (candidate as NFT).videoUrl ||
+      animation ||
+      (candidate as NFT).audio ||
+      '';
+    if (
+      stored &&
+      !urlLooksLikeAudio(stored) &&
+      !urlLooksLikeImage(stored) &&
+      !urlLooksLike3dModel(stored) &&
+      (urlLooksLikeVideo(stored) ||
+        isBareIpfsFileCid(stored) ||
+        isExtensionlessArweaveTx(stored))
+    ) {
+      return stored;
+    }
+  }
+
   return null;
 };
 
@@ -372,6 +414,7 @@ export const pickAudioUrl = (candidate: MediaCandidate | NFT): string | null => 
       !urlLooksLikeVideo(url) &&
       !urlLooksLike3dModel(url) &&
       !urlLooksLikeImage(url) &&
+      !urlLooksLikeInteractivePage(url) &&
       !isPollutedPlaybackUrl(url)
   );
   if (dedicated) return dedicated;
@@ -404,8 +447,8 @@ export const getNftPlaybackPlan = (nft: MediaCandidate | NFT): NftPlaybackPlan =
 
   let videoUrl = pickVideoUrl(nft);
   let audioUrl = pickAudioUrl(nft);
-  if (isUnsafePlaybackUrl(videoUrl)) videoUrl = null;
-  if (isUnsafePlaybackUrl(audioUrl)) audioUrl = null;
+  if (isUnsafePlaybackUrl(videoUrl) || urlLooksLikeInteractivePage(videoUrl)) videoUrl = null;
+  if (isUnsafePlaybackUrl(audioUrl) || urlLooksLikeInteractivePage(audioUrl)) audioUrl = null;
   const animation = pickAnimationUrl(nft);
   const mime =
     getMimeType(nft) ||
@@ -439,7 +482,15 @@ export const getNftPlaybackPlan = (nft: MediaCandidate | NFT): NftPlaybackPlan =
   }
 
   // Confirmed audio file — even if metadata stuffed it into animation_url (Late #7).
-  if (mime.startsWith('audio/')) {
+  // Do not trust a stale audio/* stamp on an extensionless Arweave/IPFS file that
+  // the probe already classified as video (Brain Dead, Relic in Spring).
+  if (
+    mime.startsWith('audio/') &&
+    !typed.isVideo &&
+    typed.playbackMode !== 'video-with-audio' &&
+    !isBareIpfsFileCid(audioUrl || animation || typed.audio || '') &&
+    !isExtensionlessArweaveTx(audioUrl || animation || typed.audio || '')
+  ) {
     return {
       mode: 'audio-only',
       audioUrl: audioUrl || animation || pickRawMediaUrl(meta) || null,
@@ -465,10 +516,23 @@ export const getNftPlaybackPlan = (nft: MediaCandidate | NFT): NftPlaybackPlan =
     }
   }
 
-  // Stored isVideo from a previous correct classify — still require video evidence.
-  if (!videoUrl && typed.isVideo && !mime.startsWith('audio/')) {
+  // Stored isVideo from a previous correct classify. Bare IPFS CIDs have no
+  // .mp4 suffix — still the video file (Relic in Spring).
+  if (
+    !videoUrl &&
+    (typed.isVideo || typed.playbackMode === 'video-with-audio') &&
+    !mime.startsWith('audio/')
+  ) {
     const stored = typed.videoUrl || typed.audio || audioUrl;
-    if (stored && (urlLooksLikeVideo(stored) || mime.startsWith('video/'))) {
+    if (
+      stored &&
+      !urlLooksLikeAudio(stored) &&
+      !urlLooksLikeImage(stored) &&
+      (urlLooksLikeVideo(stored) ||
+        mime.startsWith('video/') ||
+        isBareIpfsFileCid(stored) ||
+        isExtensionlessArweaveTx(stored))
+    ) {
       videoUrl = stored;
     }
   }
@@ -597,20 +661,49 @@ export const rememberDeadGateway = (assetUrl: string, gatewayUrl: string): void 
   }
 };
 
+const isArweaveNetPlaybackHost = (url: string): boolean => {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return host === 'arweave.net' || host === 'www.arweave.net';
+  } catch {
+    return false;
+  }
+};
+
 export const filterLivePlaybackUrls = (assetUrl: string, urls: string[]): string[] => {
   const dead = deadGatewayHosts.get(mediaAssetId(assetUrl));
   const source = getCachedMediaSourceUrl(assetUrl);
   // Never promote polluted Mux / broken Alchemy HLS from mime-source memory.
+  // Never promote Arweave /raw/ — it wins probes and then fails as a media src.
+  // arweave.net 302s extensionless txs to HTML; turbo/permagate serve the mp4.
+  const sourcePath = extractIPFSPath(source);
+  const sourceIsBareCid =
+    !!sourcePath && sourcePath.split('/').filter(Boolean).length === 1;
+  const hasIpfsFilePath = urls.some((u) => {
+    const p = extractIPFSPath(u);
+    return !!p && p.split('/').filter(Boolean).length > 1;
+  });
+  // Never promote a bare folder CID over CID/video.mp4 (Immutable Spirit).
   const safeSource =
-    source && !isPollutedPlaybackUrl(source) && !isIpfsCorsHostileUrl(source) ? source : '';
+    source &&
+    !isPollutedPlaybackUrl(source) &&
+    !isIpfsCorsHostileUrl(source) &&
+    !/\/raw\//i.test(source) &&
+    !isArweaveNetPlaybackHost(source) &&
+    !(hasIpfsFilePath && sourceIsBareCid)
+      ? source
+      : '';
   const ordered = safeSource
     ? [safeSource, ...urls.filter((u) => u !== safeSource)]
     : urls;
   const notPolluted = ordered.filter((u) => !isPollutedPlaybackUrl(u));
-  // fetch/HEAD CORS ≠ <video src>. Pinata-first, then other IPFS gateways.
-  // Dropping w3s/dweb here left mobile with of:1 (Pinata only).
+  // fetch/HEAD CORS ≠ <video src>. Pinata / 4everland first.
+  // w3s / dweb / nftstorage / ipfs.io CORP 403 on <video> — only keep them
+  // when they are the only candidates.
   const preferred = notPolluted.filter((u) => !isIpfsCorsHostileUrl(u));
-  const fallbacks = notPolluted.filter((u) => isIpfsCorsHostileUrl(u));
+  const fallbacks = preferred.length
+    ? []
+    : notPolluted.filter((u) => isIpfsCorsHostileUrl(u));
   const finalPool = (preferred.length || fallbacks.length)
     ? [...preferred, ...fallbacks]
     : ordered;
@@ -622,7 +715,15 @@ export const filterLivePlaybackUrls = (assetUrl: string, urls: string[]): string
       return true;
     }
   });
-  return live.length ? live : finalPool;
+  const ranked = live.length ? live : finalPool;
+  // /raw/ answers HEAD/Range but <video>/<audio> often throw NotSupportedError.
+  const pathUrls = ranked.filter((u) => !/\/raw\//i.test(u));
+  const rawUrls = ranked.filter((u) => /\/raw\//i.test(u));
+  const paths = pathUrls.length ? pathUrls : ranked;
+  const prefer = paths.filter((u) => !isArweaveNetPlaybackHost(u));
+  const arweaveNet = paths.filter(isArweaveNetPlaybackHost);
+  const restRaw = pathUrls.length ? rawUrls : [];
+  return [...prefer, ...arweaveNet, ...restRaw];
 };
 
 /** True when URL has no clear audio/video extension (Arweave/IPFS CIDs). */
@@ -632,7 +733,8 @@ export const mediaUrlNeedsMimeProbe = (url?: string | null): boolean => {
     urlLooksLikeAudio(url) ||
     urlLooksLikeVideo(url) ||
     urlLooksLike3dModel(url) ||
-    urlLooksLikeImage(url)
+    urlLooksLikeImage(url) ||
+    urlLooksLikeInteractivePage(url)
   ) {
     return false;
   }
@@ -666,8 +768,8 @@ export const probeMediaContentType = async (url: string): Promise<string> => {
     if (primary) candidates.add(primary);
     buildArweaveMediaFallbackUrls(url).slice(0, 4).forEach((u) => candidates.add(u));
   } else if (url.startsWith('ipfs://') || extractIPFSPath(url)) {
-    // Prefer Pinata. Skip ipfs.io / w3s / nft.storage / dweb — they CORS-fail
-    // from the mini-app / tunnel origin and stall NFT card hydration.
+    // Dedicated collection Pinata first, then public fallbacks.
+    if (url.startsWith('http')) candidates.add(url);
     buildIpfsFallbackUrls(url, { kind: 'media' })
       .filter((u) => !isIpfsCorsHostileUrl(u))
       .slice(0, 4)
@@ -680,7 +782,18 @@ export const probeMediaContentType = async (url: string): Promise<string> => {
 
   const store = (ct: string, sourceUrl: string) => {
     const mime = ct.split(';')[0].trim().toLowerCase();
-    if (!mime) return '';
+    // Redirect pages and opaque bytes are not a media type. Caching html is how
+    // arweave.net 302s turned videos into "audio-only".
+    if (
+      !mime ||
+      mime === 'text/html' ||
+      mime.includes('text/html') ||
+      mime === 'application/octet-stream' ||
+      mime === 'binary/octet-stream' ||
+      mime === 'application/x-www-form-urlencoded'
+    ) {
+      return '';
+    }
     mimeProbeCache.set(cacheKey, mime);
     if (!mimeLooksLikeNonMedia(mime)) {
       mimeSourceCache.set(cacheKey, sourceUrl);
@@ -708,7 +821,11 @@ export const probeMediaContentType = async (url: string): Promise<string> => {
       const head = await timedFetch(probeUrl, { method: 'HEAD' });
       const headCt = head.headers.get('content-type');
       if (head.status === 404 || head.status === 410 || head.status >= 500) {
-        rememberDeadGateway(url, probeUrl);
+        const originParts = (extractIPFSPath(url) || '').split('/').filter(Boolean);
+        const probeParts = (extractIPFSPath(probeUrl) || '').split('/').filter(Boolean);
+        const guessedFilename = probeParts.length > originParts.length;
+        // /video.mp4 404 means the guess was wrong, not that Pinata is dead.
+        if (!guessedFilename) rememberDeadGateway(url, probeUrl);
         continue;
       }
       if (head.ok && headCt) {
@@ -957,11 +1074,20 @@ export const resolveNftPlaybackPlan = async (
   };
 
   const known = getMimeType(nft) || getCachedMediaMime(candidate);
+  const knownUntrusted =
+    !!known &&
+    !!candidate &&
+    mediaUrlNeedsMimeProbe(candidate) &&
+    (known.includes('html') ||
+      known === 'application/octet-stream' ||
+      known === 'binary/octet-stream' ||
+      (known.startsWith('audio/') && !urlLooksLikeAudio(candidate)));
   if (
-    mimeLooksLike3d(known) ||
-    mimeLooksLikeNonMedia(known) ||
-    urlLooksLike3dModel(candidate) ||
-    urlLooksLikeImage(candidate)
+    !knownUntrusted &&
+    (mimeLooksLike3d(known) ||
+      mimeLooksLikeNonMedia(known) ||
+      urlLooksLike3dModel(candidate) ||
+      urlLooksLikeImage(candidate))
   ) {
     const plan = emptyPlan();
     if (typed.contract) applyPlaybackPlanToNft(typed, plan, known || undefined);
@@ -971,7 +1097,7 @@ export const resolveNftPlaybackPlan = async (
   // CIDs that are actually video/mp4 (Dumpster Fire). Only trust an audio
   // mime when the URL itself looks like audio — otherwise fall through to
   // a live probe.
-  if (known.startsWith('audio/') && (!candidate || !mediaUrlNeedsMimeProbe(candidate))) {
+  if (known.startsWith('audio/') && !knownUntrusted && (!candidate || !mediaUrlNeedsMimeProbe(candidate))) {
     const plan = audioPlan();
     if (typed.contract) applyPlaybackPlanToNft(typed, plan, known);
     return plan;
@@ -989,10 +1115,21 @@ export const resolveNftPlaybackPlan = async (
     if (typed.contract) applyPlaybackPlanToNft(typed, plan, mime);
     return plan;
   }
-  if (mimeLooksLikeNonMedia(mime)) {
-    const plan = emptyPlan();
-    if (typed.contract) applyPlaybackPlanToNft(typed, plan, mime);
-    return plan;
+  if (mimeLooksLikeNonMedia(mime) && mime) {
+    // Gateway 302 HTML is untrusted (Arweave). A 200 from a project host is real HTML.
+    if (mime.includes('html') && !urlLooksLikeInteractivePage(candidate)) {
+      // fall through
+    } else {
+      const plan = emptyPlan();
+      if (typed.contract) applyPlaybackPlanToNft(typed, plan, mime);
+      return plan;
+    }
+  }
+
+  // Probe missed (CORS, 302 HTML, /raw/ octet-stream). <audio> cannot play
+  // mp4; <video> can still play audio. Default the unknown CID to video.
+  if (candidate && mediaUrlNeedsMimeProbe(candidate) && !urlLooksLikeInteractivePage(candidate)) {
+    return videoPlan(candidate);
   }
 
   return sync;
