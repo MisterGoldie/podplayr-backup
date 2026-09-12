@@ -72,6 +72,7 @@ import {
   ensureMediaAudible,
   mountClockAudioElement,
   unlockPlaybackAudioSession,
+  claimMediaGesture,
 } from '../lib/playbackAudioSession';
 import { restorePageScroll } from '../utils/pageScroll';
 
@@ -451,6 +452,17 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     if (giveUpTimerRef.current) {
       clearTimeout(giveUpTimerRef.current);
       giveUpTimerRef.current = null;
+    }
+
+    // Last point before the handler can await. Enrich and the MIME probe below
+    // both block, and on iOS that await is what costs us the tap — the element
+    // is still allowed to play here and will not be by the time we have a URL.
+    // Claim it now on the elements the attempt might use. The old track is
+    // already paused above, so overwriting the source costs nothing.
+    if (shouldAutoplay) {
+      claimMediaGesture(audioRef.current);
+      if (visualPlaybackRef.current) claimMediaGesture(visualPlaybackRef.current);
+      playbackDebug('play:gesture-claimed', { name: nft.name });
     }
 
     // Likes / recently-played often store raw IPFS URLs. When public gateways

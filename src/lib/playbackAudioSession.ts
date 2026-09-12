@@ -37,6 +37,60 @@ export function ensureMediaAudible(media: HTMLMediaElement | null | undefined) {
   if (media.volume === 0) media.volume = 0.7;
 }
 
+/** 44-byte silent WAV. An element with no source rejects play() immediately,
+ *  and a rejected call does not count as activation — so there has to be
+ *  something real to play. The attempt overwrites this moments later. */
+const SILENT_WAV =
+  'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAABErAAABAAgAZGF0YQAAAAA=';
+
+/** Cleared before the silent play so the outgoing track's handlers cannot see
+ *  it. A zero-length buffer fires `ended` the instant it starts, which would
+ *  otherwise look like the previous song finishing and auto-advance the queue. */
+const MEDIA_HANDLER_PROPS = [
+  'onerror',
+  'onloadedmetadata',
+  'ondurationchange',
+  'oncanplay',
+  'onwaiting',
+  'onstalled',
+  'onplaying',
+  'ontimeupdate',
+  'onplay',
+  'onpause',
+  'onseeking',
+  'onseeked',
+  'onended',
+  'onvolumechange',
+] as const;
+
+/**
+ * Spend the user's tap on the media element before the handler awaits anything.
+ *
+ * iOS grants playback per element on a real gesture and revokes it across an
+ * await. Desktop Chrome grants it from the Media Engagement Index instead and
+ * never revokes it, which is why a track that needs a blocking enrich or MIME
+ * probe starts instantly on a laptop and hangs on a phone. Playing a silent
+ * buffer here marks the element user-activated, so the real play() later in
+ * the attempt is allowed however long that work took.
+ *
+ * Distinct from unlockPlaybackAudioSession above, which unlocks the Web Audio
+ * AudioContext — a separate permission that does not cover HTMLMediaElement.
+ */
+export function claimMediaGesture(media: HTMLMediaElement | null | undefined) {
+  if (!media) return;
+  try {
+    for (const prop of MEDIA_HANDLER_PROPS) {
+      (media as unknown as Record<string, unknown>)[prop] = null;
+    }
+    media.muted = false;
+    media.src = SILENT_WAV;
+    const played = media.play();
+    if (played) void played.catch(() => {});
+  } catch {
+    // Best effort — a refusal here just leaves the old behavior in place.
+  }
+}
+
 function pauseEl(el: HTMLMediaElement) {
   try {
     el.pause();
