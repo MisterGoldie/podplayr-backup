@@ -813,13 +813,19 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
                   {renderVideo()}
                 </div>
               )}
+              {/* mediaBox is square for audio-only (mediaAspect stays null with no
+                  video track), so filling it edge to edge is what makes every
+                  cover render at the same size. object-contain let each cover's
+                  own aspect ratio decide how much of the box it used, so a 3:2
+                  original sat visibly smaller than a square Cloudinary c_fill
+                  crop. Cards already use object-cover — this matches them. */}
               {!showVideoVisually && (
                 <div className="relative w-full h-full flex items-center justify-center">
                   {(nft.name === 'ACYL RADIO - Hidden Tales' || nft.name === 'ACYL RADIO - WILL01' || nft.name === 'ACYL RADIO - Chili Sounds 🌶️') ? (
                     <img
                       src={resolvedImageUrl}
                       alt={nft.name}
-                      className="max-w-full max-h-full w-auto h-auto object-contain"
+                      className="w-full h-full object-cover"
                       width={720}
                       height={720}
                       style={{
@@ -831,7 +837,7 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
                     <NFTImage
                       src={resolvedImageUrl}
                       alt={nft.name}
-                      className="max-w-full max-h-full w-auto h-auto object-contain"
+                      className="w-full h-full object-cover"
                       width={720}
                       height={720}
                       priority={true}

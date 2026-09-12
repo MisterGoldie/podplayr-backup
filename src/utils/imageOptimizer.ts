@@ -235,6 +235,38 @@ export function resizeAlchemyCloudinaryThumb(url: string, size: number): string 
 }
 
 /**
+ * Re-render a remembered cover at a larger size for the maximized player.
+ *
+ * resizeAlchemyCloudinaryThumb only understands Cloudinary and hands every
+ * other URL straight back, so a card thumb from the wsrv proxy (w=360&h=360)
+ * was being displayed upscaled in a 720 box — crisp for Alchemy-hosted art,
+ * soft for anything on IPFS / Arweave / SeaDN. Ask the proxy for the bigger
+ * render instead. Raw originals are already full resolution, so they are
+ * returned untouched.
+ */
+export function resizeRememberedCover(url: string, size: number): string {
+  if (!url || !size) return url;
+  if (/res\.cloudinary\.com\/alchemyapi\//i.test(url)) {
+    return resizeAlchemyCloudinaryThumb(url, size);
+  }
+  if (/^https?:\/\/(?:wsrv\.nl|images\.weserv\.nl)\//i.test(url)) {
+    try {
+      const u = new URL(url);
+      if (!u.searchParams.has('w') && !u.searchParams.has('h')) return url;
+      if (u.searchParams.has('w')) u.searchParams.set('w', String(size));
+      if (u.searchParams.has('h')) u.searchParams.set('h', String(size));
+      return u.toString();
+    } catch {
+      return url;
+    }
+  }
+  if (/[?&]img-width=\d+/i.test(url)) {
+    return url.replace(/([?&]img-width=)\d+/gi, `$1${size}`);
+  }
+  return url;
+}
+
+/**
  * Alchemy-hosted card thumbs (no third-party proxy).
  * Prefer thumbnailv2 / sized video stills — wsrv cold-starts and fails on video blobs.
  */

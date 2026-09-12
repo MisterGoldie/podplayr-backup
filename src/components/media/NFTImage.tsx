@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { processMediaUrl, IPFS_GATEWAYS, isAudioUrlUsedAsImage, getCleanIPFSUrl, processArweaveUrl, getMediaKey, getNftIdentityKey, buildArweaveImageFallbackUrls, buildIpfsFallbackUrls, buildHttpCdnImageFallbackUrls, extractIPFSPath, getNftMediaUrl, toIpfsGatewayUrl, clearNftMediaUrlCache, pickImageCandidates, shouldProbeIpfsDirectory, sanitizeMediaUrl, looksLikeStillImageUrl, isCollectionOpenSeaStillUrl, isFragileSeaDnPosterUrl, nftHasSeaDnVideoAnimation, rememberNftDisplayCover, getRememberedNftDisplayCover, pickSameCidIpfsVideoCover, listIpfsDirectoryVideoFile } from '../../utils/media';
 import { urlLooksLikeExtensionlessVideo, withBrowserVideoHint } from '../../utils/ipfsExtensionlessMedia';
-import { getCardThumbUrl, getCardThumbAlternates, shouldPreserveAnimation, nftHasAnimatedCover, isBrowserFriendlyCdnUrl, isArweaveMediaUrl, isIpfsMediaUrl, isVideoMediaUrl, isLikelyTokenVideoCoverUrl, getVideoCoverStillUrl, alchemyCoverIsPlaybackVideo, parseAlchemyCdnRef, resizeAlchemyCloudinaryThumb } from '../../utils/imageOptimizer';
+import { getCardThumbUrl, getCardThumbAlternates, shouldPreserveAnimation, nftHasAnimatedCover, isBrowserFriendlyCdnUrl, isArweaveMediaUrl, isIpfsMediaUrl, isVideoMediaUrl, isLikelyTokenVideoCoverUrl, getVideoCoverStillUrl, alchemyCoverIsPlaybackVideo, parseAlchemyCdnRef, resizeRememberedCover } from '../../utils/imageOptimizer';
 import { imageDebug, imageDebugUrlKind, logNftCoverDebug } from '../../utils/imageDebug';
 import Image from 'next/image';
 import type { SyntheticEvent } from 'react';
@@ -446,7 +446,7 @@ export const NFTImage: React.FC<NFTImageProps> = ({
     if (rememberedDisplay) {
       nextDisplayUrl = useCardThumb
         ? rememberedDisplay
-        : resizeAlchemyCloudinaryThumb(rememberedDisplay, Math.max(width, height, 720));
+        : resizeRememberedCover(rememberedDisplay, Math.max(width, height, 720));
     } else if (isValidSrc && nft) {
       nextDisplayUrl = toDisplaySrc(getNftMediaUrl({ ...nft, image: derivedSrc || nft.image }, 'image'));
     } else if (isValidSrc) {
@@ -595,7 +595,7 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       if (rememberedHit) {
         const sizedHit = useCardThumb
           ? rememberedHit
-          : resizeAlchemyCloudinaryThumb(rememberedHit, Math.max(width, height, 720));
+          : resizeRememberedCover(rememberedHit, Math.max(width, height, 720));
         resolveBranch = 'rememberedDisplay';
         originalUrlRef.current = rememberedHit;
         loadedOkSrcRef.current = sizedHit;
