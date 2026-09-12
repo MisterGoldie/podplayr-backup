@@ -40,6 +40,11 @@ import {
   getMediaKey,
   buildFastPlaybackUrls,
   canonicalizeArweaveGatewayUrl,
+  nextArweavePlaybackIndex,
+  arweaveGatewayApexHost,
+  parseArweaveMediaPath,
+  toArweaveRawUrl,
+  probeWavDurationSeconds,
   abortMediaElement,
   ensurePlaybackVideoElement,
   playbackVideoElementId,
@@ -47,12 +52,15 @@ import {
   shouldProbeIpfsDirectory,
   listIpfsDirectoryVideoFile,
   extractIPFSPath,
-  PLAYBACK_STALL_MS,
   FIRST_BYTE_FAILOVER_MS,
   HLS_FIRST_BYTE_FAILOVER_MS,
   ARWEAVE_FIRST_BYTE_FAILOVER_MS,
   IPFS_KNOWN_MEDIA_FAILOVER_MS,
   IPFS_DIR_FAILOVER_MS,
+  MEDIA_BYTES_RECHECK_MS,
+  MEDIA_BYTES_MAX_WAIT_MS,
+  PLAYBACK_GIVE_UP_MS,
+  DEAD_PROBE_FAILOVER_MS,
   clearNftMediaUrlCache,
 } from '../utils/media';
 import { resolveCdnPlaybackUrls, isOrphanMuxPlaybackUrl, isMuxPlaybackUrl, isPollutedPlaybackUrl, isWeakPlaybackUrl, isMezzanineMuxUrl, alchemyVideoFetchMp4Url, isAlchemyVideoFetchMp4Url } from '../lib/mediaCdn';
@@ -72,6 +80,17 @@ function isArweavePlaybackUrl(url?: string | null): boolean {
 
 function isAlchemyCdnPlaybackUrl(url?: string | null): boolean {
   return !!url && /nft2?-cdn\.alchemy\.com/i.test(url);
+}
+
+/** Seconds of media actually downloaded. The only reliable "are bytes arriving" signal:
+ *  a hung gateway can sit at readyState 1 forever without firing error or stalled. */
+function bufferedSeconds(media: HTMLMediaElement): number {
+  try {
+    const ranges = media.buffered;
+    return ranges.length ? ranges.end(ranges.length - 1) : 0;
+  } catch {
+    return 0;
+  }
 }
 
 function findNftInQueue(queue: NFT[], nft: NFT): number {
@@ -101,6 +120,8 @@ import {
   urlLooksLikeImage,
   getCachedMediaMime,
   rememberMediaMime,
+  rememberPlayedMediaUrl,
+  forgetPlayedMediaUrl,
 } from '../utils/isMediaNFT';
 import { logger } from '../utils/logger';
 import { useToast } from './useToast';
@@ -171,6 +192,8 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
   const playAttemptRef = useRef(0);
   const stallTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const failoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Survives gateway hops — only a real clock or a new tap clears it. */
+  const giveUpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const visualPlaybackRef = useRef<HTMLVideoElement | null>(null);
 
   const handleError = useCallback((e: Event) => {
@@ -217,14 +240,13 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
 
     const updateProgress = () => {
       if (visualPlaybackRef.current) return;
-      if (!Number.isFinite(audio.duration)) return;
-      
-      // Round to prevent micro-updates that cause UI jitter
-      const currentTime = Math.floor(audio.currentTime * 10) / 10; // Round to 0.1s precision
-      const duration = Math.floor(audio.duration * 10) / 10;
-      
-      setAudioProgress(currentTime);
-      setAudioDuration(duration);
+      if (Number.isFinite(audio.currentTime)) {
+        setAudioProgress(Math.floor(audio.currentTime * 10) / 10);
+      }
+      // 0/NaN/Infinity after a gateway hop must not wipe a probed WAV length.
+      if (Number.isFinite(audio.duration) && audio.duration > 1) {
+        setAudioDuration(Math.floor(audio.duration * 10) / 10);
+      }
     };
 
     const handleLoadedMetadata = () => {
@@ -232,19 +254,16 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
         duration: audio.duration,
         currentTime: audio.currentTime
       });
-      // Some gateways stream audio without a proper Content-Length, so duration
-      // can be NaN/Infinity here — don't display "NaN:NaN" for that, wait for
-      // durationchange (below) to report the real value once it's known.
-      if (Number.isFinite(audio.duration)) {
+      if (Number.isFinite(audio.duration) && audio.duration > 1) {
         setAudioDuration(audio.duration);
       }
-      setAudioProgress(audio.currentTime);
+      if (Number.isFinite(audio.currentTime)) {
+        setAudioProgress(audio.currentTime);
+      }
     };
 
-    // Some gateways only reveal the true duration after the browser has
-    // buffered enough of the stream — this fires when that correction happens.
     const handleDurationChange = () => {
-      if (Number.isFinite(audio.duration)) {
+      if (Number.isFinite(audio.duration) && audio.duration > 1) {
         setAudioDuration(audio.duration);
       }
     };
@@ -420,6 +439,10 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     if (failoverTimerRef.current) {
       clearTimeout(failoverTimerRef.current);
       failoverTimerRef.current = null;
+    }
+    if (giveUpTimerRef.current) {
+      clearTimeout(giveUpTimerRef.current);
+      giveUpTimerRef.current = null;
     }
 
     // Likes / recently-played often store raw IPFS URLs. When public gateways
@@ -982,7 +1005,41 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     let switchingUrl = false;
     let playbackStarted = false;
     let unplayableToastShown = false;
+    /** Terminal for this tap. A late error event must not silently restart the
+     *  chain and re-raise the spinner after the user was told it failed. */
+    let gaveUp = false;
     let playTracked = false;
+    let probedWavDuration = 0;
+
+    const applyMediaDuration = (seconds: number, via: string) => {
+      if (playAttempt !== playAttemptRef.current) return;
+      if (!Number.isFinite(seconds) || seconds < 1 || seconds === Infinity) return;
+      probedWavDuration = Math.max(probedWavDuration, seconds);
+      setAudioDuration(probedWavDuration);
+      playbackDebug('play:wav-duration', {
+        name: nft.name,
+        seconds: probedWavDuration,
+        via,
+      });
+    };
+
+    if (plan.mode === 'audio-only' && arweaveOrigin) {
+      const tx =
+        parseArweaveMediaPath(rawAudioUrl).fileTxId ||
+        parseArweaveMediaPath(playbackUrls[0] || '').fileTxId;
+      if (tx) {
+        const wavProbeUrl = toArweaveRawUrl(tx, 'https://arweave.net/');
+        void probeWavDurationSeconds(wavProbeUrl).then((seconds) => {
+          if (playAttempt !== playAttemptRef.current) return;
+          playbackDebug('play:wav-duration-probe', {
+            name: nft.name,
+            seconds,
+            probeUrl: wavProbeUrl,
+          });
+          applyMediaDuration(seconds, 'wav-header');
+        });
+      }
+    }
 
     const showUnplayableToast = () => {
       if (unplayableToastShown) return;
@@ -999,6 +1056,76 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
         clearTimeout(failoverTimerRef.current);
         failoverTimerRef.current = null;
       }
+    };
+
+    const clearGiveUp = () => {
+      if (giveUpTimerRef.current) {
+        clearTimeout(giveUpTimerRef.current);
+        giveUpTimerRef.current = null;
+      }
+    };
+
+    /** Single place that flips the UI to "really playing" so no path can mark
+     *  the tap as started while leaving a watchdog or the spinner behind. */
+    const markPlaybackStarted = () => {
+      if (gaveUp) return;
+      playbackStarted = true;
+      clearStall();
+      clearGiveUp();
+      setIsPlaying(true);
+      // Store the candidate, not media.currentSrc: currentSrc is the post-302
+      // sandbox target, and re-issuing our own URL is what resolves correctly.
+      const winner = playbackUrls[urlIndex];
+      if (winner) rememberPlayedMediaUrl(rawAudioUrl, winner);
+    };
+
+    // Backstop for the whole tap, across every gateway hop. If no clock is
+    // running by now the spinner has to end — silent forever is the worst
+    // outcome, worse than telling the user the file is unavailable.
+    const armGiveUpTimer = () => {
+      clearGiveUp();
+      let lastSeenIndex = 0;
+      let lastSeenBuffered = 0;
+      const check = () => {
+        if (playAttempt !== playAttemptRef.current || gaveUp) return;
+        if (playbackStarted || media.currentTime > 0.25) {
+          clearGiveUp();
+          return;
+        }
+        // We have bytes, so this is not a retrieval failure — an autoplay block
+        // parks a fully buffered track here, and "unavailable" would be a lie.
+        if (media.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+          clearGiveUp();
+          return;
+        }
+        // Still walking candidates or still pulling bytes: the chain will end
+        // itself at play:exhausted-urls. Truncating it here would abandon
+        // gateways we never tried. Only a frozen tap gives up.
+        const buffered = bufferedSeconds(media);
+        const progressing = urlIndex !== lastSeenIndex || buffered > lastSeenBuffered;
+        lastSeenIndex = urlIndex;
+        lastSeenBuffered = buffered;
+        if (progressing) {
+          giveUpTimerRef.current = setTimeout(check, PLAYBACK_GIVE_UP_MS);
+          return;
+        }
+        playbackDebug('play:give-up', {
+          name: nft.name,
+          url: playbackUrls[urlIndex],
+          triedCount: urlIndex + 1,
+          of: playbackUrls.length,
+          media: mediaDebugSnapshot(media),
+        });
+        gaveUp = true;
+        clearStall();
+        clearGiveUp();
+        // Pause rather than detach the src: clearing it fires an error event,
+        // which would bounce straight back through hopPlayback and restart.
+        media.pause();
+        showUnplayableToast();
+        setIsPlaying(false);
+      };
+      giveUpTimerRef.current = setTimeout(check, PLAYBACK_GIVE_UP_MS);
     };
 
     const startCompanionVideo = () => {
@@ -1095,7 +1222,7 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     };
 
     const tryUrl = (index: number) => {
-      if (playAttempt !== playAttemptRef.current) {
+      if (playAttempt !== playAttemptRef.current || gaveUp) {
         return;
       }
       if (index >= playbackUrls.length) {
@@ -1104,7 +1231,9 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
           tried: playbackUrls,
           media: mediaDebugSnapshot(media),
         });
+        gaveUp = true;
         clearStall();
+        clearGiveUp();
         showUnplayableToast();
         setIsPlaying(false);
         return;
@@ -1191,25 +1320,32 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
         element: media.tagName,
       });
 
-      stallTimerRef.current = setTimeout(() => {
-        if (playAttempt !== playAttemptRef.current || playbackStarted) return;
-      }, PLAYBACK_STALL_MS);
+      // Byte-progress watchdog. Every branch must end in a hop or a re-arm:
+      // a bare `return` here is what leaves a tapped NFT spinning forever,
+      // because a gateway that sends headers and then stalls parks the element
+      // at readyState 1 without ever firing error, stalled, or playing.
+      // Starts at 0, not -1: a first tick with zero bytes must not read as
+      // growth and buy the gateway a free recheck window.
+      let lastBuffered = 0;
+      let bufferingWaitedMs = 0;
+      let loadingGraceUsed = false;
 
-      failoverTimerRef.current = setTimeout(() => {
-        if (playAttempt !== playAttemptRef.current || playbackStarted) return;
-        if (media.readyState > 0) return;
+      const watchdogTick = () => {
+        if (playAttempt !== playAttemptRef.current || playbackStarted || gaveUp) return;
+
         // Real playback — hopping pauses the clock and WKWebView mutes.
-        // Fake `onplay` with 0 bytes (cold Pinata) must still hop.
-        if (media.currentTime > 0.25) return;
+        if (media.currentTime > 0.25) {
+          markPlaybackStarted();
+          return;
+        }
 
         // Directory CIDs often sit in NETWORK_LOADING forever then 404 — don't
         // wait 30s+; hop to the next audio/video candidate.
         const hungIpfsDir = isIpfsDirCandidate;
-        const hlsUrl = isHlsUrl(playbackUrls[index]);
 
         // hls.js attach looks paused at readyState 0 until MANIFEST_PARSED.
         // The outer timer is already 25s for HLS — hop only if still silent.
-        if (hlsUrl) {
+        if (isHlsUrl(playbackUrls[index])) {
           playbackDebug('play:failover', {
             name: nft.name,
             from: playbackUrls[index],
@@ -1217,7 +1353,25 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
             hungIpfsDir,
             media: mediaDebugSnapshot(media),
           });
-          tryUrl(index + 1);
+          hopPlayback(index, playbackUrls[index], 'hls-no-first-frame');
+          return;
+        }
+
+        // A growing buffer means the gateway is alive and just slow (mobile
+        // radio on a 60MB WAV). Keep it, but cap the trickle.
+        const buffered = bufferedSeconds(media);
+        const gainedBytes = buffered > lastBuffered + 0.01;
+        lastBuffered = Math.max(lastBuffered, buffered);
+        if (gainedBytes && !hungIpfsDir && bufferingWaitedMs < MEDIA_BYTES_MAX_WAIT_MS) {
+          bufferingWaitedMs += MEDIA_BYTES_RECHECK_MS;
+          playbackDebug('play:buffering', {
+            name: nft.name,
+            url: playbackUrls[index],
+            buffered,
+            waitedMs: bufferingWaitedMs,
+            media: mediaDebugSnapshot(media),
+          });
+          failoverTimerRef.current = setTimeout(watchdogTick, MEDIA_BYTES_RECHECK_MS);
           return;
         }
 
@@ -1230,30 +1384,38 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
           !isAudioElement &&
           !knownIpfsMedia;
         if (
+          !loadingGraceUsed &&
           !hungIpfsDir &&
           !forceHopExtensionlessIpfsVideo &&
           !knownIpfsMedia &&
           media.networkState === HTMLMediaElement.NETWORK_LOADING
         ) {
-          failoverTimerRef.current = setTimeout(() => {
-            if (playAttempt !== playAttemptRef.current || playbackStarted) return;
-            if (media.readyState > 0) return;
-            if (media.currentTime > 0.25) return;
-            tryUrl(index + 1);
-          }, isExtensionlessArweaveTx(playbackUrls[index] || '')
-            ? ARWEAVE_FIRST_BYTE_FAILOVER_MS
-            : FIRST_BYTE_FAILOVER_MS);
+          loadingGraceUsed = true;
+          failoverTimerRef.current = setTimeout(
+            watchdogTick,
+            isExtensionlessArweaveTx(playbackUrls[index] || '')
+              ? ARWEAVE_FIRST_BYTE_FAILOVER_MS
+              : FIRST_BYTE_FAILOVER_MS
+          );
           return;
         }
+
         playbackDebug('play:failover', {
           name: nft.name,
           from: playbackUrls[index],
           reason: hungIpfsDir ? 'ipfs-dir' : 'no-bytes',
           hungIpfsDir,
+          buffered,
           media: mediaDebugSnapshot(media),
         });
-        tryUrl(index + 1);
-      }, failoverMs);
+        hopPlayback(
+          index,
+          media.currentSrc || playbackUrls[index],
+          hungIpfsDir ? 'ipfs-dir' : 'no-bytes'
+        );
+      };
+
+      failoverTimerRef.current = setTimeout(watchdogTick, failoverMs);
 
       if (!isHlsUrl(nextUrl)) {
         const metaMime = (
@@ -1299,6 +1461,58 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
           tag: media.tagName,
         });
         kickPlay();
+        // Turbo sandbox often 404s as HTML; <audio> fires onplay, not onerror.
+        const arIoApex = arweaveGatewayApexHost(nextUrl);
+        if (
+          arweaveAudio &&
+          (arIoApex === 'turbo-gateway.com' || arIoApex === 'permagate.io')
+        ) {
+          const probeUrl = nextUrl.split('#')[0];
+          void fetch(probeUrl, {
+            method: 'GET',
+            headers: { Range: 'bytes=0-0' },
+            mode: 'cors',
+          })
+            .then((res) => {
+              if (playAttempt !== playAttemptRef.current || urlIndex !== index) return;
+              // Fake `onplaying` on a 404 must not block this hop.
+              if (media.currentTime > 0.25 || media.readyState >= 2) return;
+              const type = (res.headers.get('content-type') || '').toLowerCase();
+              const dead =
+                res.status === 404 ||
+                (type.includes('text/html') && !type.includes('audio')) ||
+                (type.includes('text/plain') && !type.includes('audio') && !type.includes('wave'));
+              if (!dead) return;
+              rememberDeadGateway(rawAudioUrl, res.url || nextUrl);
+              playbackDebug('play:arweave-404', {
+                name: nft.name,
+                url: nextUrl,
+                finalUrl: res.url,
+                status: res.status,
+                type: type || null,
+              });
+              hopPlayback(index, res.url || nextUrl, 'arweave-sandbox-404');
+            })
+            .catch(() => {
+              // CORS hides the status (turbo's 504 surfaces as ERR_FAILED), so
+              // this is only trustworthy alongside a second signal: the media
+              // element itself holding zero bytes. Both together mean the
+              // gateway is broken, so re-arm short rather than pay the full 25s.
+              if (playAttempt !== playAttemptRef.current || urlIndex !== index || gaveUp) return;
+              if (playbackStarted || media.readyState > 0 || bufferedSeconds(media) > 0) {
+                return;
+              }
+              playbackDebug('play:probe-failed', {
+                name: nft.name,
+                url: nextUrl,
+                media: mediaDebugSnapshot(media),
+              });
+              // Independent proof of death — skip the NETWORK_LOADING grace too.
+              loadingGraceUsed = true;
+              clearStall();
+              failoverTimerRef.current = setTimeout(watchdogTick, DEAD_PROBE_FAILOVER_MS);
+            });
+        }
         return;
       }
 
@@ -1319,12 +1533,52 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
           error: attachErr instanceof Error ? attachErr.message : String(attachErr),
           media: mediaDebugSnapshot(media),
         });
-        tryUrl(index + 1);
+        hopPlayback(index, nextUrl, 'hls-attach-failed');
       });
     };
 
+    const hopPlayback = (fromIndex: number, failedSrc: string, reason: string) => {
+      if (playAttempt !== playAttemptRef.current || gaveUp) return;
+      const failed = failedSrc || playbackUrls[fromIndex] || '';
+      // A remembered winner that just failed must lose its promotion, or every
+      // future play re-walks a gateway that has since gone dead.
+      forgetPlayedMediaUrl(rawAudioUrl, playbackUrls[fromIndex]);
+      const nextIndex =
+        isArweavePlaybackUrl(failed) || isArweavePlaybackUrl(playbackUrls[fromIndex])
+          ? nextArweavePlaybackIndex(playbackUrls, failed, fromIndex, {
+              skipArIoAfterSandbox404: plan.mode === 'audio-only',
+            })
+          : fromIndex + 1;
+      if (nextIndex > fromIndex + 1) {
+        playbackDebug('play:skip-url', {
+          name: nft.name,
+          reason,
+          from: fromIndex,
+          to: nextIndex,
+          failedSrc: failed,
+        });
+      }
+      // Path arweave.net/{tx} 302s without Content-Length → duration Infinity.
+      // Pull /raw/ next; keep path behind it if /raw/ NotSupportedError.
+      if (plan.mode === 'audio-only' && nextIndex < playbackUrls.length) {
+        const rawIdx = playbackUrls.findIndex(
+          (u, i) => i >= nextIndex && /arweave\.net\/raw\//i.test(u)
+        );
+        if (rawIdx > nextIndex) {
+          const [rawUrl] = playbackUrls.splice(rawIdx, 1);
+          playbackUrls.splice(nextIndex, 0, rawUrl);
+          playbackDebug('play:prefer-raw', {
+            name: nft.name,
+            rawUrl,
+            index: nextIndex,
+          });
+        }
+      }
+      tryUrl(nextIndex);
+    };
+
     media.onerror = () => {
-      if (playAttempt !== playAttemptRef.current || switchingUrl) {
+      if (playAttempt !== playAttemptRef.current || switchingUrl || gaveUp) {
         return;
       }
       const failedSrc = media.currentSrc || media.src;
@@ -1364,25 +1618,36 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
         rememberDeadGateway(rawAudioUrl, failedSrc);
       }
       playbackStarted = false;
-      tryUrl(urlIndex + 1);
+      hopPlayback(urlIndex, failedSrc, 'media-error');
     };
 
     media.onloadedmetadata = () => {
       if (playAttempt !== playAttemptRef.current) return;
-      if (Number.isFinite(media.duration)) {
-        setAudioDuration(media.duration);
+      if (Number.isFinite(media.duration) && media.duration > 1) {
+        applyMediaDuration(media.duration, 'loadedmetadata');
+      } else if (probedWavDuration > 1) {
+        setAudioDuration(probedWavDuration);
       }
     };
 
     media.ondurationchange = () => {
       if (playAttempt !== playAttemptRef.current) return;
-      if (Number.isFinite(media.duration)) {
-        setAudioDuration(media.duration);
+      if (Number.isFinite(media.duration) && media.duration > 1) {
+        applyMediaDuration(media.duration, 'durationchange');
+      } else if (probedWavDuration > 1) {
+        setAudioDuration(probedWavDuration);
       }
     };
 
     media.oncanplay = () => {
       if (playAttempt !== playAttemptRef.current) return;
+      if (
+        media.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+        Number.isFinite(media.duration) &&
+        media.duration > 1
+      ) {
+        markPlaybackStarted();
+      }
     };
 
     media.onwaiting = () => {
@@ -1391,22 +1656,32 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
 
     media.onstalled = () => {
       if (playAttempt !== playAttemptRef.current) return;
-      // Only hop if we never actually started — mid-play stall on a live
-      // clock must not pause+replay from a timer (that mutes WKWebView).
-      if (
-        playbackStarted &&
-        media.readyState <= 1 &&
-        media.currentTime < 0.5 &&
-        media.paused
-      ) {
+      // Never hop from here: a mid-play stall on a live clock would pause and
+      // replay, which mutes WKWebView. This only guarantees a watchdog exists,
+      // since `stalled` is often the last event a hung gateway ever sends.
+      if (playbackStarted || switchingUrl || gaveUp || failoverTimerRef.current) return;
+      playbackDebug('event:onstalled-rearm', {
+        name: nft.name,
+        url: playbackUrls[urlIndex],
+        media: mediaDebugSnapshot(media),
+      });
+      failoverTimerRef.current = setTimeout(() => {
+        if (playAttempt !== playAttemptRef.current || playbackStarted || gaveUp) return;
+        if (media.currentTime > 0.25) {
+          markPlaybackStarted();
+          return;
+        }
         const failedSrc = media.currentSrc || media.src;
-        if (isHlsUrl(playbackUrls[urlIndex]) || isHlsUrl(failedSrc) || /stream\.mux\.com/i.test(failedSrc)) {
+        if (
+          isHlsUrl(playbackUrls[urlIndex]) ||
+          isHlsUrl(failedSrc) ||
+          /stream\.mux\.com/i.test(failedSrc)
+        ) {
           return;
         }
         rememberDeadGateway(rawAudioUrl, failedSrc);
-        playbackStarted = false;
-        tryUrl(urlIndex + 1);
-      }
+        hopPlayback(urlIndex, failedSrc, 'stalled');
+      }, FIRST_BYTE_FAILOVER_MS);
     };
 
     const rememberPlayingMime = () => {
@@ -1437,11 +1712,19 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     };
 
     media.onplaying = () => {
-      if (playAttempt !== playAttemptRef.current) return;
+      if (playAttempt !== playAttemptRef.current || gaveUp) return;
       ensureMediaAudible(media);
-      playbackStarted = true;
-      clearStall();
-      setIsPlaying(true);
+      // Turbo sandbox 404 fires onplaying with 0 bytes — that used to set
+      // playbackStarted and cancel failover until media-error.
+      if (media.currentTime < 0.05 && media.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+        playbackDebug('play:playing-pending', {
+          name: nft.name,
+          url: playbackUrls[urlIndex],
+          media: mediaDebugSnapshot(media),
+        });
+        return;
+      }
+      markPlaybackStarted();
       playbackDebug('play:playing', {
         name: nft.name,
         url: playbackUrls[urlIndex],
@@ -1456,8 +1739,10 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       if (Number.isFinite(media.currentTime)) {
         setAudioProgress(media.currentTime);
       }
-      if (Number.isFinite(media.duration) && media.duration > 0) {
+      if (Number.isFinite(media.duration) && media.duration > 1) {
         setAudioDuration(media.duration);
+      } else if (probedWavDuration > 1) {
+        setAudioDuration(probedWavDuration);
       }
     };
     const maybeTrackPlay = () => {
@@ -1476,6 +1761,17 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       if (playAttempt !== playAttemptRef.current) return;
       if (!firstProgressLogged && media.currentTime > 0) {
         firstProgressLogged = true;
+      }
+      if (!playbackStarted && media.currentTime > 0.25) {
+        markPlaybackStarted();
+        playbackDebug('play:playing', {
+          name: nft.name,
+          url: playbackUrls[urlIndex],
+          via: 'timeupdate',
+          media: mediaDebugSnapshot(media),
+        });
+        startCompanionVideo();
+        rememberPlayingMime();
       }
       syncClockStatus();
       if (media.currentTime > 0) {
@@ -1606,6 +1902,7 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       });
     }
 
+    armGiveUpTimer();
     tryUrl(0);
 
     // iOS audio unlock only — do not reset video to 0 (desyncs from Audio)

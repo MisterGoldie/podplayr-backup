@@ -6,6 +6,8 @@ import {
   extractIPFSPath,
   parseArweaveMediaPath,
   processMediaUrl,
+  arweaveGatewayApexHost,
+  arweaveSandboxId,
 } from './media';
 import { isBareIpfsFileCid, isExtensionlessArweaveTx, urlLooksLikeExtensionlessVideo } from './ipfsExtensionlessMedia';
 import { isNftMediaDead } from './deadNftRegistry';
@@ -588,10 +590,24 @@ export const getNftPlaybackPlan = (nft: MediaCandidate | NFT): NftPlaybackPlan =
 
 const mimeProbeCache = new Map<string, string>();
 const mimeSourceCache = new Map<string, string>();
+/**
+ * URLs that produced real playback bytes. Stronger evidence than mimeSourceCache,
+ * which only records what answered a HEAD/Range probe — `/raw/` and arweave.net
+ * both win probes and then throw NotSupportedError on a real media element.
+ */
+const playedSourceCache = new Map<string, string>();
 const deadGatewayHosts = new Map<string, Set<string>>();
 const MIME_CACHE_KEY = 'podplayr_media_mime';
+const DEAD_GATEWAY_CACHE_KEY = 'podplayr_dead_gateways';
+/** Cap the dead-gateway blob so a heavy browsing session can't blow the quota. */
+const DEAD_GATEWAY_MAX_ASSETS = 400;
 let mimeCacheLoaded = false;
 let mimePersistTimer: ReturnType<typeof setTimeout> | null = null;
+let deadGatewayCacheLoaded = false;
+let deadGatewayPersistTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Compare URLs without the `#.wav` / `#.mp4` sniffing hint we append. */
+const stripUrlHint = (url: string): string => url.split('#')[0];
 
 const loadMimeCache = (): void => {
   if (mimeCacheLoaded || typeof window === 'undefined') return;
@@ -599,7 +615,10 @@ const loadMimeCache = (): void => {
   try {
     const raw = window.localStorage.getItem(MIME_CACHE_KEY);
     if (!raw) return;
-    const parsed = JSON.parse(raw) as Record<string, string | { mime?: string; url?: string }>;
+    const parsed = JSON.parse(raw) as Record<
+      string,
+      string | { mime?: string; url?: string; played?: string }
+    >;
     for (const [key, value] of Object.entries(parsed)) {
       if (!key || !value) continue;
       if (typeof value === 'string') {
@@ -607,6 +626,7 @@ const loadMimeCache = (): void => {
       } else {
         if (value.mime) mimeProbeCache.set(key, value.mime);
         if (value.url) mimeSourceCache.set(key, value.url);
+        if (value.played) playedSourceCache.set(key, value.played);
       }
     }
   } catch {
@@ -619,11 +639,53 @@ const persistMimeCache = (): void => {
   if (mimePersistTimer) clearTimeout(mimePersistTimer);
   mimePersistTimer = setTimeout(() => {
     try {
-      const obj: Record<string, { mime: string; url?: string }> = {};
+      const obj: Record<string, { mime: string; url?: string; played?: string }> = {};
       mimeProbeCache.forEach((mime, key) => {
-        obj[key] = { mime, url: mimeSourceCache.get(key) };
+        obj[key] = {
+          mime,
+          url: mimeSourceCache.get(key),
+          played: playedSourceCache.get(key),
+        };
+      });
+      // A proven winner outlives its MIME entry — keep it even with no mime key.
+      playedSourceCache.forEach((played, key) => {
+        if (!obj[key]) obj[key] = { mime: '', played };
       });
       window.localStorage.setItem(MIME_CACHE_KEY, JSON.stringify(obj));
+    } catch {
+      // ignore quota / private mode
+    }
+  }, 200);
+};
+
+const loadDeadGatewayCache = (): void => {
+  if (deadGatewayCacheLoaded || typeof window === 'undefined') return;
+  deadGatewayCacheLoaded = true;
+  try {
+    const raw = window.localStorage.getItem(DEAD_GATEWAY_CACHE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw) as Record<string, string[]>;
+    for (const [id, hosts] of Object.entries(parsed)) {
+      if (!id || !Array.isArray(hosts) || !hosts.length) continue;
+      deadGatewayHosts.set(id, new Set(hosts.filter((h) => typeof h === 'string')));
+    }
+  } catch {
+    // ignore quota / private mode
+  }
+};
+
+const persistDeadGatewayCache = (): void => {
+  if (typeof window === 'undefined') return;
+  if (deadGatewayPersistTimer) clearTimeout(deadGatewayPersistTimer);
+  deadGatewayPersistTimer = setTimeout(() => {
+    try {
+      const obj: Record<string, string[]> = {};
+      Array.from(deadGatewayHosts.entries())
+        .slice(-DEAD_GATEWAY_MAX_ASSETS)
+        .forEach(([id, hosts]) => {
+          if (hosts.size) obj[id] = Array.from(hosts);
+        });
+      window.localStorage.setItem(DEAD_GATEWAY_CACHE_KEY, JSON.stringify(obj));
     } catch {
       // ignore quota / private mode
     }
@@ -651,12 +713,74 @@ export const getCachedMediaSourceUrl = (url?: string | null): string => {
   return mimeSourceCache.get(mediaAssetId(url)) || '';
 };
 
+/**
+ * Record the URL that actually produced audible/visible bytes. Kept until it
+ * fails again, so a repeat play skips the gateways we already proved dead.
+ */
+export const rememberPlayedMediaUrl = (assetUrl: string, playedUrl: string): void => {
+  if (!assetUrl || !playedUrl) return;
+  if (playedUrl.startsWith('blob:') || playedUrl.startsWith('data:')) return;
+  loadMimeCache();
+  const id = mediaAssetId(assetUrl);
+  if (playedSourceCache.get(id) === playedUrl) return;
+  playedSourceCache.set(id, playedUrl);
+  // Playing beats a stale 404 — a host that just worked is not dead.
+  try {
+    loadDeadGatewayCache();
+    const dead = deadGatewayHosts.get(id);
+    if (dead?.size) {
+      const host = new URL(playedUrl).hostname.toLowerCase();
+      // Both deletes must run — `||` would short-circuit past the apex.
+      const clearedHost = dead.delete(host);
+      const clearedApex = dead.delete(arweaveGatewayApexHost(playedUrl));
+      if (clearedHost || clearedApex) persistDeadGatewayCache();
+    }
+  } catch {
+    // ignore
+  }
+  persistMimeCache();
+};
+
+export const getPlayedMediaUrl = (assetUrl?: string | null): string => {
+  loadMimeCache();
+  if (!assetUrl) return '';
+  return playedSourceCache.get(mediaAssetId(assetUrl)) || '';
+};
+
+/** Self-heal: a remembered winner that stops working loses its promotion. */
+export const forgetPlayedMediaUrl = (assetUrl: string, failedUrl?: string | null): void => {
+  if (!assetUrl) return;
+  loadMimeCache();
+  const id = mediaAssetId(assetUrl);
+  const stored = playedSourceCache.get(id);
+  if (!stored) return;
+  if (failedUrl && stripUrlHint(stored) !== stripUrlHint(failedUrl)) return;
+  playedSourceCache.delete(id);
+  persistMimeCache();
+};
+
 export const rememberDeadGateway = (assetUrl: string, gatewayUrl: string): void => {
   try {
-    const host = new URL(gatewayUrl).hostname;
+    loadDeadGatewayCache();
+    const host = new URL(gatewayUrl).hostname.toLowerCase();
     const id = mediaAssetId(assetUrl);
     if (!deadGatewayHosts.has(id)) deadGatewayHosts.set(id, new Set());
-    deadGatewayHosts.get(id)!.add(host);
+    const dead = deadGatewayHosts.get(id)!;
+    dead.add(host);
+    // Sandbox 404s (`{id}.turbo-gateway.com`) must also skip the apex hop.
+    // Do not mark arweave.net — its sandbox/raw still serve the WAV.
+    const apex = arweaveGatewayApexHost(gatewayUrl);
+    if (apex === 'turbo-gateway.com' || apex === 'permagate.io') {
+      dead.add(apex);
+    }
+    if (
+      arweaveSandboxId(gatewayUrl) &&
+      (apex === 'turbo-gateway.com' || apex === 'permagate.io')
+    ) {
+      dead.add('turbo-gateway.com');
+      dead.add('permagate.io');
+    }
+    persistDeadGatewayCache();
   } catch {
     // ignore
   }
@@ -671,7 +795,29 @@ const isArweaveNetPlaybackHost = (url: string): boolean => {
   }
 };
 
+/**
+ * Hoist a URL we have actually heard play. Applied last, after the `/raw/` and
+ * arweave.net demotions below, which would otherwise bury a proven winner at
+ * the back of the list and re-walk the dead gateways in front of it.
+ */
+const promotePlayedUrl = (assetUrl: string, urls: string[]): string[] => {
+  const played = getPlayedMediaUrl(assetUrl);
+  if (!played) return urls;
+  const dead = deadGatewayHosts.get(mediaAssetId(assetUrl));
+  if (dead?.size) {
+    try {
+      const host = new URL(played).hostname.toLowerCase();
+      if (dead.has(host) || dead.has(arweaveGatewayApexHost(played))) return urls;
+    } catch {
+      return urls;
+    }
+  }
+  const key = stripUrlHint(played);
+  return [played, ...urls.filter((u) => stripUrlHint(u) !== key)];
+};
+
 export const filterLivePlaybackUrls = (assetUrl: string, urls: string[]): string[] => {
+  loadDeadGatewayCache();
   const dead = deadGatewayHosts.get(mediaAssetId(assetUrl));
   const source = getCachedMediaSourceUrl(assetUrl);
   // Never promote polluted Mux / broken Alchemy HLS from mime-source memory.
@@ -708,10 +854,19 @@ export const filterLivePlaybackUrls = (assetUrl: string, urls: string[]): string
   const finalPool = (preferred.length || fallbacks.length)
     ? [...preferred, ...fallbacks]
     : ordered;
-  if (!dead?.size) return finalPool;
+  if (!dead?.size) return promotePlayedUrl(assetUrl, finalPool);
   const live = finalPool.filter((u) => {
     try {
-      return !dead.has(new URL(u).hostname);
+      const host = new URL(u).hostname.toLowerCase();
+      if (dead.has(host)) return false;
+      const apex = arweaveGatewayApexHost(u);
+      if (
+        (apex === 'turbo-gateway.com' || apex === 'permagate.io') &&
+        dead.has(apex)
+      ) {
+        return false;
+      }
+      return true;
     } catch {
       return true;
     }
@@ -724,7 +879,7 @@ export const filterLivePlaybackUrls = (assetUrl: string, urls: string[]): string
   const prefer = paths.filter((u) => !isArweaveNetPlaybackHost(u));
   const arweaveNet = paths.filter(isArweaveNetPlaybackHost);
   const restRaw = pathUrls.length ? rawUrls : [];
-  return [...prefer, ...arweaveNet, ...restRaw];
+  return promotePlayedUrl(assetUrl, [...prefer, ...arweaveNet, ...restRaw]);
 };
 
 /** True when URL has no clear audio/video extension (Arweave/IPFS CIDs). */

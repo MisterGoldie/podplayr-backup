@@ -1138,6 +1138,14 @@ export const ARWEAVE_FIRST_BYTE_FAILOVER_MS = 25000;
 export const IPFS_KNOWN_MEDIA_FAILOVER_MS = 8000;
 /** Faster hop when the URL is clearly a bare IPFS directory (often unreplicated). */
 export const IPFS_DIR_FAILOVER_MS = 3000;
+/** How often the byte watchdog re-checks `buffered` while nothing is playing. */
+export const MEDIA_BYTES_RECHECK_MS = 3000;
+/** Cap on "slow but downloading" — past this a trickling gateway still loses its turn. */
+export const MEDIA_BYTES_MAX_WAIT_MS = 30000;
+/** Absolute deadline for a tap. Nothing audible by now ends the spinner. */
+export const PLAYBACK_GIVE_UP_MS = 60000;
+/** Short retry once a side-channel probe says the gateway is broken. */
+export const DEAD_PROBE_FAILOVER_MS = 4000;
 export const MAX_PLAYBACK_CANDIDATES = 6;
 const GATEWAY_RACE_MS = 1400;
 
@@ -1164,6 +1172,151 @@ export const canonicalizeArweaveGatewayUrl = (url: string): string => {
     return url;
   }
   return url;
+};
+
+/** Apex host for turbo/permagate/arweave.net, including HTML-sandbox subdomains. */
+export const arweaveGatewayApexHost = (url: string): string => {
+  if (!url || typeof url !== 'string') return '';
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    if (host === 'turbo-gateway.com' || host.endsWith('.turbo-gateway.com')) {
+      return 'turbo-gateway.com';
+    }
+    if (host === 'permagate.io' || host.endsWith('.permagate.io')) {
+      return 'permagate.io';
+    }
+    if (host === 'arweave.net' || host.endsWith('.arweave.net')) {
+      return 'arweave.net';
+    }
+    return host;
+  } catch {
+    return '';
+  }
+};
+
+/**
+ * AR.IO HTML-sandbox id (`{43}.turbo-gateway.com`). Same tx always 302s to
+ * the same subdomain; turbo 404s it while arweave.net/raw still 200s.
+ */
+export const arweaveSandboxId = (url: string): string => {
+  if (!url || typeof url !== 'string') return '';
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    const match = host.match(
+      /^([a-z0-9_-]{43})\.(turbo-gateway\.com|permagate\.io|arweave\.net)$/i
+    );
+    return match ? match[1] : '';
+  } catch {
+    return '';
+  }
+};
+
+/** Skip remaining turbo/permagate URLs after that AR.IO pair 404s the sandbox. */
+export const nextArweavePlaybackIndex = (
+  urls: string[],
+  failedSrc: string,
+  fromIndex: number,
+  opts?: { skipArIoAfterSandbox404?: boolean }
+): number => {
+  let next = fromIndex + 1;
+  const sandboxId = arweaveSandboxId(failedSrc);
+  const failedApex = arweaveGatewayApexHost(failedSrc || urls[fromIndex] || '');
+  // Audio WAVs: turbo 404s the same AR.IO sandbox permagate will hang on.
+  // Skip that pair and use arweave.net (/raw is in the first 6 for audio).
+  const skipArIo =
+    opts?.skipArIoAfterSandbox404 &&
+    (failedApex === 'turbo-gateway.com' || failedApex === 'permagate.io') &&
+    (!!sandboxId || failedApex === 'turbo-gateway.com');
+  while (next < urls.length) {
+    const apex = arweaveGatewayApexHost(urls[next]);
+    if (skipArIo && (apex === 'turbo-gateway.com' || apex === 'permagate.io')) {
+      next += 1;
+      continue;
+    }
+    if (
+      !skipArIo &&
+      (failedApex === 'turbo-gateway.com' || failedApex === 'permagate.io') &&
+      apex === failedApex
+    ) {
+      next += 1;
+      continue;
+    }
+    break;
+  }
+  return next;
+};
+
+const wavFourCc = (view: DataView, at: number): string =>
+  String.fromCharCode(
+    view.getUint8(at),
+    view.getUint8(at + 1),
+    view.getUint8(at + 2),
+    view.getUint8(at + 3)
+  );
+
+/** PCM WAV duration from the RIFF header when the gateway omits Content-Length. */
+export const durationSecondsFromWavHeader = (
+  buffer: ArrayBuffer,
+  fileBytes?: number
+): number => {
+  if (buffer.byteLength < 44) return 0;
+  const view = new DataView(buffer);
+  if (wavFourCc(view, 0) !== 'RIFF' || wavFourCc(view, 8) !== 'WAVE') return 0;
+  let offset = 12;
+  let byteRate = 0;
+  let dataSize = 0;
+  while (offset + 8 <= view.byteLength) {
+    const id = wavFourCc(view, offset);
+    const size = view.getUint32(offset + 4, true);
+    if (id === 'fmt ' && size >= 16 && offset + 16 + 4 <= view.byteLength) {
+      byteRate = view.getUint32(offset + 16, true);
+    } else if (id === 'data') {
+      dataSize = size;
+      break;
+    }
+    const step = 8 + size + (size % 2);
+    if (step <= 0) break;
+    offset += step;
+  }
+  if (byteRate <= 0) return 0;
+  const payload =
+    dataSize > 0
+      ? dataSize
+      : Math.max(0, (fileBytes || view.getUint32(4, true) + 8) - 44);
+  const seconds = payload / byteRate;
+  return Number.isFinite(seconds) && seconds > 1 && seconds < 12 * 60 * 60
+    ? seconds
+    : 0;
+};
+
+/**
+ * Range-read a WAV header. arweave.net path/sandbox often has no Content-Length
+ * so <audio>.duration stays Infinity and the clock shows 0:00.
+ */
+export const probeWavDurationSeconds = async (url: string): Promise<number> => {
+  if (!url) return 0;
+  const probeUrl = url.split('#')[0];
+  try {
+    const res = await fetch(probeUrl, {
+      method: 'GET',
+      headers: { Range: 'bytes=0-4095' },
+      mode: 'cors',
+    });
+    if (!res.ok && res.status !== 206) return 0;
+    const type = (res.headers.get('content-type') || '').toLowerCase();
+    if (type.includes('text/html') || type.includes('text/plain')) return 0;
+    const buffer = await res.arrayBuffer();
+    const rangeTotal = Number(
+      (res.headers.get('content-range') || '').split('/').pop() || 0
+    );
+    const length = Number(res.headers.get('content-length') || 0);
+    return durationSecondsFromWavHeader(
+      buffer,
+      rangeTotal > 4096 ? rangeTotal : length > 4096 ? length : undefined
+    );
+  } catch {
+    return 0;
+  }
 };
 
 /** Short candidate list so hanging gateways cannot stall playback for minutes. */
@@ -1197,6 +1350,12 @@ export const buildFastPlaybackUrls = (
       }
       if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) {
         push(rawUrl);
+      }
+      // New Paths WAVs: turbo 302s to a sandbox that 404s. arweave.net/raw
+      // is 200 audio/wave, but MAX 6 used to slice it off. Keep turbo path
+      // first. Do not promote /raw/ for video (NotSupportedError).
+      if (opts?.kind === 'audio') {
+        push(toArweaveRawUrl(fileTxId, 'https://arweave.net/'));
       }
       for (const gateway of PLAYBACK_ARWEAVE_GATEWAYS) {
         push(toArweaveRawUrl(fileTxId, gateway));
