@@ -28,6 +28,7 @@ import { WebPrivyController } from './auth/WebPrivyController';
 import { hasPrivyAppId } from './providers/PrivyAppProvider';
 import { parseProfileFid, parseNftDeepLink, isLivePath, isLiveLaunch } from '../lib/miniapp';
 import { markDeepLinkSettled } from '../lib/deepLinkReady';
+import { emitLikeCountBump } from '../lib/likeCountEvents';
 import { LivePlayer } from './live/LivePlayer';
 import { firstNonNull, readNftBootstrap } from '../lib/nftBootstrap';
 import { normalizeNftTokenId } from '../utils/nftIdentity';
@@ -470,6 +471,9 @@ const DemoBase: React.FC = () => {
         ...prev.filter((existing) => !sameLikedTrack(existing, nft)),
       ]);
     }
+    // The heart flips above, but InfoPanel's like *number* reads global_likes
+    // and would otherwise lag the icon by the same round-trips.
+    emitLikeCountBump(likedNft.mediaKey || getMediaKey(nft), wasLiked ? -1 : 1);
 
     try {
       const newLikeState = await toggleLikeNFT(nft, fid);
@@ -490,6 +494,7 @@ const DemoBase: React.FC = () => {
         }
         return prev.filter((likedNFT) => !sameLikedTrack(likedNFT, nft));
       });
+      emitLikeCountBump(likedNft.mediaKey || getMediaKey(nft), wasLiked ? 1 : -1);
       demoLogger.error('Error toggling like:', likeError);
       throw likeError;
     }

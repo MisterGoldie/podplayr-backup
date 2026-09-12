@@ -4,7 +4,7 @@ import type { NFT } from '../types/user';
 import { logger } from '../utils/logger';
 import { getMediaKey } from '../utils/media';
 import { mergeLegacyPlayCounts } from '../lib/consolidateGlobalPlays';
-import { PLAY_COUNT_UPDATED } from '../lib/playCountEvents';
+import { PLAY_COUNT_BUMP, PLAY_COUNT_UPDATED } from '../lib/playCountEvents';
 
 const playCountLogger = logger.getModuleLogger('playCount');
 const mergedPlayKeys = new Set<string>();
@@ -113,6 +113,26 @@ export const useNFTPlayCount = (nft: NFT | null, shouldFetch: boolean = true) =>
     };
     window.addEventListener(PLAY_COUNT_UPDATED, onLocalPlay);
 
+    // Optimistic nudge from the player the moment the threshold is crossed,
+    // long before trackNFTPlay can report an absolute. The absolute that
+    // follows lands on the same number, so `next <= previous` drops it and
+    // nothing double-counts. A negative delta arrives if the write failed.
+    const onLocalBump = (event: Event) => {
+      const detail = (event as CustomEvent<{ mediaKey?: string; delta?: number }>).detail;
+      if (!detail || detail.mediaKey !== mediaKey) return;
+      const delta = Number(detail.delta);
+      if (!Number.isFinite(delta) || delta === 0) return;
+      const next = Math.max(0, previousCountRef.current + delta);
+      if (delta > 0 && !isInitialLoadRef.current) {
+        setRealCountIncrease(true);
+        setTimeout(() => setRealCountIncrease(false), 2000);
+      }
+      previousCountRef.current = next;
+      setPlayCount(next);
+      setLoading(false);
+    };
+    window.addEventListener(PLAY_COUNT_BUMP, onLocalBump);
+
     void (async () => {
       const source = nftRef.current;
       if (!source || mergedPlayKeys.has(mediaKey)) return;
@@ -133,6 +153,7 @@ export const useNFTPlayCount = (nft: NFT | null, shouldFetch: boolean = true) =>
       cancelled = true;
       playCountLogger.debug('Cleaning up play count listener for:', mediaKey);
       window.removeEventListener(PLAY_COUNT_UPDATED, onLocalPlay);
+      window.removeEventListener(PLAY_COUNT_BUMP, onLocalBump);
       unsubscribe();
     };
   }, [mediaKey, shouldFetch]);

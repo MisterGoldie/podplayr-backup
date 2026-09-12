@@ -130,9 +130,13 @@ import { enrichNftMediaFromChain, isIpfsPlaybackUrl, ipfsUrlNeedsDirectoryResolv
 import { coerceIpfsUrl, isExtensionlessArweaveTx } from '../utils/ipfsExtensionlessMedia';
 import { withFeaturedPlayback } from '../data/featuredNfts';
 import { mediaDebugSnapshot, playbackDebug } from '../utils/playbackDebug'; // TEMP — remove with playbackDebug.ts
+import { emitPlayCountBump } from '../lib/playCountEvents';
 
 // Create a dedicated logger for this module
 const audioLogger = logger.getModuleLogger('audioPlayer');
+
+/** Backoff after a failed play-count write, since timeupdate fires ~4x/sec. */
+const PLAY_TRACK_RETRY_COOLDOWN_MS = 10000;
 
 // Extend Window interface to include our custom property
 declare global {
@@ -1009,6 +1013,8 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
      *  chain and re-raise the spinner after the user was told it failed. */
     let gaveUp = false;
     let playTracked = false;
+    /** Earliest retry after a failed play-count write. See maybeTrackPlay. */
+    let playTrackRetryAfter = 0;
     let probedWavDuration = 0;
     /**
      * Set by tryUrl for the candidate currently attached. Lets a side-channel
@@ -1798,16 +1804,52 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       }
     };
     const maybeTrackPlay = () => {
-      const knownDuration = Number.isFinite(media.duration) && media.duration > 0;
-      const reachedPercent = knownDuration && media.currentTime >= media.duration * 0.25;
-      const reachedFallback = !knownDuration && media.currentTime >= 15;
-      if (!playTracked && (reachedPercent || reachedFallback)) {
-        playTracked = true;
-        audioLogger.info(`Play count threshold reached for NFT: ${nft.name}`);
-        trackNFTPlay(nft, fidRef.current, { thresholdReached: true }).catch(error => {
+      if (playTracked) return;
+      // media.duration stays Infinity/NaN on the Arweave WAVs until the whole
+      // file is buffered, and we already recover the real length into
+      // probedWavDuration (it's what the clock runs on). Reading only
+      // media.duration here meant the same NFT counted at a flat 15s on one
+      // run and at a true 25% on the next, depending on whether the element
+      // happened to learn its duration — use the same number the UI shows.
+      const elementDuration =
+        Number.isFinite(media.duration) && media.duration > 0 ? media.duration : 0;
+      const effectiveDuration = Math.max(elementDuration, probedWavDuration);
+      const reached =
+        effectiveDuration > 0
+          ? media.currentTime >= effectiveDuration * 0.25
+          : media.currentTime >= 15;
+      if (!reached) return;
+      if (Date.now() < playTrackRetryAfter) return;
+
+      playTracked = true;
+      audioLogger.info(`Play count threshold reached for NFT: ${nft.name}`);
+      // Move the number now. trackNFTPlay needs a legacy fold, three getDocs
+      // and a batch commit before it can emit an absolute count, and the
+      // panel is supposed to react the moment the threshold is crossed.
+      const trackedMediaKey = getMediaKey(nft);
+      emitPlayCountBump(trackedMediaKey, 1);
+      // The guess was wrong — take it back and let a later timeupdate retry.
+      // timeupdate fires ~4x/sec, so hold a cooldown or a persistent failure
+      // would spray writes at Firestore.
+      const undoOptimisticBump = () => {
+        emitPlayCountBump(trackedMediaKey, -1);
+        playTracked = false;
+        playTrackRetryAfter = Date.now() + PLAY_TRACK_RETRY_COOLDOWN_MS;
+      };
+      trackNFTPlay(nft, fidRef.current, { thresholdReached: true })
+        .then((writtenMediaKey) => {
+          // trackNFTPlay resolves with the mediaKey it wrote. It also bails
+          // early and resolves undefined (no audio URL, no mediaKey) without
+          // writing anything — that must not leave a phantom +1 on screen.
+          if (!writtenMediaKey) {
+            audioLogger.warn(`Play count write skipped for NFT: ${nft.name}`);
+            undoOptimisticBump();
+          }
+        })
+        .catch(error => {
           audioLogger.error('Error tracking NFT play after threshold:', error);
+          undoOptimisticBump();
         });
-      }
     };
     media.ontimeupdate = () => {
       if (playAttempt !== playAttemptRef.current) return;

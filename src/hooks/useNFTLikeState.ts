@@ -5,6 +5,7 @@ import type { NFT } from '../types/user';
 import { getMediaKey } from '../utils/media';
 import { likesDebug } from '../utils/likesDebug';
 import { findExistingUserLikeIds, mergeLegacyLikeCounts } from '../lib/consolidateUserLikes';
+import { LIKE_COUNT_BUMP, emitLikeCountBump } from '../lib/likeCountEvents';
 
 export interface UseNFTLikeStateOptions {
   /** Subscribe to the user's own like state for this NFT. Skip when the caller
@@ -38,6 +39,8 @@ export const useNFTLikeState = (
   const nftRef = useRef(nft);
   nftRef.current = nft;
   const previousCountRef = useRef<number>(0);
+  /** True once mergeLegacyLikeCounts has persisted its total for this key. */
+  const foldSettledRef = useRef<boolean>(false);
 
   const mediaKey = nft ? getMediaKey(nft) : '';
 
@@ -52,6 +55,7 @@ export const useNFTLikeState = (
 
     mediaKeyRef.current = mediaKey;
     previousCountRef.current = 0;
+    foldSettledRef.current = false;
     setIsLoading(true);
     if (watchCount) {
       likesDebug.log('useNFTLikeState subscribe', {
@@ -124,7 +128,13 @@ export const useNFTLikeState = (
               });
               return;
             }
-            previousCountRef.current = Math.max(previousCountRef.current, next);
+            // Only clamp upward until the legacy fold has written its total,
+            // otherwise a server snapshot taken mid-fold paints the pre-fold
+            // number. Once it has settled, trust the server — a permanent
+            // Math.max here meant an unlike could never decrement the count.
+            previousCountRef.current = foldSettledRef.current
+              ? next
+              : Math.max(previousCountRef.current, next);
             setLikesCount(previousCountRef.current);
             setIsLoading(false);
           }, (error) => {
@@ -155,6 +165,20 @@ export const useNFTLikeState = (
 
     listen();
 
+    // Optimistic nudge from whoever tapped the heart, so the number moves with
+    // the icon instead of waiting on toggleLikeNFT's batch.
+    const onLocalBump = (event: Event) => {
+      const detail = (event as CustomEvent<{ mediaKey?: string; delta?: number }>).detail;
+      if (!detail || detail.mediaKey !== mediaKey) return;
+      const delta = Number(detail.delta);
+      if (!watchCount || !Number.isFinite(delta) || delta === 0) return;
+      previousCountRef.current = Math.max(0, previousCountRef.current + delta);
+      setLikesCount(previousCountRef.current);
+      setIsLoading(false);
+      setLastUpdated(Date.now());
+    };
+    window.addEventListener(LIKE_COUNT_BUMP, onLocalBump);
+
     void (async () => {
       try {
         if (watchCount && nftRef.current) {
@@ -165,6 +189,7 @@ export const useNFTLikeState = (
             previousCountRef.current = Math.max(previousCountRef.current, folded);
             setLikesCount(previousCountRef.current);
           }
+          if (!cancelled) foldSettledRef.current = true;
         }
         if (watchIsLiked && fid && nftRef.current) {
           const existing = await findExistingUserLikeIds(db, String(fid), nftRef.current);
@@ -181,6 +206,7 @@ export const useNFTLikeState = (
 
     return () => {
       cancelled = true;
+      window.removeEventListener(LIKE_COUNT_BUMP, onLocalBump);
       unsubscribeUserLike?.();
       unsubscribeCount?.();
       isSubscribedRef.current = false;
@@ -193,7 +219,9 @@ export const useNFTLikeState = (
     const previousLiked = isLiked;
     const optimisticLiked = !previousLiked;
     setIsLiked(optimisticLiked);
-    setLikesCount((prev) => Math.max(0, prev + (optimisticLiked ? 1 : -1)));
+    // Broadcast rather than setting our own count directly, so an InfoPanel
+    // open on the same NFT moves in step with this card.
+    emitLikeCountBump(mediaKeyRef.current, optimisticLiked ? 1 : -1);
     setLastUpdated(Date.now());
 
     try {
@@ -201,13 +229,13 @@ export const useNFTLikeState = (
       const newIsLiked = await toggleLikeNFT(nft, fid);
       setIsLiked(newIsLiked);
       if (newIsLiked !== optimisticLiked) {
-        setLikesCount((prev) => Math.max(0, prev + (newIsLiked ? 1 : -1)));
+        emitLikeCountBump(mediaKeyRef.current, newIsLiked ? 1 : -1);
       }
       setLastUpdated(Date.now());
       return newIsLiked;
     } catch (error) {
       setIsLiked(previousLiked);
-      setLikesCount((prev) => Math.max(0, prev + (previousLiked ? 1 : -1)));
+      emitLikeCountBump(mediaKeyRef.current, optimisticLiked ? -1 : 1);
       likesDebug.error('Error toggling like state', error, { mediaKey: mediaKeyRef.current, fid });
     }
   };
