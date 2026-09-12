@@ -206,8 +206,11 @@ export async function attachPlaybackSource(
       capLevelToPlayerSize: false,
       preferManagedMediaSource: false,
       // Default maxMaxBufferLength is 600s — that is the bufferFullError after pause.
-      maxBufferLength: 20,
-      maxMaxBufferLength: 45,
+      // 20s left no headroom: Mux underran to the last frame of the buffered
+      // range and logged bufferStalledError. Raised for slack, still far under
+      // the default that caused the original bufferFullError.
+      maxBufferLength: 30,
+      maxMaxBufferLength: 90,
       xhrSetup: (xhr) => {
         xhr.withCredentials = false;
       },

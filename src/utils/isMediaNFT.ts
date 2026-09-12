@@ -720,6 +720,11 @@ export const getCachedMediaSourceUrl = (url?: string | null): string => {
 export const rememberPlayedMediaUrl = (assetUrl: string, playedUrl: string): void => {
   if (!assetUrl || !playedUrl) return;
   if (playedUrl.startsWith('blob:') || playedUrl.startsWith('data:')) return;
+  // Mux/HLS is chosen deliberately by PLAYBACK_OVERRIDES, which is prepended
+  // after this list is built — promoting it here buys nothing and would let an
+  // orphan Mux stream skip the isPollutedPlaybackUrl filter on a later play.
+  if (isMuxPlaybackUrl(playedUrl) || isPollutedPlaybackUrl(playedUrl)) return;
+  if (/\.m3u8(?:\?|#|$)/i.test(playedUrl)) return;
   loadMimeCache();
   const id = mediaAssetId(assetUrl);
   if (playedSourceCache.get(id) === playedUrl) return;
@@ -803,6 +808,8 @@ const isArweaveNetPlaybackHost = (url: string): boolean => {
 const promotePlayedUrl = (assetUrl: string, urls: string[]): string[] => {
   const played = getPlayedMediaUrl(assetUrl);
   if (!played) return urls;
+  // Defensive: older stored entries predate the record-time Mux guard.
+  if (isPollutedPlaybackUrl(played) || isMuxPlaybackUrl(played)) return urls;
   const dead = deadGatewayHosts.get(mediaAssetId(assetUrl));
   if (dead?.size) {
     try {
