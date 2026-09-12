@@ -59,6 +59,7 @@ import {
   IPFS_DIR_FAILOVER_MS,
   MEDIA_BYTES_RECHECK_MS,
   MEDIA_BYTES_MAX_WAIT_MS,
+  MEDIA_BYTES_STALL_TICKS,
   PLAYBACK_GIVE_UP_MS,
   DEAD_PROBE_FAILOVER_MS,
   clearNftMediaUrlCache,
@@ -142,6 +143,8 @@ const PLAY_TRACK_RETRY_COOLDOWN_MS = 10000;
 declare global {
   interface Window {
     nftList: NFT[];
+    /** TEMP test harness — see the play:hang-harness block in handlePlayAudio. */
+    __PODPLAYR_HANG_FIRST_URL?: boolean | string;
   }
 }
 
@@ -868,6 +871,21 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
         }
       }
     }
+    // TEMP PLAYBACK TEST HARNESS — remove with playbackDebug.ts. A healthy
+    // gateway never exercises watchdogTick, so allow a deliberately broken
+    // candidate to be pushed in front of the real ones from the console:
+    //   window.__PODPLAYR_HANG_FIRST_URL = true        // 'frozen'
+    //   window.__PODPLAYR_HANG_FIRST_URL = 'silent'    // headers, no bytes
+    //   window.__PODPLAYR_HANG_FIRST_URL = 'slow'      // trickling bytes
+    // The real candidates stay behind it, so a correct hop still plays.
+    const hangMode = typeof window !== 'undefined' ? window.__PODPLAYR_HANG_FIRST_URL : undefined;
+    if (hangMode && process.env.NODE_ENV !== 'production') {
+      const mode = typeof hangMode === 'string' ? hangMode : 'frozen';
+      const hangUrl = `/api/debug/hang?mode=${encodeURIComponent(mode)}&t=${Date.now()}`;
+      playbackUrls = [hangUrl, ...playbackUrls];
+      playbackDebug('play:hang-harness', { name: playNft.name, mode, hangUrl });
+    }
+
     playbackDebug('play:urls', {
       name: playNft.name,
       planMode: plan.mode,
@@ -1015,6 +1033,8 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     let playTracked = false;
     /** Earliest retry after a failed play-count write. See maybeTrackPlay. */
     let playTrackRetryAfter = 0;
+    /** Log the play-count target once, not on every timeupdate. */
+    let playTrackTargetLogged = false;
     let probedWavDuration = 0;
     /**
      * Set by tryUrl for the candidate currently attached. Lets a side-channel
@@ -1355,6 +1375,8 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       let lastBuffered = 0;
       let bufferingWaitedMs = 0;
       let loadingGraceUsed = false;
+      /** Consecutive ticks with a parsed element and no new bytes. */
+      let noGrowthTicks = 0;
 
       const watchdogTick = () => {
         if (playAttempt !== playAttemptRef.current || playbackStarted || gaveUp) return;
@@ -1392,7 +1414,15 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
         const buffered = bufferedSeconds(media);
         const gainedBytes = buffered > lastBuffered + 0.01;
         lastBuffered = Math.max(lastBuffered, buffered);
-        const responding = gainedBytes || media.readyState > 0;
+        // readyState never falls back to HAVE_NOTHING when a socket dies, so
+        // on its own it reads as "alive" forever — which is how a gateway that
+        // served headers and then hung used to ride out the whole 30s cap plus
+        // the NETWORK_LOADING grace before hopping. Growing bytes still buy
+        // full patience; a frozen-but-parsed element only gets a few ticks.
+        if (gainedBytes) noGrowthTicks = 0;
+        else if (media.readyState > 0) noGrowthTicks += 1;
+        const parsedButFrozen = noGrowthTicks > MEDIA_BYTES_STALL_TICKS;
+        const responding = gainedBytes || (media.readyState > 0 && !parsedButFrozen);
         if (responding && !hungIpfsDir && bufferingWaitedMs < MEDIA_BYTES_MAX_WAIT_MS) {
           bufferingWaitedMs += MEDIA_BYTES_RECHECK_MS;
           playbackDebug('play:buffering', {
@@ -1400,6 +1430,7 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
             url: playbackUrls[index],
             buffered,
             gainedBytes,
+            noGrowthTicks,
             waitedMs: bufferingWaitedMs,
             media: mediaDebugSnapshot(media),
           });
@@ -1432,22 +1463,24 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
           return;
         }
 
+        const hopReason = hungIpfsDir
+          ? 'ipfs-dir'
+          : parsedButFrozen
+            ? 'parsed-but-frozen'
+            : 'no-bytes';
         playbackDebug('play:failover', {
           name: nft.name,
           from: playbackUrls[index],
-          reason: hungIpfsDir ? 'ipfs-dir' : 'no-bytes',
+          reason: hopReason,
           hungIpfsDir,
           buffered,
+          noGrowthTicks,
           readyState: media.readyState,
           networkState: media.networkState,
           waitedMs: bufferingWaitedMs,
           media: mediaDebugSnapshot(media),
         });
-        hopPlayback(
-          index,
-          media.currentSrc || playbackUrls[index],
-          hungIpfsDir ? 'ipfs-dir' : 'no-bytes'
-        );
+        hopPlayback(index, media.currentSrc || playbackUrls[index], hopReason);
       };
 
       failoverTimerRef.current = setTimeout(watchdogTick, failoverMs);
@@ -1814,15 +1847,36 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       const elementDuration =
         Number.isFinite(media.duration) && media.duration > 0 ? media.duration : 0;
       const effectiveDuration = Math.max(elementDuration, probedWavDuration);
-      const reached =
-        effectiveDuration > 0
-          ? media.currentTime >= effectiveDuration * 0.25
-          : media.currentTime >= 15;
+      const durationSource = elementDuration
+        ? 'element'
+        : probedWavDuration
+          ? 'wav-probe'
+          : 'unknown';
+      const countsAt = effectiveDuration > 0 ? effectiveDuration * 0.25 : 15;
+      // Announce the target once so a run that never counts is explainable.
+      if (!playTrackTargetLogged && effectiveDuration > 0) {
+        playTrackTargetLogged = true;
+        playbackDebug('play:count-target', {
+          name: nft.name,
+          durationSource,
+          durationSeconds: Number(effectiveDuration.toFixed(2)),
+          countsAtSeconds: Number(countsAt.toFixed(2)),
+          rule: effectiveDuration > 0 ? '25%' : 'flat-15s',
+        });
+      }
+      const reached = media.currentTime >= countsAt;
       if (!reached) return;
       if (Date.now() < playTrackRetryAfter) return;
 
       playTracked = true;
       audioLogger.info(`Play count threshold reached for NFT: ${nft.name}`);
+      playbackDebug('play:count-fire', {
+        name: nft.name,
+        currentTime: Number(media.currentTime.toFixed(2)),
+        countsAtSeconds: Number(countsAt.toFixed(2)),
+        durationSource,
+        mediaKey: getMediaKey(nft).slice(0, 12),
+      });
       // Move the number now. trackNFTPlay needs a legacy fold, three getDocs
       // and a batch commit before it can emit an absolute count, and the
       // panel is supposed to react the moment the threshold is crossed.
@@ -1831,11 +1885,18 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       // The guess was wrong — take it back and let a later timeupdate retry.
       // timeupdate fires ~4x/sec, so hold a cooldown or a persistent failure
       // would spray writes at Firestore.
-      const undoOptimisticBump = () => {
+      const undoOptimisticBump = (reason: string, detail?: unknown) => {
+        playbackDebug('play:count-rollback', {
+          name: nft.name,
+          reason,
+          detail: detail instanceof Error ? detail.message : detail,
+          mediaKey: trackedMediaKey.slice(0, 12),
+        });
         emitPlayCountBump(trackedMediaKey, -1);
         playTracked = false;
         playTrackRetryAfter = Date.now() + PLAY_TRACK_RETRY_COOLDOWN_MS;
       };
+      const writeStartedAt = Date.now();
       trackNFTPlay(nft, fidRef.current, { thresholdReached: true })
         .then((writtenMediaKey) => {
           // trackNFTPlay resolves with the mediaKey it wrote. It also bails
@@ -1843,12 +1904,18 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
           // writing anything — that must not leave a phantom +1 on screen.
           if (!writtenMediaKey) {
             audioLogger.warn(`Play count write skipped for NFT: ${nft.name}`);
-            undoOptimisticBump();
+            undoOptimisticBump('write-skipped');
+            return;
           }
+          playbackDebug('play:count-written', {
+            name: nft.name,
+            mediaKey: String(writtenMediaKey).slice(0, 12),
+            tookMs: Date.now() - writeStartedAt,
+          });
         })
         .catch(error => {
           audioLogger.error('Error tracking NFT play after threshold:', error);
-          undoOptimisticBump();
+          undoOptimisticBump('write-failed', error);
         });
     };
     media.ontimeupdate = () => {

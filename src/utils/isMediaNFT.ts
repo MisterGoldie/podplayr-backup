@@ -791,6 +791,24 @@ export const rememberDeadGateway = (assetUrl: string, gatewayUrl: string): void 
   }
 };
 
+/**
+ * Arweave gateways redirect an extensionless tx to an HTML viewer, so a
+ * text/html Content-Type from one of them is about the redirect, not the
+ * asset. Any other host answering text/html genuinely is a webpage.
+ */
+const isArweaveGatewayCandidate = (url?: string | null): boolean => {
+  if (!url) return false;
+  if (isExtensionlessArweaveTx(url)) return true;
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    if (host === 'arweave.net' || host.endsWith('.arweave.net')) return true;
+    const apex = arweaveGatewayApexHost(url);
+    return apex === 'turbo-gateway.com' || apex === 'permagate.io' || apex === 'arweave.net';
+  } catch {
+    return false;
+  }
+};
+
 const isArweaveNetPlaybackHost = (url: string): boolean => {
   try {
     const host = new URL(url).hostname.toLowerCase();
@@ -1014,12 +1032,14 @@ export const probeMediaContentType = async (url: string): Promise<string> => {
         const mime = store(headCt, probeUrl);
         if (mime) return mime;
       }
-    } catch (err) {
-      // Timeouts are transient — do not poison a working gateway (Pinata)
-      // just because the first HEAD was slow.
-      if (!(err instanceof DOMException && err.name === 'AbortError')) {
-        rememberDeadGateway(url, probeUrl);
-      }
+    } catch {
+      // A rejected fetch is NOT evidence the gateway lacks the bytes. With
+      // mode:'cors' a gateway that simply sends no CORS headers throws the
+      // same TypeError as a real outage — and <video src> needs no CORS at
+      // all, which is the whole reason isIpfsCorsHostileUrl exists. Banning
+      // here could blacklist the one host that would have played, for this
+      // asset, persistently. Only HTTP status evidence (404/410/5xx above)
+      // marks a gateway dead; a silent host is left for the byte watchdog.
       continue;
     }
 
@@ -1040,10 +1060,9 @@ export const probeMediaContentType = async (url: string): Promise<string> => {
         const mime = store(getCt, probeUrl);
         if (mime) return mime;
       }
-    } catch (err) {
-      if (!(err instanceof DOMException && err.name === 'AbortError')) {
-        rememberDeadGateway(url, probeUrl);
-      }
+    } catch {
+      // Same as the HEAD branch — a CORS/network rejection proves nothing
+      // about whether <video src> can read this host.
     }
   }
 
@@ -1301,9 +1320,20 @@ export const resolveNftPlaybackPlan = async (
     return plan;
   }
   if (mimeLooksLikeNonMedia(mime) && mime) {
-    // Gateway 302 HTML is untrusted (Arweave). A 200 from a project host is real HTML.
-    if (mime.includes('html') && !urlLooksLikeInteractivePage(candidate)) {
-      // fall through
+    // An Arweave gateway 302s an extensionless tx to an HTML viewer, so HTML
+    // from one of those hosts says nothing about the underlying bytes — keep
+    // walking the other gateways. From anywhere else a text/html answer is
+    // the real answer: this is a webpage, not media.
+    //
+    // This used to key off urlLooksLikeInteractivePage, a three-host allowlist
+    // (cryptocoven / feeshes / artblocks generator). Every other generative
+    // renderer — studio.chainrunners.xyz/dna/<dna>, which serves 200 text/html
+    // with filename="index.html" — had its correct HTML verdict discarded and
+    // then got defaulted to video below, which can only end in
+    // NotSupportedError. Trusting HTML here cannot cost a working track: a URL
+    // that answers text/html was never going to decode in <video>/<audio>.
+    if (mime.includes('html') && isArweaveGatewayCandidate(candidate)) {
+      // fall through — try the remaining gateways for the real bytes
     } else {
       const plan = emptyPlan();
       if (typed.contract) applyPlaybackPlanToNft(typed, plan, mime);

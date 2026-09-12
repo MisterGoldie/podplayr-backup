@@ -1142,6 +1142,16 @@ export const IPFS_DIR_FAILOVER_MS = 3000;
 export const MEDIA_BYTES_RECHECK_MS = 3000;
 /** Cap on "slow but downloading" — past this a trickling gateway still loses its turn. */
 export const MEDIA_BYTES_MAX_WAIT_MS = 30000;
+/**
+ * Consecutive byte-watchdog ticks a parsed-but-frozen element may sit through.
+ *
+ * readyState latches: once HAVE_METADATA is reached it stays there even after
+ * the socket dies, so it can only buy a bounded grace. Enough ticks that a
+ * working-but-slow .mp4/.mov isn't dropped (that regression is why readyState
+ * counts as "alive" at all), short enough that a hung gateway is caught in
+ * ~9s instead of riding out the full MEDIA_BYTES_MAX_WAIT_MS.
+ */
+export const MEDIA_BYTES_STALL_TICKS = 3;
 /** Absolute deadline for a tap. Nothing audible by now ends the spinner. */
 export const PLAYBACK_GIVE_UP_MS = 60000;
 /** Short retry once a side-channel probe says the gateway is broken. */

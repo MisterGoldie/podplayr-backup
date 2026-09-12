@@ -582,17 +582,17 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       let resolveBranch = 'none';
       let resolvedForLog = '';
 
-      // A remembered cover from *before* the server told us this token's
-      // image is really video (coverIsVideo) can be the doomed plain-image
-      // guess itself — trusting it blindly re-eats the same 400 every mount.
-      const rememberedNeedsVideoStillFix =
-        !!rememberedHit &&
-        !!nft?.coverIsVideo &&
-        !isVideoMediaUrl(rememberedHit) &&
-        !/alchemyapi\/video\/fetch/i.test(rememberedHit) &&
-        !isLikelyTokenVideoCoverUrl(rememberedHit);
-
-      if (rememberedHit && !rememberedNeedsVideoStillFix) {
+      // A remembered cover is never a guess: rememberNftDisplayCover is only
+      // reached from handleLoad, after the browser reports a non-zero
+      // naturalWidth/naturalHeight. nft.coverIsVideo used to override it here,
+      // on the theory that the remembered URL could be a doomed plain-image
+      // guess from before the server classified the token. It cannot be — and
+      // when a token's cover hash is a still while its image field holds the
+      // playback mp4 (Vitalik: An Ethereum Story #1), that override re-derived
+      // the video/fetch URL and re-ate its 400 on every player mount, long
+      // after the card had painted the right image. An image that actually
+      // decoded outranks a metadata hint.
+      if (rememberedHit) {
         const sizedHit = useCardThumb
           ? rememberedHit
           : resizeAlchemyCloudinaryThumb(rememberedHit, Math.max(width, height, 720));
@@ -606,14 +606,6 @@ export const NFTImage: React.FC<NFTImageProps> = ({
         resolvedForLog = sizedHit;
         setImgSrc(sizedHit);
         setImgLoading(sizedHit !== rememberedHit);
-      } else if (rememberedNeedsVideoStillFix) {
-        resolveBranch = 'rememberedDisplay-video-corrected';
-        const corrected = toDisplaySrc(rememberedHit);
-        processedUrlCache.current[cacheKey] = corrected;
-        clearNftMediaUrlCache(nft, 'image');
-        setIsVideo(false);
-        resolvedForLog = corrected;
-        setImgSrc(corrected);
       } else if (stillSrc) {
         resolveBranch = 'stillSrc';
         processedUrlCache.current[cacheKey] = stillSrc;
@@ -1347,7 +1339,15 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       const nextAlt = getCardThumbAlternates(orig, size, {
         includeVideoStill: true,
         preferVideoStill: coverIsPlaybackVideo || thumbFailed,
-        skipThumbnailV2: videoFetchFailed || coverIsPlaybackVideo,
+        // video/fetch 400s in two opposite ways. Either the hash really is an
+        // mp4 Cloudinary could not pull, or — far more often — the hash is a
+        // still and the video pipeline rejects it outright ("X-Cld-Error:
+        // Unsupported file type png", Vitalik: An Ethereum Story #1). In that
+        // second case thumbnailv2 is exactly the URL that works, so locking it
+        // out here left the card with no Alchemy option at all and dropped it
+        // to the placeholder. Only skip thumbnailv2 once it has failed on its
+        // own, or when the cover hash is provably the playback mp4.
+        skipThumbnailV2: coverIsPlaybackVideo && !videoFetchFailed,
         alchemyCdnPeer: parsedPeer || alchemyCdnPeer,
         videoCoverUrl,
       }).find(

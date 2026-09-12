@@ -5,6 +5,7 @@ import { logger } from '../utils/logger';
 import { getMediaKey } from '../utils/media';
 import { mergeLegacyPlayCounts } from '../lib/consolidateGlobalPlays';
 import { PLAY_COUNT_BUMP, PLAY_COUNT_UPDATED } from '../lib/playCountEvents';
+import { playbackDebug } from '../utils/playbackDebug'; // TEMP — remove with playbackDebug.ts
 
 const playCountLogger = logger.getModuleLogger('playCount');
 const mergedPlayKeys = new Set<string>();
@@ -53,6 +54,12 @@ export const useNFTPlayCount = (nft: NFT | null, shouldFetch: boolean = true) =>
       }
 
       if (newCount > previousCountRef.current && !isInitialLoadRef.current) {
+        playbackDebug('play:count-snapshot', {
+          mediaKey: mediaKey.slice(0, 12),
+          from: previousCountRef.current,
+          to: newCount,
+          fromCache: snapshot.metadata.fromCache,
+        });
         playCountLogger.debug('REAL PLAY COUNT INCREASE:', {
           mediaKey,
           oldCount: previousCountRef.current,
@@ -72,6 +79,9 @@ export const useNFTPlayCount = (nft: NFT | null, shouldFetch: boolean = true) =>
 
     const listen = () => {
       if (cancelled) return;
+      // The bump only lands while this hook is mounted (InfoPanel is a modal),
+      // so knowing whether anything was listening explains a "missed" tick.
+      playbackDebug('play:count-listen', { mediaKey: mediaKey.slice(0, 12) });
       playCountLogger.debug('Listening for play count with mediaKey:', { mediaKey });
 
       getDoc(globalPlayRef)
@@ -123,6 +133,12 @@ export const useNFTPlayCount = (nft: NFT | null, shouldFetch: boolean = true) =>
       const delta = Number(detail.delta);
       if (!Number.isFinite(delta) || delta === 0) return;
       const next = Math.max(0, previousCountRef.current + delta);
+      playbackDebug('play:count-ui', {
+        mediaKey: mediaKey.slice(0, 12),
+        delta,
+        from: previousCountRef.current,
+        to: next,
+      });
       if (delta > 0 && !isInitialLoadRef.current) {
         setRealCountIncrease(true);
         setTimeout(() => setRealCountIncrease(false), 2000);
