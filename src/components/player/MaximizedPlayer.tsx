@@ -133,6 +133,17 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
     setMediaAspect(null);
   }, [nft.contract, nft.tokenId]);
 
+  // mediaAspect used to come only from a <video>, leaving audio-only tokens
+  // pinned to a square stage box. The cover reports its own decoded ratio here
+  // so the box matches the artwork. Ignore no-op updates — mediaBox relayouts
+  // off this value, and a jittering aspect would relayout on every frame.
+  const applyCoverAspect = useCallback((aspect: number) => {
+    if (!Number.isFinite(aspect) || aspect <= 0) return;
+    setMediaAspect((prev) =>
+      prev !== null && Math.abs(prev - aspect) < 0.01 ? prev : aspect
+    );
+  }, []);
+
   useEffect(() => {
     const sync = getNftPlaybackPlan(nft);
     // Probe may have already stamped video-with-audio on an extensionless
@@ -813,21 +824,27 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
                   {renderVideo()}
                 </div>
               )}
-              {/* mediaBox is square for audio-only (mediaAspect stays null with no
-                  video track), so filling it edge to edge is what makes every
-                  cover render at the same size. object-contain let each cover's
-                  own aspect ratio decide how much of the box it used, so a 3:2
-                  original sat visibly smaller than a square Cloudinary c_fill
-                  crop. Cards already use object-cover — this matches them. */}
+              {/* mediaAspect only ever came from a <video>, so an audio-only token
+                  fell back to a square box and object-contain letterboxed the
+                  cover inside it — a 3:2 original rendered visibly smaller than a
+                  square Cloudinary c_fill crop. Reporting the decoded cover's own
+                  ratio makes the box match the artwork, so object-contain fills it
+                  edge to edge without cropping anything. */}
               {!showVideoVisually && (
                 <div className="relative w-full h-full flex items-center justify-center">
                   {(nft.name === 'ACYL RADIO - Hidden Tales' || nft.name === 'ACYL RADIO - WILL01' || nft.name === 'ACYL RADIO - Chili Sounds 🌶️') ? (
                     <img
                       src={resolvedImageUrl}
                       alt={nft.name}
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-contain"
                       width={720}
                       height={720}
+                      onLoad={(e) => {
+                        const el = e.currentTarget;
+                        if (el.naturalWidth > 0 && el.naturalHeight > 0) {
+                          applyCoverAspect(el.naturalWidth / el.naturalHeight);
+                        }
+                      }}
                       style={{
                         willChange: 'transform',
                         transform: 'translateZ(0)',
@@ -837,11 +854,12 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
                     <NFTImage
                       src={resolvedImageUrl}
                       alt={nft.name}
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-contain"
                       width={720}
                       height={720}
                       priority={true}
                       nft={nft}
+                      onCoverAspect={applyCoverAspect}
                       key={`thumb-${nft.contract}-${nft.tokenId}`}
                     />
                   )}

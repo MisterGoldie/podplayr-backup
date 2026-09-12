@@ -25,6 +25,9 @@ interface NFTImageProps {
   quality?: number;
   loading?: 'lazy' | 'eager';
   placeholder?: 'empty';
+  /** Natural width/height ratio of the cover that actually decoded. Lets a
+   *  caller size its own box to the artwork instead of cropping it. */
+  onCoverAspect?: (aspect: number) => void;
 }
 
 /**
@@ -216,7 +219,8 @@ export const NFTImage: React.FC<NFTImageProps> = ({
   sizes = '(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw',
   quality = 75,
   loading = 'lazy',
-  placeholder = 'empty'
+  placeholder = 'empty',
+  onCoverAspect
 }) => {
   const fallbackSrc = '/default-nft.png';
   const cleanSrc = sanitizeMediaUrl(src);
@@ -1994,6 +1998,9 @@ export const NFTImage: React.FC<NFTImageProps> = ({
     }
 
     if (!loadedSrc || loadedSrc.includes('default-nft.png')) return;
+    // Report the shape of what actually decoded, so a caller can size its
+    // container to the artwork rather than letterboxing it inside a square.
+    if (width > 0 && height > 0) onCoverAspect?.(width / height);
     loadedOkSrcRef.current = loadedSrc;
     imageDebug('cover:ok', {
       name: nft?.name,
