@@ -1156,6 +1156,15 @@ export const MEDIA_BYTES_STALL_TICKS = 3;
 export const PLAYBACK_GIVE_UP_MS = 60000;
 /** Short retry once a side-channel probe says the gateway is broken. */
 export const DEAD_PROBE_FAILOVER_MS = 4000;
+/**
+ * Wait allowed after a side-channel has *proven* a different gateway is
+ * serving the real bytes. shortenFailover only applies this when the attached
+ * candidate has readyState 0 and zero buffered — so both "this one is sending
+ * nothing" and "that one demonstrably works" are already established. Reusing
+ * the generic 8s first-byte budget there meant sitting out eight seconds of
+ * dead air with a known-good URL one hop away.
+ */
+export const PROVEN_ALT_FAILOVER_MS = 2500;
 /** Per-hop budget for one origin. The caller applies this against the MERGED
  *  list after filterLivePlaybackUrls has ranked it. */
 export const MAX_PLAYBACK_CANDIDATES = 6;
@@ -1310,8 +1319,40 @@ export const durationSecondsFromWavHeader = (
  * Range-read a WAV header. arweave.net path/sandbox often has no Content-Length
  * so <audio>.duration stays Infinity and the clock shows 0:00.
  */
-export const probeWavDurationSeconds = async (url: string): Promise<number> => {
-  if (!url) return 0;
+export type AudioHeadProbe = {
+  /** Seconds, when a RIFF/WAV header was readable. 0 for every other format. */
+  seconds: number;
+  /** This gateway answered with real audio bytes, whatever the container. */
+  servedAudioBytes: boolean;
+};
+
+/** Does this look like the start of an audio file rather than an error page? */
+const looksLikeAudioBytes = (buffer: ArrayBuffer, contentType: string): boolean => {
+  if (/^(audio|video)\//i.test(contentType)) return true;
+  const head = new Uint8Array(buffer.slice(0, 4));
+  if (head.length < 3) return false;
+  // "RIFF" (wav) / "ID3" (tagged mp3) / "OggS" / "fLaC"
+  if (head[0] === 0x52 && head[1] === 0x49 && head[2] === 0x46 && head[3] === 0x46) return true;
+  if (head[0] === 0x49 && head[1] === 0x44 && head[2] === 0x33) return true;
+  if (head[0] === 0x4f && head[1] === 0x67 && head[2] === 0x67 && head[3] === 0x53) return true;
+  if (head[0] === 0x66 && head[1] === 0x4c && head[2] === 0x61 && head[3] === 0x43) return true;
+  // Bare mpeg frame sync: 11 set bits.
+  return head[0] === 0xff && (head[1] & 0xe0) === 0xe0;
+};
+
+/**
+ * Read the first few KB from a gateway.
+ *
+ * Two separate answers come out of one request, and conflating them was
+ * costing real time: a duration (only WAV exposes one this cheaply) and
+ * whether the gateway is serving the file at all. Long Arweave tracks are
+ * frequently mp3 — the duration comes back 0 there, and the caller used to
+ * read that as "nothing proven" and sit out the full first-byte wait on a
+ * slow gateway even though this probe had just pulled audio from a fast one.
+ */
+export const probeAudioHead = async (url: string): Promise<AudioHeadProbe> => {
+  const miss: AudioHeadProbe = { seconds: 0, servedAudioBytes: false };
+  if (!url) return miss;
   const probeUrl = url.split('#')[0];
   try {
     const res = await fetch(probeUrl, {
@@ -1319,22 +1360,29 @@ export const probeWavDurationSeconds = async (url: string): Promise<number> => {
       headers: { Range: 'bytes=0-4095' },
       mode: 'cors',
     });
-    if (!res.ok && res.status !== 206) return 0;
+    if (!res.ok && res.status !== 206) return miss;
     const type = (res.headers.get('content-type') || '').toLowerCase();
-    if (type.includes('text/html') || type.includes('text/plain')) return 0;
+    if (type.includes('text/html') || type.includes('text/plain')) return miss;
     const buffer = await res.arrayBuffer();
+    if (!buffer.byteLength) return miss;
     const rangeTotal = Number(
       (res.headers.get('content-range') || '').split('/').pop() || 0
     );
     const length = Number(res.headers.get('content-length') || 0);
-    return durationSecondsFromWavHeader(
-      buffer,
-      rangeTotal > 4096 ? rangeTotal : length > 4096 ? length : undefined
-    );
+    return {
+      seconds: durationSecondsFromWavHeader(
+        buffer,
+        rangeTotal > 4096 ? rangeTotal : length > 4096 ? length : undefined
+      ),
+      servedAudioBytes: looksLikeAudioBytes(buffer, type),
+    };
   } catch {
-    return 0;
+    return miss;
   }
 };
+
+export const probeWavDurationSeconds = async (url: string): Promise<number> =>
+  (await probeAudioHead(url)).seconds;
 
 /** Short candidate list so hanging gateways cannot stall playback for minutes. */
 export const buildFastPlaybackUrls = (

@@ -44,7 +44,7 @@ import {
   arweaveGatewayApexHost,
   parseArweaveMediaPath,
   toArweaveRawUrl,
-  probeWavDurationSeconds,
+  probeAudioHead,
   abortMediaElement,
   ensurePlaybackVideoElement,
   playbackVideoElementId,
@@ -63,6 +63,7 @@ import {
   MAX_PLAYBACK_CANDIDATES,
   PLAYBACK_GIVE_UP_MS,
   DEAD_PROBE_FAILOVER_MS,
+  PROVEN_ALT_FAILOVER_MS,
   clearNftMediaUrlCache,
 } from '../utils/media';
 import { resolveCdnPlaybackUrls, isOrphanMuxPlaybackUrl, isMuxPlaybackUrl, isPollutedPlaybackUrl, isWeakPlaybackUrl, isMezzanineMuxUrl, alchemyVideoFetchMp4Url, isAlchemyVideoFetchMp4Url } from '../lib/mediaCdn';
@@ -593,8 +594,13 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     // Skipping that HEAD left those tokens stuck audio-only with a still
     // in the maximized player. Only trust a cached audio mime when the URL
     // itself looks like audio (Late #7).
+    // `wave` is the spelling Arweave gateways actually return for a WAV, and
+    // leaving it out meant an already-known audio/wave was not trusted — so an
+    // audio-only Arweave track burned a blocking HEAD to be told what it knew
+    // ("from: audio-only-or-unknown, to: audio-only"). The sibling list in
+    // isMediaNFT already includes it, and hlsPlayback remaps it to audio/wav.
     const trustedAudioMime =
-      /^audio\/(wav|x-wav|mpeg|mp3|mp4|m4a|aac|ogg|flac|webm)(?:;|$)/i.test(knownMime) &&
+      /^audio\/(wav|x-wav|wave|mpeg|mp3|mp4|m4a|aac|ogg|flac|webm)(?:;|$)/i.test(knownMime) &&
       !playNft.isVideo &&
       playNft.playbackMode !== 'video-with-audio' &&
       playNft.playbackMode !== 'video-plus-audio';
@@ -1081,18 +1087,20 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
         parseArweaveMediaPath(playbackUrls[0] || '').fileTxId;
       if (tx) {
         const wavProbeUrl = toArweaveRawUrl(tx, 'https://arweave.net/');
-        void probeWavDurationSeconds(wavProbeUrl).then((seconds) => {
+        void probeAudioHead(wavProbeUrl).then(({ seconds, servedAudioBytes }) => {
           if (playAttempt !== playAttemptRef.current) return;
           playbackDebug('play:wav-duration-probe', {
             name: nft.name,
             seconds,
+            servedAudioBytes,
             probeUrl: wavProbeUrl,
           });
           applyMediaDuration(seconds, 'wav-header');
-          // Reading a valid RIFF header means this gateway just served real
-          // audio bytes. With a proven alternative in hand there is no reason
-          // to sit out the full 25s Arweave wait on a gateway sending nothing.
-          if (seconds > 0) shortenFailover?.(FIRST_BYTE_FAILOVER_MS, wavProbeUrl);
+          // Any audio bytes prove this gateway works — not just a readable RIFF
+          // header. Long Arweave tracks are often mp3, where the duration is 0
+          // and this shortcut never fired, so a slow gateway got the full wait
+          // while the probe had already pulled bytes from a fast one.
+          if (servedAudioBytes) shortenFailover?.(PROVEN_ALT_FAILOVER_MS, wavProbeUrl);
         });
       }
     }
