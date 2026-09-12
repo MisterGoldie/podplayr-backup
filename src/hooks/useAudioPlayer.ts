@@ -60,6 +60,7 @@ import {
   MEDIA_BYTES_RECHECK_MS,
   MEDIA_BYTES_MAX_WAIT_MS,
   MEDIA_BYTES_STALL_TICKS,
+  MAX_PLAYBACK_CANDIDATES,
   PLAYBACK_GIVE_UP_MS,
   DEAD_PROBE_FAILOVER_MS,
   clearNftMediaUrlCache,
@@ -755,8 +756,10 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       if (!originCandidates.includes(origin)) originCandidates.push(origin);
     }
     // Extra origin gateways when raw was scrubbed from mux.
+    let originBuilds = 1;
     for (const origin of originCandidates) {
       if (origin === rawAudioUrl || isMuxPlaybackUrl(origin)) continue;
+      originBuilds += 1;
       for (const u of buildFastPlaybackUrls(origin, {
         contract: playNft.contract,
         network: playNft.network,
@@ -776,13 +779,18 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     const cdnUrls = originCandidates.flatMap((origin) =>
       resolveCdnPlaybackUrls(origin, { mobile: isMobile })
     ).filter((url, index, list) => list.indexOf(url) === index);
+    // Trim AFTER ranking, not during the per-origin build. filterLivePlaybackUrls
+    // drops dead hosts and promotes the URL that last served real bytes, so a
+    // build-time slice was discarding candidates before ranking could rescue
+    // them. The budget stays the same as before — MAX_PLAYBACK_CANDIDATES for
+    // every origin that contributed — so no NFT loses hops it used to get.
     let playbackUrls = filterLivePlaybackUrls(
       rawAudioUrl,
       audioUrls
         .map(canonicalizeArweaveGatewayUrl)
         .filter((url, index, list) => url && list.indexOf(url) === index)
         .filter((url) => !isPollutedPlaybackUrl(url))
-    );
+    ).slice(0, MAX_PLAYBACK_CANDIDATES * originBuilds);
     if (cdnUrls.length) {
       playbackUrls = [
         ...cdnUrls,
@@ -1379,7 +1387,13 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       let noGrowthTicks = 0;
 
       const watchdogTick = () => {
-        if (playAttempt !== playAttemptRef.current || playbackStarted || gaveUp) return;
+        // urlIndex, not just playAttempt: enrich and the IPFS directory listing
+        // both restart the chain with tryUrl(0) without bumping playAttempt, so
+        // a timer armed by an earlier candidate could still be pending and would
+        // hop against a stale index. Every other async callback here already
+        // checks this.
+        if (playAttempt !== playAttemptRef.current || urlIndex !== index) return;
+        if (playbackStarted || gaveUp) return;
 
         // Real playback — hopping pauses the clock and WKWebView mutes.
         if (media.currentTime > 0.25) {

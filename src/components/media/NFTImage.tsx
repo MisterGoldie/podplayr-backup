@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { processMediaUrl, IPFS_GATEWAYS, isAudioUrlUsedAsImage, getCleanIPFSUrl, processArweaveUrl, getMediaKey, getNftIdentityKey, buildArweaveImageFallbackUrls, buildIpfsFallbackUrls, buildHttpCdnImageFallbackUrls, extractIPFSPath, getNftMediaUrl, toIpfsGatewayUrl, clearNftMediaUrlCache, pickImageCandidates, shouldProbeIpfsDirectory, sanitizeMediaUrl, looksLikeStillImageUrl, isCollectionOpenSeaStillUrl, isFragileSeaDnPosterUrl, nftHasSeaDnVideoAnimation, rememberNftDisplayCover, getRememberedNftDisplayCover, pickSameCidIpfsVideoCover, listIpfsDirectoryVideoFile } from '../../utils/media';
+import { processMediaUrl, IPFS_GATEWAYS, isAudioUrlUsedAsImage, getCleanIPFSUrl, processArweaveUrl, getMediaKey, buildArweaveImageFallbackUrls, buildIpfsFallbackUrls, buildHttpCdnImageFallbackUrls, extractIPFSPath, getNftMediaUrl, toIpfsGatewayUrl, clearNftMediaUrlCache, pickImageCandidates, shouldProbeIpfsDirectory, sanitizeMediaUrl, looksLikeStillImageUrl, isCollectionOpenSeaStillUrl, isFragileSeaDnPosterUrl, nftHasSeaDnVideoAnimation, rememberNftDisplayCover, getRememberedNftDisplayCover, pickSameCidIpfsVideoCover, listIpfsDirectoryVideoFile } from '../../utils/media';
 import { urlLooksLikeExtensionlessVideo, withBrowserVideoHint } from '../../utils/ipfsExtensionlessMedia';
 import { getCardThumbUrl, getCardThumbAlternates, shouldPreserveAnimation, nftHasAnimatedCover, isBrowserFriendlyCdnUrl, isArweaveMediaUrl, isIpfsMediaUrl, isVideoMediaUrl, isLikelyTokenVideoCoverUrl, getVideoCoverStillUrl, alchemyCoverIsPlaybackVideo, parseAlchemyCdnRef, resizeRememberedCover } from '../../utils/imageOptimizer';
 import { imageDebug, imageDebugUrlKind, logNftCoverDebug } from '../../utils/imageDebug';
@@ -2024,8 +2024,13 @@ export const NFTImage: React.FC<NFTImageProps> = ({
     ) {
       return;
     }
-    // Key covers by contract-tokenId, not shared audio mediaKey.
-    rememberWorkingMediaUrl(getNftIdentityKey(nft) || getMediaKey(nft), 'image', loadedSrc);
+    // Must match how every reader looks this up — getNftMediaUrl, the hang
+    // handler, the error handler and NFTGifImage all use getMediaKey. Writing
+    // the plaintext getNftIdentityKey here meant covers were stored under a key
+    // nothing ever read, so gateway memory never returned a hit and bad entries
+    // were never forgotten. getMediaKey is still per-token for real on-chain
+    // contracts — it hashes that same identity.
+    rememberWorkingMediaUrl(getMediaKey(nft), 'image', loadedSrc);
   };
 
   // SECURITY: Use proper URL validation for determining render method

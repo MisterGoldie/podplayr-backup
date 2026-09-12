@@ -1156,7 +1156,14 @@ export const MEDIA_BYTES_STALL_TICKS = 3;
 export const PLAYBACK_GIVE_UP_MS = 60000;
 /** Short retry once a side-channel probe says the gateway is broken. */
 export const DEAD_PROBE_FAILOVER_MS = 4000;
+/** Per-hop budget for one origin. The caller applies this against the MERGED
+ *  list after filterLivePlaybackUrls has ranked it. */
 export const MAX_PLAYBACK_CANDIDATES = 6;
+/** Generous build-time cap so one pathological origin cannot explode the list.
+ *  This is deliberately NOT the real trim: slicing to 6 during the build ran
+ *  before ranking, so dead-host filtering and played-URL promotion never got
+ *  to see the tail — which is how arweave.net/raw kept getting dropped. */
+export const MAX_PLAYBACK_CANDIDATES_PER_ORIGIN = 12;
 const GATEWAY_RACE_MS = 1400;
 
 const PLAYBACK_ARWEAVE_GATEWAYS = [
@@ -1362,8 +1369,8 @@ export const buildFastPlaybackUrls = (
         push(rawUrl);
       }
       // New Paths WAVs: turbo 302s to a sandbox that 404s. arweave.net/raw
-      // is 200 audio/wave, but MAX 6 used to slice it off. Keep turbo path
-      // first. Do not promote /raw/ for video (NotSupportedError).
+      // is 200 audio/wave. Keep turbo path first. Do not promote /raw/ for
+      // video (NotSupportedError).
       if (opts?.kind === 'audio') {
         push(toArweaveRawUrl(fileTxId, 'https://arweave.net/'));
       }
@@ -1376,14 +1383,14 @@ export const buildFastPlaybackUrls = (
     if (manifestId && filePath) {
       push(`${PLAYBACK_ARWEAVE_GATEWAYS[0]}${manifestId}/${filePath}`);
     }
-    return urls.slice(0, MAX_PLAYBACK_CANDIDATES);
+    return urls.slice(0, MAX_PLAYBACK_CANDIDATES_PER_ORIGIN);
   }
 
   if (rawUrl.startsWith('ipfs://') || extractIPFSPath(rawUrl)) {
     // Playback: probe audio/video filenames inside directory CIDs — never image.png.
     return buildIpfsFallbackUrls(rawUrl, {
       kind: opts?.kind === 'audio' ? 'audio' : 'media',
-    }).slice(0, MAX_PLAYBACK_CANDIDATES);
+    }).slice(0, MAX_PLAYBACK_CANDIDATES_PER_ORIGIN);
   }
 
   // OpenSea user media: rewrite dead hosts → raw2, then proxy as last resort.
@@ -1398,7 +1405,7 @@ export const buildFastPlaybackUrls = (
       bare.search = '';
       push(rewriteLegacyOpenSeaMediaUrl(bare.toString(), opts?.contract, opts?.network));
       push(openSeaSource);
-      return urls.filter(Boolean).slice(0, MAX_PLAYBACK_CANDIDATES);
+      return urls.filter(Boolean).slice(0, MAX_PLAYBACK_CANDIDATES_PER_ORIGIN);
     }
   } catch {
     // fall through
