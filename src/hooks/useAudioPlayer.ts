@@ -1053,6 +1053,10 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
 
     const showUnplayableToast = () => {
       if (unplayableToastShown) return;
+      // A deep-link load never asked to play, so a failure toast on page open
+      // is noise. play() clears `paused` immediately even while buffering, so
+      // this still fires if the user has since tapped play.
+      if (!shouldAutoplay && media.paused) return;
       unplayableToastShown = true;
       showErrorToast(`Couldn't play "${nft.name || 'this track'}" — its media file is currently unavailable.`);
     };
@@ -1082,7 +1086,13 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       playbackStarted = true;
       clearStall();
       clearGiveUp();
-      setIsPlaying(true);
+      // Reflect the element, not the intent. A deep link loads with
+      // autoplay:false, so `canplay` fires on a element that was never
+      // play()ed — flipping the UI to "playing" there is exactly what makes a
+      // shared link look like a failed autoplay. Checking `paused` instead of
+      // `shouldAutoplay` also keeps the button correct once the user does tap
+      // play, since handlePlayPause calls play() without a new play attempt.
+      if (!media.paused) setIsPlaying(true);
       // Store the candidate, not media.currentSrc: currentSrc is the post-302
       // sandbox target, and re-issuing our own URL is what resolves correctly.
       const winner = playbackUrls[urlIndex];

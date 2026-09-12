@@ -27,6 +27,7 @@ import { BaseAppSignIn } from './auth/BaseAppSignIn';
 import { WebPrivyController } from './auth/WebPrivyController';
 import { hasPrivyAppId } from './providers/PrivyAppProvider';
 import { parseProfileFid, parseNftDeepLink, isLivePath, isLiveLaunch } from '../lib/miniapp';
+import { markDeepLinkSettled } from '../lib/deepLinkReady';
 import { LivePlayer } from './live/LivePlayer';
 import { firstNonNull, readNftBootstrap } from '../lib/nftBootstrap';
 import { normalizeNftTokenId } from '../utils/nftIdentity';
@@ -56,6 +57,15 @@ const HOME_PAGE: PageState = {
   isProfile: false,
   isUserProfile: false
 };
+
+/** requestIdleCallback where available, short timer elsewhere (Safari/iOS). */
+function whenIdle(fn: () => void): void {
+  const ric = (window as unknown as {
+    requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+  }).requestIdleCallback;
+  if (ric) ric(fn, { timeout: 2000 });
+  else window.setTimeout(fn, 600);
+}
 
 function TabLoading() {
   return (
@@ -694,6 +704,16 @@ const DemoBase: React.FC = () => {
 
   const loadNftFromDeepLink = useCallback(async (contract: string, tokenId: string) => {
     try {
+      // Claim the screen for the player BEFORE any await. Hosts that launch
+      // at homeUrl and hand us the cast URL via location.embed have already
+      // rendered HomeView by now (the initial currentPage check only sees
+      // window.location), so waiting until the NFT resolves shows the home
+      // page and then yanks it away.
+      setCurrentPage((prev) => (prev.isHome ? { ...prev, isHome: false } : prev));
+      setIsPlayerMinimized(false);
+      setLiveActive(false);
+      setLiveMaximized(false);
+
       // Normalize malformed tokenIds from the URL (e.g. "0x0xccf50ef6" → "0xccf50ef6").
       // These arise when the on-chain hex tokenId already has a 0x prefix and the
       // app's owned-NFT pipeline accidentally prepends another one.
@@ -749,12 +769,6 @@ const DemoBase: React.FC = () => {
         return;
       }
 
-      // handlePlayAudio alone doesn't touch isPlayerMinimized (that's owned
-      // here in Demo.tsx and normally only unminimized by handlePlayNFT for
-      // the suggested-music-videos rail) — force it open for a shared link.
-      setIsPlayerMinimized(false);
-      setLiveActive(false);
-      setLiveMaximized(false);
       // No user gesture at page-load time, so browsers block autoplay outright
       // (NotAllowedError) — load the track paused and let the user's first
       // tap on the play button provide the gesture instead of showing a
@@ -763,11 +777,15 @@ const DemoBase: React.FC = () => {
     } catch (error) {
       demoLogger.error('Error loading NFT from deep link:', error);
     } finally {
+      // The splash is waiting on this so the cast opens straight into the
+      // player — release it as soon as the player is queued.
+      markDeepLinkSettled();
       // We held HomeView back (currentPage.isHome=false, see the initial
       // currentPage state) to avoid flashing the home page while this
-      // resolved. Restore it after the player is queued so HomeView (live
-      // stream poll, featured rails) doesn't compete for bandwidth first.
-      setCurrentPage((prev) => (prev.isHome ? prev : HOME_PAGE));
+      // resolved. Restore it once the browser is idle so HomeView (live
+      // stream poll, featured rails) doesn't compete with the track's own
+      // bytes for the first stretch of the download.
+      whenIdle(() => setCurrentPage((prev) => (prev.isHome ? prev : HOME_PAGE)));
     }
   }, [handlePlayAudio]);
 
@@ -806,7 +824,13 @@ const DemoBase: React.FC = () => {
       }
     }
 
-    if (!deepLink) return;
+    if (!deepLink) {
+      // No deep link in the URL. Once the host has delivered (or given up on)
+      // its context there is no embed left to wait for, so stop holding the
+      // splash — a plain launch must not sit behind it.
+      if (isFidReady) markDeepLinkSettled();
+      return;
+    }
     deepLinkHandledRef.current = true;
     // handlePlayAudio uses flushSync internally, which React forbids while
     // still inside a lifecycle/commit phase (this effect). Defer to a fresh
@@ -817,7 +841,7 @@ const DemoBase: React.FC = () => {
     window.setTimeout(() => {
       void loadNftFromDeepLinkRef.current(deepLink!.contract, deepLink!.tokenId);
     }, 0);
-  }, [farcasterLocation]);
+  }, [farcasterLocation, isFidReady]);
 
   useEffect(() => {
     if (liveLaunchHandledRef.current) return;
