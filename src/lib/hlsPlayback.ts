@@ -139,7 +139,15 @@ export function attachProgressivePlaybackSource(
   if (needsTypedSource) {
     const source = document.createElement('source');
     source.src = src;
-    source.type = type.startsWith('video/') ? type : 'video/mp4';
+    // A <source type> the browser rejects is skipped without a single byte
+    // requested: readyState stays 0, nothing errors, and every gateway looks
+    // equally dead. Chrome answers '' for video/quicktime even though most
+    // .mov NFTs are H.264 it decodes fine once relabelled. Safari keeps the
+    // real type, since it plays QuickTime natively.
+    source.type =
+      type.startsWith('video/') && media.canPlayType(type) !== ''
+        ? type
+        : 'video/mp4';
     media.appendChild(source);
     try {
       media.load();
@@ -149,11 +157,14 @@ export function attachProgressivePlaybackSource(
   } else if (needsTypedAudioSource) {
     const source = document.createElement('source');
     source.src = src;
-    source.type = audioType.startsWith('audio/')
-      ? audioType
-      : isExtensionlessArweaveTx(url)
-        ? 'audio/wav'
-        : 'audio/mpeg';
+    const fallbackAudioType = isExtensionlessArweaveTx(url) ? 'audio/wav' : 'audio/mpeg';
+    // Same trap as the video branch above: a type the browser rejects is
+    // skipped with zero bytes and no error. audio/wave is remapped further up;
+    // aiff / x-flac / x-m4a would otherwise still fail silently.
+    source.type =
+      audioType.startsWith('audio/') && media.canPlayType(audioType) !== ''
+        ? audioType
+        : fallbackAudioType;
     media.appendChild(source);
     try {
       media.load();

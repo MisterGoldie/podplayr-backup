@@ -1010,6 +1010,12 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     let gaveUp = false;
     let playTracked = false;
     let probedWavDuration = 0;
+    /**
+     * Set by tryUrl for the candidate currently attached. Lets a side-channel
+     * that has proven another gateway works cut the current first-byte wait
+     * short, without touching the candidate order itself.
+     */
+    let shortenFailover: ((ms: number, provenUrl: string) => void) | null = null;
 
     const applyMediaDuration = (seconds: number, via: string) => {
       if (playAttempt !== playAttemptRef.current) return;
@@ -1037,6 +1043,10 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
             probeUrl: wavProbeUrl,
           });
           applyMediaDuration(seconds, 'wav-header');
+          // Reading a valid RIFF header means this gateway just served real
+          // audio bytes. With a proven alternative in hand there is no reason
+          // to sit out the full 25s Arweave wait on a gateway sending nothing.
+          if (seconds > 0) shortenFailover?.(FIRST_BYTE_FAILOVER_MS, wavProbeUrl);
         });
       }
     }
@@ -1357,17 +1367,23 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
           return;
         }
 
-        // A growing buffer means the gateway is alive and just slow (mobile
-        // radio on a 60MB WAV). Keep it, but cap the trickle.
+        // Two ways a gateway proves it is alive: a growing buffer, or metadata
+        // already parsed. readyState matters most for video, where the element
+        // reaches HAVE_METADATA long before `buffered` reports any range —
+        // judging by buffered alone hops off working-but-slow .mp4/.mov.
+        // The original code returned here with no timer armed, which is what
+        // hung a tap forever; wait instead, bounded so it still terminates.
         const buffered = bufferedSeconds(media);
         const gainedBytes = buffered > lastBuffered + 0.01;
         lastBuffered = Math.max(lastBuffered, buffered);
-        if (gainedBytes && !hungIpfsDir && bufferingWaitedMs < MEDIA_BYTES_MAX_WAIT_MS) {
+        const responding = gainedBytes || media.readyState > 0;
+        if (responding && !hungIpfsDir && bufferingWaitedMs < MEDIA_BYTES_MAX_WAIT_MS) {
           bufferingWaitedMs += MEDIA_BYTES_RECHECK_MS;
           playbackDebug('play:buffering', {
             name: nft.name,
             url: playbackUrls[index],
             buffered,
+            gainedBytes,
             waitedMs: bufferingWaitedMs,
             media: mediaDebugSnapshot(media),
           });
@@ -1406,6 +1422,9 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
           reason: hungIpfsDir ? 'ipfs-dir' : 'no-bytes',
           hungIpfsDir,
           buffered,
+          readyState: media.readyState,
+          networkState: media.networkState,
+          waitedMs: bufferingWaitedMs,
           media: mediaDebugSnapshot(media),
         });
         hopPlayback(
@@ -1416,6 +1435,27 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       };
 
       failoverTimerRef.current = setTimeout(watchdogTick, failoverMs);
+
+      shortenFailover = (ms: number, provenUrl: string) => {
+        if (playAttempt !== playAttemptRef.current || gaveUp) return;
+        if (urlIndex !== index || playbackStarted) return;
+        // Already on the proven URL — there is nothing better to hop to.
+        const current = (playbackUrls[index] || '').split('#')[0];
+        if (current === provenUrl.split('#')[0]) return;
+        // This candidate is producing bytes. Slow is not dead; leave it alone.
+        if (media.readyState > 0 || bufferedSeconds(media) > 0) return;
+        playbackDebug('play:proven-alt', {
+          name: nft.name,
+          current: playbackUrls[index],
+          provenUrl,
+          shortenedToMs: ms,
+          media: mediaDebugSnapshot(media),
+        });
+        // A proven alternative also makes the NETWORK_LOADING grace pointless.
+        loadingGraceUsed = true;
+        clearStall();
+        failoverTimerRef.current = setTimeout(watchdogTick, ms);
+      };
 
       if (!isHlsUrl(nextUrl)) {
         const metaMime = (
@@ -1458,6 +1498,8 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
           candidate: nextUrl,
           attachedSrc: attachedSrc.slice(0, 220),
           playMime: playMime || null,
+          // '' here means the browser will refuse to fetch this source at all.
+          canPlayType: playMime ? media.canPlayType(playMime) || '(unsupported)' : null,
           tag: media.tagName,
         });
         kickPlay();
