@@ -2,6 +2,23 @@
 
 import { getLiveUrl, getNftUrl, getProfileUrl } from './miniapp';
 
+/**
+ * Best-effort, never awaited. `keepalive` so the request survives the webview
+ * handing focus to the native composer sheet.
+ */
+function warmNftEmbed(contract: string, tokenId: string): void {
+  try {
+    void fetch('/api/nft/warm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contract, tokenId }),
+      keepalive: true,
+    }).catch(() => {});
+  } catch {
+    // Pre-warming is an optimization — a failure here must never block sharing.
+  }
+}
+
 async function composeCastWithFallback(text: string, url: string): Promise<void> {
   try {
     const { sdk } = await import('@farcaster/miniapp-sdk');
@@ -53,6 +70,10 @@ export async function shareNftToFarcaster({
   // encoding into the URL so the deep-link resolver can always find the NFT.
   const cleanTokenId = tokenId.replace(/^(0x){2,}/i, '0x');
   const url = getNftUrl(contract, cleanTokenId);
+  // Resolve the NFT server-side now, while the composer is open and the user
+  // is typing, so whoever taps the cast gets a warm embed cache instead of the
+  // ~12s cold Base/Ethereum race.
+  warmNftEmbed(contract, cleanTokenId);
   const title = name ? `"${name}"` : 'this';
   const text = `Check out ${title} on @podplayr`;
   await composeCastWithFallback(text, url);
