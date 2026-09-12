@@ -1334,6 +1334,100 @@ function pickBestApiPlaybackUrl(data: NFT): string {
   );
 }
 
+/** Hold a successful enrich response briefly so a card scrolling out of view
+ *  and back does not refire. Short, because these tokens are the ones whose
+ *  playback fields the server considers fragile. */
+const ENRICH_MEMO_MS = 60_000;
+/** Failures expire much sooner so a blip does not lock a whole grid out. */
+const ENRICH_MEMO_FAIL_MS = 10_000;
+/** Matches PROBE_CONCURRENCY in isMediaNFT — same reasoning, same budget. */
+const ENRICH_CONCURRENCY = 6;
+const ENRICH_MEMO_MAX = 300;
+
+const enrichInFlight = new Map<string, Promise<NFT | null>>();
+const enrichMemo = new Map<string, { data: NFT | null; at: number; ttl: number }>();
+let enrichActive = 0;
+const enrichQueue: Array<() => void> = [];
+
+/** Take a slot, waiting if the gate is full. The returned release is idempotent. */
+const takeEnrichSlot = async (): Promise<() => void> => {
+  if (enrichActive >= ENRICH_CONCURRENCY) {
+    await new Promise<void>((resolve) => enrichQueue.push(resolve));
+  }
+  enrichActive += 1;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    enrichActive -= 1;
+    enrichQueue.shift()?.();
+  };
+};
+
+/**
+ * Shared transport for `/api/nft?playback=1`.
+ *
+ * Nothing virtualizes the NFT grid, so every card mounts at once, and
+ * nftNeedsChainMediaEnrich matches any fragile cover — which is most music
+ * NFTs. That meant dozens of identical requests leaving simultaneously, and
+ * because the server deliberately skips its Redis cache for exactly these
+ * tokens, every one was a cold Alchemy round-trip.
+ *
+ * Only the round-trip is shared. Each caller still merges the response against
+ * its own NFT object below, so no caller can see another's fields.
+ */
+const fetchEnrichData = (
+  contract: string,
+  tokenId: string,
+  network: 'base' | 'ethereum'
+): Promise<NFT | null> => {
+  const key = `${contract.toLowerCase()}-${tokenId}-${network}`;
+
+  const memo = enrichMemo.get(key);
+  if (memo && Date.now() - memo.at < memo.ttl) return Promise.resolve(memo.data);
+
+  const pending = enrichInFlight.get(key);
+  if (pending) return pending;
+
+  const run = (async (): Promise<NFT | null> => {
+    const release = await takeEnrichSlot();
+    try {
+      const res = await fetch(
+        `/api/nft?contract=${encodeURIComponent(contract)}&tokenId=${encodeURIComponent(
+          tokenId
+        )}&network=${network}&playback=1`,
+        { cache: 'no-store' }
+      );
+      if (!res.ok) return null;
+      const data = (await res.json()) as NFT;
+      if (!data || typeof data !== 'object' || !data.contract || !data.tokenId) return null;
+      return data;
+    } catch {
+      return null;
+    } finally {
+      release();
+      enrichInFlight.delete(key);
+    }
+  })();
+
+  enrichInFlight.set(key, run);
+  void run.then((data) => {
+    if (enrichMemo.size >= ENRICH_MEMO_MAX) {
+      const now = Date.now();
+      for (const [k, v] of enrichMemo) {
+        if (now - v.at >= v.ttl) enrichMemo.delete(k);
+      }
+      if (enrichMemo.size >= ENRICH_MEMO_MAX) enrichMemo.clear();
+    }
+    enrichMemo.set(key, {
+      data,
+      at: Date.now(),
+      ttl: data ? ENRICH_MEMO_MS : ENRICH_MEMO_FAIL_MS,
+    });
+  });
+  return run;
+};
+
 /**
  * Refresh media via server Alchemy (`/api/nft`) so unreplicated IPFS CIDs can
  * fall back to Alchemy's cached CDN (image + animation). Safe in mini-apps.
@@ -1344,15 +1438,8 @@ export const enrichNftMediaFromChain = async (nft: NFT): Promise<NFT> => {
   if (!isOnChainNftIdentity(nft.contract, nft.tokenId)) return nft;
   try {
     const network = nft.network === 'base' ? 'base' : 'ethereum';
-    const res = await fetch(
-      `/api/nft?contract=${encodeURIComponent(nft.contract)}&tokenId=${encodeURIComponent(
-        nft.tokenId
-      )}&network=${network}&playback=1`,
-      { cache: 'no-store' }
-    );
-    if (!res.ok) return nft;
-    const data = (await res.json()) as NFT;
-    if (!data || typeof data !== 'object' || !data.contract || !data.tokenId) return nft;
+    const data = await fetchEnrichData(nft.contract, nft.tokenId, network);
+    if (!data) return nft;
 
     const apiPlayback = pickBestApiPlaybackUrl(data);
     const hasIpfsPlayback = [
