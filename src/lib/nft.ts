@@ -1340,29 +1340,10 @@ function pickBestApiPlaybackUrl(data: NFT): string {
 const ENRICH_MEMO_MS = 60_000;
 /** Failures expire much sooner so a blip does not lock a whole grid out. */
 const ENRICH_MEMO_FAIL_MS = 10_000;
-/** Matches PROBE_CONCURRENCY in isMediaNFT — same reasoning, same budget. */
-const ENRICH_CONCURRENCY = 6;
 const ENRICH_MEMO_MAX = 300;
 
 const enrichInFlight = new Map<string, Promise<NFT | null>>();
 const enrichMemo = new Map<string, { data: NFT | null; at: number; ttl: number }>();
-let enrichActive = 0;
-const enrichQueue: Array<() => void> = [];
-
-/** Take a slot, waiting if the gate is full. The returned release is idempotent. */
-const takeEnrichSlot = async (): Promise<() => void> => {
-  if (enrichActive >= ENRICH_CONCURRENCY) {
-    await new Promise<void>((resolve) => enrichQueue.push(resolve));
-  }
-  enrichActive += 1;
-  let released = false;
-  return () => {
-    if (released) return;
-    released = true;
-    enrichActive -= 1;
-    enrichQueue.shift()?.();
-  };
-};
 
 /**
  * Shared transport for `/api/nft?playback=1`.
@@ -1390,7 +1371,6 @@ const fetchEnrichData = (
   if (pending) return pending;
 
   const run = (async (): Promise<NFT | null> => {
-    const release = await takeEnrichSlot();
     try {
       const res = await fetch(
         `/api/nft?contract=${encodeURIComponent(contract)}&tokenId=${encodeURIComponent(
@@ -1405,7 +1385,6 @@ const fetchEnrichData = (
     } catch {
       return null;
     } finally {
-      release();
       enrichInFlight.delete(key);
     }
   })();

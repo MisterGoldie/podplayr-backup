@@ -1165,6 +1165,26 @@ export const DEAD_PROBE_FAILOVER_MS = 4000;
  * dead air with a known-good URL one hop away.
  */
 export const PROVEN_ALT_FAILOVER_MS = 2500;
+
+/**
+ * `preload` for the playback elements.
+ *
+ * 'auto' means "download as much of this as you can, as fast as you can". On a
+ * desktop that is free. On a phone the WebView has a few hundred MB before the
+ * system terminates the page, less when running inside another app, and a
+ * single 145MB Arweave track can reach that on its own — which presents as the
+ * app crashing mid-playback rather than as any error. 'metadata' fetches the
+ * header and then streams on demand instead. Desktop keeps 'auto', where the
+ * extra buffering costs nothing.
+ */
+export const playbackPreload = (): 'auto' | 'metadata' => {
+  if (typeof navigator === 'undefined') return 'auto';
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+    navigator.userAgent
+  )
+    ? 'metadata'
+    : 'auto';
+};
 /** Per-hop budget for one origin. The caller applies this against the MERGED
  *  list after filterLivePlaybackUrls has ranked it. */
 export const MAX_PLAYBACK_CANDIDATES = 6;
@@ -1558,7 +1578,7 @@ export function ensurePlaybackVideoElement(contract: string, tokenId: string): H
   video.setAttribute('playsinline', 'true');
   video.setAttribute('webkit-playsinline', 'true');
   video.playsInline = true;
-  video.preload = 'auto';
+  video.preload = playbackPreload();
   video.muted = false;
   video.autoplay = false;
   video.setAttribute('referrerpolicy', 'no-referrer');

@@ -64,6 +64,7 @@ import {
   PLAYBACK_GIVE_UP_MS,
   DEAD_PROBE_FAILOVER_MS,
   PROVEN_ALT_FAILOVER_MS,
+  playbackPreload,
   clearNftMediaUrlCache,
 } from '../utils/media';
 import { resolveCdnPlaybackUrls, isOrphanMuxPlaybackUrl, isMuxPlaybackUrl, isPollutedPlaybackUrl, isWeakPlaybackUrl, isMezzanineMuxUrl, alchemyVideoFetchMp4Url, isAlchemyVideoFetchMp4Url } from '../lib/mediaCdn';
@@ -73,7 +74,6 @@ import {
   ensureMediaAudible,
   mountClockAudioElement,
   unlockPlaybackAudioSession,
-  claimMediaGesture,
 } from '../lib/playbackAudioSession';
 import { restorePageScroll } from '../utils/pageScroll';
 
@@ -240,7 +240,7 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     // Initialize the audio element if it doesn't exist
     if (!audioRef.current) {
       audioRef.current = new Audio();
-      audioRef.current.preload = 'auto';
+      audioRef.current.preload = playbackPreload();
       audioLogger.info('Created new audio element');
     }
     mountClockAudioElement(audioRef.current);
@@ -453,17 +453,6 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     if (giveUpTimerRef.current) {
       clearTimeout(giveUpTimerRef.current);
       giveUpTimerRef.current = null;
-    }
-
-    // Last point before the handler can await. Enrich and the MIME probe below
-    // both block, and on iOS that await is what costs us the tap — the element
-    // is still allowed to play here and will not be by the time we have a URL.
-    // Claim it now on the elements the attempt might use. The old track is
-    // already paused above, so overwriting the source costs nothing.
-    if (shouldAutoplay) {
-      claimMediaGesture(audioRef.current);
-      if (visualPlaybackRef.current) claimMediaGesture(visualPlaybackRef.current);
-      playbackDebug('play:gesture-claimed', { name: nft.name });
     }
 
     // Likes / recently-played often store raw IPFS URLs. When public gateways
@@ -1007,7 +996,7 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     detachPlaybackHandlers(audio);
     detachPlaybackHandlers(visualPlaybackRef.current);
 
-    audio.preload = 'auto';
+    audio.preload = playbackPreload();
     if (isMobile) {
       audio.volume = 0.7;
     }
@@ -1042,7 +1031,7 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       videoEl.setAttribute('playsinline', 'true');
       videoEl.setAttribute('webkit-playsinline', 'true');
       videoEl.playsInline = true;
-      videoEl.preload = 'auto';
+      videoEl.preload = playbackPreload();
       videoEl.loop = false;
       if (isMobile) videoEl.volume = 0.7;
       visualPlaybackRef.current = videoEl;
@@ -1336,7 +1325,7 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
       clearStall();
       switchingUrl = true;
       media.pause();
-      media.preload = 'auto';
+      media.preload = playbackPreload();
       if (!isHlsUrl(nextUrl)) {
         const existing = media.currentSrc || media.src;
         if (existing && existing !== nextUrl && existing !== window.location.href) {
