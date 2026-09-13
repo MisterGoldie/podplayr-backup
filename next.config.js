@@ -29,6 +29,14 @@ const nextConfig = {
     deviceSizes: [320, 420, 640, 750, 828],
     imageSizes: [64, 96, 128, 160, 180, 256, 384],
   },
+  // Client bundles cached before backrooms1.PNG was renamed to .png still request
+  // the uppercase path. Windows resolved it case-insensitively; Linux 404s it.
+  // afterFiles only runs when no real file matched, so /backrooms1.png is untouched.
+  async rewrites() {
+    return {
+      afterFiles: [{ source: '/backrooms1.PNG', destination: '/backrooms1.png' }],
+    };
+  },
   experimental: {
     scrollRestoration: true,
     // Optimize resource loading
