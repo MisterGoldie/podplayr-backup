@@ -1154,8 +1154,15 @@ export const MEDIA_BYTES_MAX_WAIT_MS = 30000;
 export const MEDIA_BYTES_STALL_TICKS = 3;
 /** Absolute deadline for a tap. Nothing audible by now ends the spinner. */
 export const PLAYBACK_GIVE_UP_MS = 60000;
-/** Short retry once a side-channel probe says the gateway is broken. */
-export const DEAD_PROBE_FAILOVER_MS = 4000;
+/**
+ * Short retry once a side-channel probe says the gateway is broken. Only armed
+ * when two independent signals already agree — the probe failed *and* the media
+ * element holds zero bytes — and watchdogTick still re-checks for bytes before
+ * it hops, so this is a courtesy window rather than a diagnosis. Four seconds
+ * of it was a quarter of the 13s an NFT took when turbo and permagate were
+ * both down.
+ */
+export const DEAD_PROBE_FAILOVER_MS = 1200;
 /**
  * Wait allowed after a side-channel has *proven* a different gateway is
  * serving the real bytes. shortenFailover only applies this when the attached
@@ -1165,6 +1172,13 @@ export const DEAD_PROBE_FAILOVER_MS = 4000;
  * dead air with a known-good URL one hop away.
  */
 export const PROVEN_ALT_FAILOVER_MS = 2500;
+/**
+ * Deadline for any side-channel probe. Gateways that are merely cold answer a
+ * small Range in well under this; the ones that blow past it are hung, and a
+ * hung probe is worse than no probe — it silently withholds the one signal the
+ * watchdog needs. Aborting turns "no answer" into an answer.
+ */
+export const PROBE_TIMEOUT_MS = 6000;
 
 /**
  * `preload` for the playback elements.
@@ -1374,11 +1388,17 @@ export const probeAudioHead = async (url: string): Promise<AudioHeadProbe> => {
   const miss: AudioHeadProbe = { seconds: 0, servedAudioBytes: false };
   if (!url) return miss;
   const probeUrl = url.split('#')[0];
+  // A hanging gateway hangs this probe with it. Observed: 41s for a 4 KB
+  // Range against permagate, by which point the answer was worthless. A probe
+  // that outlives its usefulness is just a held connection.
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), PROBE_TIMEOUT_MS);
   try {
     const res = await fetch(probeUrl, {
       method: 'GET',
       headers: { Range: 'bytes=0-4095' },
       mode: 'cors',
+      signal: abort.signal,
     });
     if (!res.ok && res.status !== 206) return miss;
     const type = (res.headers.get('content-type') || '').toLowerCase();
@@ -1398,11 +1418,81 @@ export const probeAudioHead = async (url: string): Promise<AudioHeadProbe> => {
     };
   } catch {
     return miss;
+  } finally {
+    clearTimeout(timer);
   }
 };
 
 export const probeWavDurationSeconds = async (url: string): Promise<number> =>
   (await probeAudioHead(url)).seconds;
+
+const prewarmedOrigins = new Set<string>();
+let prewarmActive = 0;
+/** Two at a time. This runs while something else is playing and must never
+ *  compete with the live stream for the connection pool. */
+const PREWARM_MAX_CONCURRENT = 2;
+const PREWARM_TIMEOUT_MS = 30000;
+
+/**
+ * Ask a gateway for two bytes so it materializes the transaction before the
+ * user taps.
+ *
+ * Arweave gateways stage the whole file before serving byte one. Measured on a
+ * 145 MB transaction: the first request waits ~21s, every request after it
+ * starts in ~0.3s, and the size of that first request is irrelevant — a
+ * `bytes=0-1` pays the same cost and buys the same warm cache as a full
+ * stream. That makes the 21s movable: spend it while the previous track is
+ * playing instead of on the next tap.
+ *
+ * Fire-and-forget by design. The response is discarded; only the gateway's
+ * cache state matters, and a failure here must never affect the candidate list
+ * the real playback chain will build later.
+ */
+export const prewarmPlaybackOrigin = (
+  url: string,
+  onDead?: (finalUrl: string) => void
+): boolean => {
+  if (!url || typeof fetch === 'undefined') return false;
+  const target = url.split('#')[0];
+  if (prewarmedOrigins.has(target)) return false;
+  if (prewarmActive >= PREWARM_MAX_CONCURRENT) return false;
+  prewarmedOrigins.add(target);
+  prewarmActive += 1;
+  const abort = new AbortController();
+  // Generous on purpose. A cold gateway legitimately needs ~21s to stage the
+  // transaction and cutting it off would defeat the warm; a dead one answers
+  // in under a second regardless. This cap only bounds a leaked socket.
+  const timer = setTimeout(() => abort.abort(), PREWARM_TIMEOUT_MS);
+  void fetch(target, {
+    method: 'GET',
+    headers: { Range: 'bytes=0-1' },
+    cache: 'no-store',
+    credentials: 'omit',
+    signal: abort.signal,
+  })
+    .then((res) => {
+      const type = (res.headers.get('content-type') || '').toLowerCase();
+      // Only an answered request may condemn a host. Cold gateways return a
+      // slow 206 and never an error, so slowness can't be read as death —
+      // which is what makes this safe to act on before the user has tapped.
+      const dead =
+        res.status === 404 ||
+        res.status >= 500 ||
+        ((type.includes('text/html') || type.includes('text/plain')) &&
+          !/audio|video|wave/.test(type));
+      if (dead) onDead?.(res.url || target);
+    })
+    .catch(() => {
+      // CORS failures and aborts hide the real status. Silence is not proof of
+      // death, so this only forgets the warm and condemns nothing.
+      prewarmedOrigins.delete(target);
+    })
+    .finally(() => {
+      clearTimeout(timer);
+      prewarmActive -= 1;
+    });
+  return true;
+};
 
 /** Short candidate list so hanging gateways cannot stall playback for minutes. */
 export const buildFastPlaybackUrls = (

@@ -248,7 +248,20 @@ export async function attachPlaybackSource(
           error: data.error?.message,
         });
         if (data.details === 'aborted') return;
-        if (!data.fatal) return;
+        if (!data.fatal) {
+          // hls.js recovers a non-fatal error by restarting its loader, which
+          // silently undoes the pauseBuffering() issued on pause. Observed on
+          // a paused video: recovery kept pulling fragments for eleven more
+          // minutes and ended on a 120s fragLoadTimeOut, holding a MediaSource
+          // and its buffers the whole time. Re-assert the pause after recovery
+          // has had its tick; onplay still calls resumeHlsBuffering.
+          if (media.paused) {
+            setTimeout(() => {
+              if (media.paused) pauseHlsBuffering();
+            }, 250);
+          }
+          return;
+        }
         detachHlsPlayback(media);
         onFatalError();
         finish(new Error(data.details || 'hls fatal error'));

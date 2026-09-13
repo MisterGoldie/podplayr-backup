@@ -63,7 +63,8 @@ import {
   MAX_PLAYBACK_CANDIDATES,
   PLAYBACK_GIVE_UP_MS,
   DEAD_PROBE_FAILOVER_MS,
-  PROVEN_ALT_FAILOVER_MS,
+  PROBE_TIMEOUT_MS,
+  prewarmPlaybackOrigin,
   playbackPreload,
   clearNftMediaUrlCache,
 } from '../utils/media';
@@ -1055,6 +1056,11 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
      * Set by tryUrl for the candidate currently attached. Lets a side-channel
      * that has proven another gateway works cut the current first-byte wait
      * short, without touching the candidate order itself.
+     *
+     * Currently unwired: the only caller was the alt-gateway probe, and acting
+     * on "some other host is alive" measurably hurt (see the probe below). Kept
+     * because the plumbing is correct and a future signal that really does
+     * predict throughput belongs here.
      */
     let shortenFailover: ((ms: number, provenUrl: string) => void) | null = null;
 
@@ -1075,7 +1081,19 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
         parseArweaveMediaPath(rawAudioUrl).fileTxId ||
         parseArweaveMediaPath(playbackUrls[0] || '').fileTxId;
       if (tx) {
-        const wavProbeUrl = toArweaveRawUrl(tx, 'https://arweave.net/');
+        // Probe a gateway we are *not* about to attach. Hardcoded to
+        // arweave.net this always duplicated candidate 0 — prefer-raw puts
+        // arweave.net/raw first for audio — so shortenFailover's "already on
+        // the proven URL" guard discarded every result, while the extra
+        // request queued behind the real load on the same cold gateway. The
+        // alternative is the only answer worth paying for: it proves (or
+        // condemns) the hop target before the watchdog has to guess.
+        const attachedApex = arweaveGatewayApexHost(playbackUrls[0] || '');
+        const altUrl = playbackUrls.find((url) => {
+          const apex = arweaveGatewayApexHost(url);
+          return !!apex && apex !== attachedApex && !isHlsUrl(url);
+        });
+        const wavProbeUrl = altUrl || toArweaveRawUrl(tx, 'https://arweave.net/');
         void probeAudioHead(wavProbeUrl).then(({ seconds, servedAudioBytes }) => {
           if (playAttempt !== playAttemptRef.current) return;
           playbackDebug('play:wav-duration-probe', {
@@ -1083,13 +1101,19 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
             seconds,
             servedAudioBytes,
             probeUrl: wavProbeUrl,
+            isAlt: !!altUrl,
+            attachedApex,
           });
           applyMediaDuration(seconds, 'wav-header');
-          // Any audio bytes prove this gateway works — not just a readable RIFF
-          // header. Long Arweave tracks are often mp3, where the duration is 0
-          // and this shortcut never fired, so a slow gateway got the full wait
-          // while the probe had already pulled bytes from a fast one.
-          if (servedAudioBytes) shortenFailover?.(PROVEN_ALT_FAILOVER_MS, wavProbeUrl);
+          // Deliberately NOT calling shortenFailover here. A 4 KB Range coming
+          // back fast proves the host is *alive*; it says nothing about whether
+          // it can stream a 145 MB transaction faster than the gateway already
+          // working on one. Hopping throws away the head start the current
+          // gateway has on materializing that transaction and makes the new one
+          // begin its cold start from zero. Measured on State of Sound #705:
+          // riding arweave.net/raw reached audio in 27s, while hopping to a
+          // turbo that answered this probe in 0.3s took 46s. The 25s watchdog
+          // and the dead-gateway probe stay in charge of hop decisions.
         });
       }
     }
@@ -1477,12 +1501,16 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
           media.networkState === HTMLMediaElement.NETWORK_LOADING
         ) {
           loadingGraceUsed = true;
-          failoverTimerRef.current = setTimeout(
-            watchdogTick,
-            isExtensionlessArweaveTx(playbackUrls[index] || '')
-              ? ARWEAVE_FIRST_BYTE_FAILOVER_MS
-              : FIRST_BYTE_FAILOVER_MS
-          );
+          const graceMs = isExtensionlessArweaveTx(playbackUrls[index] || '')
+            ? ARWEAVE_FIRST_BYTE_FAILOVER_MS
+            : FIRST_BYTE_FAILOVER_MS;
+          playbackDebug('play:loading-grace', {
+            name: nft.name,
+            url: playbackUrls[index],
+            graceMs,
+            media: mediaDebugSnapshot(media),
+          });
+          failoverTimerRef.current = setTimeout(watchdogTick, graceMs);
           return;
         }
 
@@ -1582,12 +1610,22 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
           (arIoApex === 'turbo-gateway.com' || arIoApex === 'permagate.io')
         ) {
           const probeUrl = nextUrl.split('#')[0];
+          // Without a deadline this probe dies with the gateway it is testing.
+          // Interlude #35 hit a turbo sandbox that neither answered nor failed,
+          // so neither branch below ever ran and the watchdog paid the full
+          // 25s + 25s grace on a host that was never going to serve. Aborting
+          // routes a hang into the catch, which is already the "this gateway is
+          // broken" path.
+          const probeAbort = new AbortController();
+          const probeTimer = setTimeout(() => probeAbort.abort(), PROBE_TIMEOUT_MS);
           void fetch(probeUrl, {
             method: 'GET',
             headers: { Range: 'bytes=0-0' },
             mode: 'cors',
+            signal: probeAbort.signal,
           })
             .then((res) => {
+              clearTimeout(probeTimer);
               if (playAttempt !== playAttemptRef.current || urlIndex !== index) return;
               // Fake `onplaying` on a 404 must not block this hop.
               if (media.currentTime > 0.25 || media.readyState >= 2) return;
@@ -1608,6 +1646,7 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
               hopPlayback(index, res.url || nextUrl, 'arweave-sandbox-404');
             })
             .catch(() => {
+              clearTimeout(probeTimer);
               // CORS hides the status (turbo's 504 surfaces as ERR_FAILED), so
               // this is only trustworthy alongside a second signal: the media
               // element itself holding zero bytes. Both together mean the
@@ -2137,6 +2176,50 @@ export const useAudioPlayer = ({ fid = 1 }: UseAudioPlayerProps = {}): UseAudioP
     audioLogger.info(`Skipping ${direction === 1 ? 'next' : 'previous'} to`, nextNFT.name, 'at index', nextIndex);
     await handlePlayAudio(nextNFT, { queue, queueType: queueType || 'default' });
   }, [currentPlayingNFT, currentQueue, queueType, handlePlayAudio]);
+
+  // Warm the next track's gateway while this one plays. Arweave charges ~21s
+  // for the first request against a transaction and ~0.3s for every one after,
+  // so paying that toll here is the difference between the next tap stalling
+  // and starting immediately. Intentionally outside the playback chain: it
+  // reads the queue and nothing else, so a failure cannot reach retrieval.
+  useEffect(() => {
+    if (!currentPlayingNFT) return;
+    const queue = currentQueue.length
+      ? currentQueue
+      : Array.isArray(window.nftList)
+        ? window.nftList
+        : [];
+    if (queue.length < 2) return;
+    const currentIndex = findNftInQueue(queue, currentPlayingNFT);
+    if (currentIndex === -1) return;
+    const next = queue[(currentIndex + 1) % queue.length];
+    if (!next) return;
+    const source =
+      next.audio || next.metadata?.animation_url || next.animationUrl || '';
+    if (!isArweavePlaybackUrl(source)) return;
+    // Warm through the same builder the play path starts from rather than
+    // assuming a host. Guessing arweave.net/raw warmed a gateway the chain
+    // then didn't use: ranking puts turbo first for most tracks and
+    // arweave.net/raw first only for some audio. Two distinct hosts covers
+    // whichever it picks, and each costs two bytes.
+    const hosts = new Set<string>();
+    for (const candidate of buildFastPlaybackUrls(source)) {
+      const apex = arweaveGatewayApexHost(candidate);
+      if (!apex || hosts.has(apex)) continue;
+      hosts.add(apex);
+      const warmed = prewarmPlaybackOrigin(candidate, (finalUrl) => {
+        // The warm already paid for this request; reading its verdict is free.
+        // Recording it here means the candidate list is built knowing the host
+        // is down, instead of the player discovering it after a tap.
+        rememberDeadGateway(source, finalUrl);
+        playbackDebug('play:prewarm-dead', { name: next.name, url: finalUrl });
+      });
+      if (warmed) {
+        playbackDebug('play:prewarm-next', { name: next.name, url: candidate });
+      }
+      if (hosts.size >= 2) break;
+    }
+  }, [currentPlayingNFT, currentQueue]);
 
   const handlePlayNext = useCallback(async () => {
     await skipInQueue(1);
