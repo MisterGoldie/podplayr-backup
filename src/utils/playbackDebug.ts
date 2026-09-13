@@ -7,14 +7,14 @@
  * was diagnosed, and flipping this back on is the fastest way to see a
  * playback regression on a device with no console.
  *
- * Re-enable for a build: set this to true.
- * Re-enable at runtime: window.__PODPLAYR_PLAYBACK_DEBUG = true
+ * ON while we chase a failing card / play. Force off:
+ * window.__PODPLAYR_PLAYBACK_DEBUG = false
  * Filter DevTools console by: PLAYBACK DEBUG
  *
  * The on-screen overlay that read this buffer has been removed; restoring it
  * means a component that subscribes via subscribePlaybackDebug.
  */
-export const PLAYBACK_DEBUG_ENABLED = false;
+export const PLAYBACK_DEBUG_ENABLED = true;
 
 const PREFIX = '[PLAYBACK DEBUG — REMOVE]';
 
