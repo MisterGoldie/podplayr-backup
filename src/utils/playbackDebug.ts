@@ -14,7 +14,7 @@
  * The on-screen overlay that read this buffer has been removed; restoring it
  * means a component that subscribes via subscribePlaybackDebug.
  */
-export const PLAYBACK_DEBUG_ENABLED = true;
+export const PLAYBACK_DEBUG_ENABLED = false;
 
 const PREFIX = '[PLAYBACK DEBUG — REMOVE]';
 
