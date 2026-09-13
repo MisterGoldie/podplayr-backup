@@ -163,7 +163,7 @@ export function withFeaturedHydration<T extends NFT>(nft: T): T {
 export const FEATURED_NFTS: NFT[] = [
   {
     name: 'BACKROOMS EP 1 - Will',
-    image: '/backrooms1.PNG',
+    image: '/backrooms1.png',
     contract: 'pending',
     tokenId: 'backrooms-ep1-will',
     network: 'base',
