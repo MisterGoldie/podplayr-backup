@@ -1,7 +1,11 @@
-'use client';
-
 /**
  * Tiny key-value cache backed by IndexedDB.
+ *
+ * Deliberately not marked 'use client'. isMediaNFT.ts imports this lazily and
+ * is itself reachable from server API routes via lib/nft.ts, so a client
+ * boundary here would make those server bundles reference a client module for
+ * no reason. Every function already no-ops without `window`, which makes the
+ * module safe to evaluate anywhere.
  *
  * Farcaster's WKWebView blocks localStorage/sessionStorage for embedded
  * mini-apps under Intelligent Tracking Prevention — every read silently

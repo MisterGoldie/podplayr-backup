@@ -609,28 +609,62 @@ let deadGatewayPersistTimer: ReturnType<typeof setTimeout> | null = null;
 /** Compare URLs without the `#.wav` / `#.mp4` sniffing hint we append. */
 const stripUrlHint = (url: string): string => url.split('#')[0];
 
-const loadMimeCache = (): void => {
-  if (mimeCacheLoaded || typeof window === 'undefined') return;
-  mimeCacheLoaded = true;
-  try {
-    const raw = window.localStorage.getItem(MIME_CACHE_KEY);
-    if (!raw) return;
-    const parsed = JSON.parse(raw) as Record<
-      string,
-      string | { mime?: string; url?: string; played?: string }
-    >;
-    for (const [key, value] of Object.entries(parsed)) {
-      if (!key || !value) continue;
-      if (typeof value === 'string') {
-        mimeProbeCache.set(key, value);
-      } else {
-        if (value.mime) mimeProbeCache.set(key, value.mime);
-        if (value.url) mimeSourceCache.set(key, value.url);
-        if (value.played) playedSourceCache.set(key, value.played);
-      }
+/**
+ * These two caches are what make a repeat play fast: they remember an asset's
+ * MIME type, the URL that actually produced bytes, and which gateways are dead
+ * for it. They used to live in localStorage, which Farcaster's WKWebView blocks
+ * under Tracking Prevention — so on mobile they silently never persisted, and
+ * every cold open re-probed every asset and re-walked every dead gateway.
+ *
+ * IndexedDB isn't blocked, but it's async, while every reader below is
+ * synchronous and sits on the playback hot path. So the in-memory Maps remain
+ * the only thing reads ever touch, and IndexedDB is hydrated into them once at
+ * module load. A read landing before hydration finishes simply misses and
+ * re-probes — which is exactly today's mobile behaviour, so never worse.
+ */
+type MimeCacheBlob = Record<string, string | { mime?: string; url?: string; played?: string }>;
+type DeadGatewayBlob = Record<string, string[]>;
+
+/**
+ * Hydration must not clobber what was learned while it was in flight. If the
+ * user tapped play immediately and we already proved a gateway dead, the stored
+ * copy is older than memory — so live entries always win, and dead-host sets are
+ * unioned rather than replaced.
+ */
+const mergeMimeBlob = (parsed: MimeCacheBlob): void => {
+  for (const [key, value] of Object.entries(parsed)) {
+    if (!key || !value) continue;
+    if (typeof value === 'string') {
+      if (!mimeProbeCache.has(key)) mimeProbeCache.set(key, value);
+      continue;
     }
+    if (value.mime && !mimeProbeCache.has(key)) mimeProbeCache.set(key, value.mime);
+    if (value.url && !mimeSourceCache.has(key)) mimeSourceCache.set(key, value.url);
+    if (value.played && !playedSourceCache.has(key)) playedSourceCache.set(key, value.played);
+  }
+};
+
+const mergeDeadGatewayBlob = (parsed: DeadGatewayBlob): void => {
+  for (const [id, hosts] of Object.entries(parsed)) {
+    if (!id || !Array.isArray(hosts) || !hosts.length) continue;
+    const existing = deadGatewayHosts.get(id);
+    if (existing) {
+      hosts.forEach((h) => {
+        if (typeof h === 'string') existing.add(h);
+      });
+    } else {
+      deadGatewayHosts.set(id, new Set(hosts.filter((h) => typeof h === 'string')));
+    }
+  }
+};
+
+/** Desktop already has warm data under these keys — migrate it, don't drop it. */
+const readLegacyLocalStorage = <T>(key: string): T | null => {
+  try {
+    const raw = window.localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : null;
   } catch {
-    // ignore quota / private mode
+    return null;
   }
 };
 
@@ -638,59 +672,102 @@ const persistMimeCache = (): void => {
   if (typeof window === 'undefined') return;
   if (mimePersistTimer) clearTimeout(mimePersistTimer);
   mimePersistTimer = setTimeout(() => {
-    try {
-      const obj: Record<string, { mime: string; url?: string; played?: string }> = {};
-      mimeProbeCache.forEach((mime, key) => {
-        obj[key] = {
-          mime,
-          url: mimeSourceCache.get(key),
-          played: playedSourceCache.get(key),
-        };
-      });
-      // A proven winner outlives its MIME entry — keep it even with no mime key.
-      playedSourceCache.forEach((played, key) => {
-        if (!obj[key]) obj[key] = { mime: '', played };
-      });
-      window.localStorage.setItem(MIME_CACHE_KEY, JSON.stringify(obj));
-    } catch {
-      // ignore quota / private mode
-    }
+    void (async () => {
+      try {
+        const obj: Record<string, { mime: string; url?: string; played?: string }> = {};
+        mimeProbeCache.forEach((mime, key) => {
+          obj[key] = {
+            mime,
+            url: mimeSourceCache.get(key),
+            played: playedSourceCache.get(key),
+          };
+        });
+        // A proven winner outlives its MIME entry — keep it even with no mime key.
+        playedSourceCache.forEach((played, key) => {
+          if (!obj[key]) obj[key] = { mime: '', played };
+        });
+        const { idbSetJson } = await import('./idbCache');
+        await idbSetJson(MIME_CACHE_KEY, obj);
+      } catch {
+        // ignore quota / private mode
+      }
+    })();
   }, 200);
-};
-
-const loadDeadGatewayCache = (): void => {
-  if (deadGatewayCacheLoaded || typeof window === 'undefined') return;
-  deadGatewayCacheLoaded = true;
-  try {
-    const raw = window.localStorage.getItem(DEAD_GATEWAY_CACHE_KEY);
-    if (!raw) return;
-    const parsed = JSON.parse(raw) as Record<string, string[]>;
-    for (const [id, hosts] of Object.entries(parsed)) {
-      if (!id || !Array.isArray(hosts) || !hosts.length) continue;
-      deadGatewayHosts.set(id, new Set(hosts.filter((h) => typeof h === 'string')));
-    }
-  } catch {
-    // ignore quota / private mode
-  }
 };
 
 const persistDeadGatewayCache = (): void => {
   if (typeof window === 'undefined') return;
   if (deadGatewayPersistTimer) clearTimeout(deadGatewayPersistTimer);
   deadGatewayPersistTimer = setTimeout(() => {
-    try {
-      const obj: Record<string, string[]> = {};
-      Array.from(deadGatewayHosts.entries())
-        .slice(-DEAD_GATEWAY_MAX_ASSETS)
-        .forEach(([id, hosts]) => {
-          if (hosts.size) obj[id] = Array.from(hosts);
-        });
-      window.localStorage.setItem(DEAD_GATEWAY_CACHE_KEY, JSON.stringify(obj));
-    } catch {
-      // ignore quota / private mode
-    }
+    void (async () => {
+      try {
+        const obj: Record<string, string[]> = {};
+        Array.from(deadGatewayHosts.entries())
+          .slice(-DEAD_GATEWAY_MAX_ASSETS)
+          .forEach(([id, hosts]) => {
+            if (hosts.size) obj[id] = Array.from(hosts);
+          });
+        const { idbSetJson } = await import('./idbCache');
+        await idbSetJson(DEAD_GATEWAY_CACHE_KEY, obj);
+      } catch {
+        // ignore quota / private mode
+      }
+    })();
   }, 200);
 };
+
+let hydrationPromise: Promise<void> | null = null;
+
+/**
+ * Fill the in-memory Maps from IndexedDB. Idempotent and safe to call from
+ * anywhere; every synchronous reader below works with or without it having
+ * completed. Exported mainly so a caller can await a warm cache if it wants to.
+ */
+export const hydratePlaybackCaches = (): Promise<void> => {
+  if (hydrationPromise) return hydrationPromise;
+  if (typeof window === 'undefined') return Promise.resolve();
+  hydrationPromise = (async () => {
+    try {
+      // Imported dynamically so this module stays usable outside the browser.
+      const { idbGetJson } = await import('./idbCache');
+      const [storedMime, storedDead] = await Promise.all([
+        idbGetJson<MimeCacheBlob>(MIME_CACHE_KEY),
+        idbGetJson<DeadGatewayBlob>(DEAD_GATEWAY_CACHE_KEY),
+      ]);
+
+      const mimeBlob = storedMime ?? readLegacyLocalStorage<MimeCacheBlob>(MIME_CACHE_KEY);
+      const deadBlob =
+        storedDead ?? readLegacyLocalStorage<DeadGatewayBlob>(DEAD_GATEWAY_CACHE_KEY);
+
+      if (mimeBlob) mergeMimeBlob(mimeBlob);
+      if (deadBlob) mergeDeadGatewayBlob(deadBlob);
+
+      // Carry a migrated localStorage copy forward into IndexedDB so it also
+      // survives the next cold open where localStorage is blocked.
+      if (!storedMime && mimeBlob) persistMimeCache();
+      if (!storedDead && deadBlob) persistDeadGatewayCache();
+    } catch {
+      // No cache is a valid state — readers just re-probe.
+    }
+  })();
+  return hydrationPromise;
+};
+
+const loadMimeCache = (): void => {
+  if (mimeCacheLoaded || typeof window === 'undefined') return;
+  mimeCacheLoaded = true;
+  void hydratePlaybackCaches();
+};
+
+const loadDeadGatewayCache = (): void => {
+  if (deadGatewayCacheLoaded || typeof window === 'undefined') return;
+  deadGatewayCacheLoaded = true;
+  void hydratePlaybackCaches();
+};
+
+// Kick hydration at import time, which happens during app boot and so well
+// before any play tap — in practice the Maps are warm by the first read.
+if (typeof window !== 'undefined') void hydratePlaybackCaches();
 
 export const rememberMediaMime = (url: string, mime: string): void => {
   if (!url || !mime) return;

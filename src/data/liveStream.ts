@@ -27,8 +27,9 @@ export const LIVE_STREAMERS = {
     streamId: 'sVDSlO11WykB6zMjrm0002m01g1Q6rHwaGNI5mUhdr6tNQ',
     playbackId: 'sVDSlO11WykB6zMjrm0002m01g1Q6rHwaGNI5mUhdr6tNQ',
     rtmpUrl: 'rtmps://global-live.mux.com:443/app',
-    // Stream key (goes in the streamer's OBS/Restream config, never used by the app):
-    // 0ba7f6f3-3635-af80-5488-df51a7e56354
+    // Stream key intentionally not stored here — it lives in the Mux dashboard
+    // and goes straight into the streamer's OBS/Restream config. The app never
+    // needs it; only `playbackId` is required to play the stream.
   },
 } as const satisfies Record<string, LiveStreamerConfig>;
 
