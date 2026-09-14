@@ -35,6 +35,8 @@ import { normalizeNftTokenId } from '../utils/nftIdentity';
 import { restorePageScroll } from '../utils/pageScroll';
 import NFTNotification from './NFTNotification';
 import { useNFTNotification } from '../context/NFTNotificationContext';
+import { idbGetJson, idbRemove, idbSetJson } from '../utils/idbCache';
+import { getLikedMediaKeysCache, setLikedMediaKeysCache, clearLikedMediaKeysCache } from '../utils/likedMediaKeysCache';
 
 const demoLogger = logger.getModuleLogger('demo');
 
@@ -98,6 +100,11 @@ const UserProfileView = dynamic(() => import('./views/UserProfileView'), {
   loading: TabLoading,
 });
 
+// Backed by IndexedDB, not localStorage — localStorage is blocked by
+// Tracking Prevention in Farcaster's WKWebView (reads always return null,
+// writes silently no-op), so this snapshot never actually warmed a mobile
+// session before. IndexedDB is not subject to that restriction. See
+// src/utils/idbCache.ts.
 const LIKED_NFTS_SNAPSHOT_KEY = 'podplayr_liked_nfts_snapshot_v1';
 const LIKED_NFTS_SNAPSHOT_TTL = 24 * 60 * 60 * 1000;
 
@@ -114,11 +121,12 @@ function likedNftsSnapshotIsUsable(nfts: unknown): nfts is NFT[] {
   );
 }
 
-function readLikedNftsSnapshot(): { fid: number; nfts: NFT[] } | null {
+async function readLikedNftsSnapshot(): Promise<{ fid: number; nfts: NFT[] } | null> {
   try {
-    const raw = localStorage.getItem(LIKED_NFTS_SNAPSHOT_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as { fid?: number; nfts?: unknown; timestamp?: number };
+    const parsed = await idbGetJson<{ fid?: number; nfts?: unknown; timestamp?: number }>(
+      LIKED_NFTS_SNAPSHOT_KEY
+    );
+    if (!parsed) return null;
     if (
       typeof parsed.fid !== 'number' ||
       !parsed.fid ||
@@ -126,9 +134,6 @@ function readLikedNftsSnapshot(): { fid: number; nfts: NFT[] } | null {
       Date.now() - parsed.timestamp > LIKED_NFTS_SNAPSHOT_TTL ||
       !likedNftsSnapshotIsUsable(parsed.nfts)
     ) {
-      if (parsed && !likedNftsSnapshotIsUsable(parsed.nfts)) {
-        localStorage.removeItem(LIKED_NFTS_SNAPSHOT_KEY);
-      }
       return null;
     }
     return { fid: parsed.fid, nfts: parsed.nfts };
@@ -137,31 +142,34 @@ function readLikedNftsSnapshot(): { fid: number; nfts: NFT[] } | null {
   }
 }
 
-function clearLikedNftsLocalCache() {
+async function clearLikedNftsLocalCache(): Promise<void> {
   try {
-    localStorage.removeItem(LIKED_NFTS_SNAPSHOT_KEY);
-    localStorage.removeItem('podplayr_liked_media_keys');
-    localStorage.removeItem('podplyr_liked_mediakeys');
+    await Promise.all([
+      idbRemove(LIKED_NFTS_SNAPSHOT_KEY),
+      clearLikedMediaKeysCache(),
+    ]);
   } catch {
     // Ignore quota / private-mode failures
   }
+  try {
+    // toggleLikeNFT still maintains this legacy misspelled key in localStorage
+    // as its own like-state recovery hint, so web logout must keep clearing it
+    // or the next like action reads back the previous user's mediaKeys.
+    localStorage.removeItem('podplyr_liked_mediakeys');
+  } catch {
+    // Blocked storage (Farcaster webview) — nothing was written there anyway.
+  }
 }
 
-function writeLikedNftsSnapshot(fid: number, nfts: NFT[]) {
+async function writeLikedNftsSnapshot(fid: number, nfts: NFT[]): Promise<void> {
   if (!fid) return;
   try {
     if (nfts.length === 0) {
-      localStorage.setItem(
-        LIKED_NFTS_SNAPSHOT_KEY,
-        JSON.stringify({ fid, nfts: [], timestamp: Date.now() })
-      );
+      await idbSetJson(LIKED_NFTS_SNAPSHOT_KEY, { fid, nfts: [], timestamp: Date.now() });
       return;
     }
     if (!likedNftsSnapshotIsUsable(nfts)) return;
-    localStorage.setItem(
-      LIKED_NFTS_SNAPSHOT_KEY,
-      JSON.stringify({ fid, nfts, timestamp: Date.now() })
-    );
+    await idbSetJson(LIKED_NFTS_SNAPSHOT_KEY, { fid, nfts, timestamp: Date.now() });
   } catch {
     // Ignore quota / private-mode failures
   }
@@ -269,21 +277,28 @@ const DemoBase: React.FC = () => {
   useEffect(() => {
     if (environment === 'web' && hasPrivyAppId()) return;
 
-    const snapshot = readLikedNftsSnapshot();
-    if (snapshot) {
-      likedSnapshotFidRef.current = snapshot.fid;
-      setLikedNFTs(snapshot.nfts);
-      setLikedNFTsLoaded(true);
-      return;
-    }
-    try {
-      const cachedLikes = localStorage.getItem('podplayr_liked_media_keys');
-      if (!cachedLikes) return;
-      const mediaKeys = JSON.parse(cachedLikes) as string[];
-      setLikedNFTs(mediaKeys.map((mediaKey) => ({ mediaKey } as NFT)));
-    } catch (error) {
-      demoLogger.error('Error loading cached likes:', error);
-    }
+    let cancelled = false;
+    void (async () => {
+      const snapshot = await readLikedNftsSnapshot();
+      if (cancelled) return;
+      if (snapshot) {
+        likedSnapshotFidRef.current = snapshot.fid;
+        setLikedNFTs(snapshot.nfts);
+        setLikedNFTsLoaded(true);
+        return;
+      }
+      try {
+        const mediaKeys = await getLikedMediaKeysCache();
+        if (!cancelled && mediaKeys.length > 0) {
+          setLikedNFTs(mediaKeys.map((mediaKey) => ({ mediaKey } as NFT)));
+        }
+      } catch (error) {
+        demoLogger.error('Error loading cached likes:', error);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [environment]);
 
   useEffect(() => {
@@ -292,18 +307,24 @@ const DemoBase: React.FC = () => {
       return;
     }
     skipEmptyLikeCacheWrite.current = false;
+
+    // Reading the cache is async, so the first renders still hold likedNFTs === []
+    // while that read is in flight. skipEmptyLikeCacheWrite only absorbs one such
+    // render, and `fid` resolving re-runs this effect — so without this guard we'd
+    // persist [] and wipe the very cache we're about to read. Only write once the
+    // list is real: non-empty, or confirmed loaded as genuinely empty.
+    if (likedNFTs.length === 0 && !likedNFTsLoaded) return;
+
     try {
       const mediaKeys = likedNFTs
         .map((nft) => nft.mediaKey || getMediaKey(nft))
         .filter((key): key is string => Boolean(key));
-      localStorage.setItem('podplayr_liked_media_keys', JSON.stringify(mediaKeys));
+      void setLikedMediaKeysCache(mediaKeys); // fire-and-forget cache write
     } catch {
-      // Ignore quota / private-mode failures
+      // getMediaKey can throw on a malformed NFT — never break the effect.
     }
     if (!fid) return;
-    if (likedNFTs.length > 0 || likedNFTsLoaded) {
-      writeLikedNftsSnapshot(fid, likedNFTs);
-    }
+    void writeLikedNftsSnapshot(fid, likedNFTs); // fire-and-forget cache write
   }, [likedNFTs, fid, likedNFTsLoaded]);
 
   useEffect(() => {
@@ -317,7 +338,7 @@ const DemoBase: React.FC = () => {
           likedSnapshotFidRef.current = null;
           setLikedNFTs([]);
           setLikedNFTsLoaded(true);
-          clearLikedNftsLocalCache();
+          void clearLikedNftsLocalCache();
           return;
         }
         if (!fid) return;
@@ -333,7 +354,7 @@ const DemoBase: React.FC = () => {
         setLikedNFTs([]);
         setLikedNFTsLoaded(false);
       } else {
-        const snapshot = readLikedNftsSnapshot();
+        const snapshot = await readLikedNftsSnapshot();
         if (snapshot && snapshot.fid === fid) {
           likedSnapshotFidRef.current = fid;
           setLikedNFTs(snapshot.nfts);
@@ -348,10 +369,10 @@ const DemoBase: React.FC = () => {
         const liked = (await getLikedNFTs(fid)).filter(isPlayableMediaNFT);
         likedSnapshotFidRef.current = fid;
         setLikedNFTs(liked);
-        writeLikedNftsSnapshot(fid, liked);
+        void writeLikedNftsSnapshot(fid, liked);
         applyConfirmedPlayback(liked, (updated) => {
           setLikedNFTs(updated);
-          writeLikedNftsSnapshot(fid, updated);
+          void writeLikedNftsSnapshot(fid, updated);
         });
       } catch (error) {
         demoLogger.error('Error loading liked NFTs:', error);
@@ -379,15 +400,18 @@ const DemoBase: React.FC = () => {
     });
   }, []);
 
+  // Only subscribe while ExploreView is actually visible — it's the only consumer
+  // of recentSearches, and opening a Firestore listener for it on home-screen mount
+  // wastes one of the three cold-start network slots for data that may never be seen.
   useEffect(() => {
-    if (!fid) return;
+    if (!fid || !currentPage.isExplore) return;
 
     const unsubscribe = subscribeToRecentSearches(fid, (searches) => {
       setRecentSearches(searches);
     });
 
     return unsubscribe;
-  }, [fid]);
+  }, [fid, currentPage.isExplore]);
 
   const releaseVideoResources = useCallback(() => {
     const currentId = currentPlayingNFT

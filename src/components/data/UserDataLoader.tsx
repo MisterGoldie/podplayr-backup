@@ -5,12 +5,18 @@ import { searchUsers, fetchUserNFTs } from '../../lib/firebase';
 import { getLikedNFTs, subscribeToLikedNFTs } from '../../lib/firebase/likes';
 import { getMediaKey } from '../../utils/media';
 import { applyConfirmedPlayback, isPlayableMediaNFT } from '../../utils/isMediaNFT';
+import { idbGetJson, idbRemove, idbSetJson } from '../../utils/idbCache';
+import { getLikedMediaKeysCache } from '../../utils/likedMediaKeysCache';
 import type { NFT, FarcasterUser } from '../../types/user';
 
+// Backed by IndexedDB, not localStorage/sessionStorage — those are blocked by
+// Tracking Prevention in Farcaster's WKWebView (every read returns null,
+// every write silently no-ops), which meant this stale-while-revalidate
+// cache never actually warmed a single mobile session. IndexedDB is not
+// subject to that restriction. See src/utils/idbCache.ts.
 const NFT_CACHE_KEY = 'podplayr_nft_cache_v2_';
 const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
 
-// Use sessionStorage instead of module-level Map for persistence across component mounts
 const SESSION_CACHE_KEY = 'podplayr_user_data_session_cache_v2';
 const SESSION_CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
@@ -29,12 +35,11 @@ interface UserDataLoaderProps {
   onError?: (error: string) => void;
 }
 
-const getSessionCache = (): Map<number, CachedUserData> => {
+const getSessionCache = async (): Promise<Map<number, CachedUserData>> => {
   try {
-    const cached = sessionStorage.getItem(SESSION_CACHE_KEY);
-    if (cached) {
-      const data = JSON.parse(cached);
-      return new Map(Object.entries(data).map(([key, value]) => [parseInt(key), value as CachedUserData]));
+    const data = await idbGetJson<Record<string, CachedUserData>>(SESSION_CACHE_KEY);
+    if (data) {
+      return new Map(Object.entries(data).map(([key, value]) => [parseInt(key, 10), value]));
     }
   } catch (error) {
     console.error('Error reading session cache:', error);
@@ -42,19 +47,19 @@ const getSessionCache = (): Map<number, CachedUserData> => {
   return new Map();
 };
 
-const setSessionCache = (cache: Map<number, CachedUserData>) => {
+const setSessionCache = async (cache: Map<number, CachedUserData>): Promise<void> => {
   try {
     const data = Object.fromEntries(cache.entries());
-    sessionStorage.setItem(SESSION_CACHE_KEY, JSON.stringify(data));
+    await idbSetJson(SESSION_CACHE_KEY, data);
   } catch (error) {
     console.error('Error writing session cache:', error);
   }
 };
 
-const getCachedNFTs = (userId: number): NFT[] | null => {
-  const cached = localStorage.getItem(`${NFT_CACHE_KEY}${userId}`);
+const getCachedNFTs = async (userId: number): Promise<NFT[] | null> => {
+  const cached = await idbGetJson<{ nfts: NFT[]; timestamp: number }>(`${NFT_CACHE_KEY}${userId}`);
   if (cached) {
-    const { nfts, timestamp } = JSON.parse(cached);
+    const { nfts, timestamp } = cached;
     if (Date.now() - timestamp < TWENTY_FOUR_HOURS && Array.isArray(nfts) && nfts.length > 0) {
       // Reject caches written while cover selection was broken (empty image fields).
       const missingCover = nfts.filter(
@@ -66,7 +71,7 @@ const getCachedNFTs = (userId: number): NFT[] | null => {
           !nft?.videoUrl
       ).length;
       if (missingCover > 0) {
-        localStorage.removeItem(`${NFT_CACHE_KEY}${userId}`);
+        void idbRemove(`${NFT_CACHE_KEY}${userId}`);
         return null;
       }
       return nfts;
@@ -75,32 +80,20 @@ const getCachedNFTs = (userId: number): NFT[] | null => {
   return null;
 };
 
-const withLikeStatus = (nfts: NFT[]): NFT[] => {
-  const cachedLikes = localStorage.getItem('podplayr_liked_media_keys');
-  let mediaKeys: string[] = [];
-  if (cachedLikes) {
-    try {
-      mediaKeys = JSON.parse(cachedLikes) as string[];
-    } catch (error) {
-      console.error('Error parsing cached likes:', error);
-    }
-  }
-
+/** Pure — caller awaits the mediaKeys cache once and passes it in. */
+const withLikeStatus = (nfts: NFT[], likedMediaKeys: string[]): NFT[] => {
   return nfts.map((nft) => {
     const mediaKey = getMediaKey(nft);
     return {
       ...nft,
       mediaKey,
-      isLikedCached: mediaKeys.includes(mediaKey),
+      isLikedCached: likedMediaKeys.includes(mediaKey),
     };
   });
 };
 
-const cacheOwnedNFTs = (userFid: number, nfts: NFT[]) => {
-  localStorage.setItem(
-    `${NFT_CACHE_KEY}${userFid}`,
-    JSON.stringify({ nfts, timestamp: Date.now() })
-  );
+const cacheOwnedNFTs = async (userFid: number, nfts: NFT[]): Promise<void> => {
+  await idbSetJson(`${NFT_CACHE_KEY}${userFid}`, { nfts, timestamp: Date.now() });
 };
 
 export const UserDataLoader: React.FC<UserDataLoaderProps> = ({
@@ -143,7 +136,8 @@ export const UserDataLoader: React.FC<UserDataLoaderProps> = ({
 
     const loadUserData = async () => {
       try {
-        const sessionCache = getSessionCache();
+        const sessionCache = await getSessionCache();
+        if (cancelled) return;
         const cached = sessionCache.get(userFid);
         const now = Date.now();
 
@@ -176,7 +170,10 @@ export const UserDataLoader: React.FC<UserDataLoaderProps> = ({
 
         // Serve local cache immediately (stale-while-revalidate), then always
         // refresh via fetchUserNFTs so verified wallets aren't missed.
-        const cachedNFTs = getCachedNFTs(userFid);
+        const [likedMediaKeys, cachedNFTs] = await Promise.all([
+          getLikedMediaKeysCache(),
+          getCachedNFTs(userFid),
+        ]);
         if (cachedNFTs?.length) {
           const hasValidStructure = cachedNFTs.every(
             (nft) =>
@@ -186,9 +183,9 @@ export const UserDataLoader: React.FC<UserDataLoaderProps> = ({
           );
 
           if (hasValidStructure) {
-            handleNFTsLoaded(withLikeStatus(cachedNFTs));
+            handleNFTsLoaded(withLikeStatus(cachedNFTs, likedMediaKeys));
           } else {
-            localStorage.removeItem(`${NFT_CACHE_KEY}${userFid}`);
+            void idbRemove(`${NFT_CACHE_KEY}${userFid}`);
           }
         }
 
@@ -197,8 +194,8 @@ export const UserDataLoader: React.FC<UserDataLoaderProps> = ({
 
         // Do not soft-merge covers from cache — that preferred OpenSea collection
         // art over Alchemy token stills and could pollute animation_url.
-        const nftsWithLikeStatus = withLikeStatus(freshNFTs);
-        cacheOwnedNFTs(userFid, nftsWithLikeStatus);
+        const nftsWithLikeStatus = withLikeStatus(freshNFTs, likedMediaKeys);
+        void cacheOwnedNFTs(userFid, nftsWithLikeStatus); // fire-and-forget cache write
         handleNFTsLoaded(nftsWithLikeStatus);
 
         let likedNFTs: NFT[] = cached?.likedNFTs || [];
@@ -212,27 +209,29 @@ export const UserDataLoader: React.FC<UserDataLoaderProps> = ({
             if (cancelled) return;
             handleLikedNFTsLoaded(updatedLikedNFTs);
 
-            const currentCache = getSessionCache();
-            const existingCache = currentCache.get(userFid);
-            if (existingCache) {
-              currentCache.set(userFid, {
-                ...existingCache,
-                likedNFTs: updatedLikedNFTs,
-                timestamp: Date.now(),
-              });
-              setSessionCache(currentCache);
-            }
+            void (async () => {
+              const currentCache = await getSessionCache();
+              const existingCache = currentCache.get(userFid);
+              if (existingCache) {
+                currentCache.set(userFid, {
+                  ...existingCache,
+                  likedNFTs: updatedLikedNFTs,
+                  timestamp: Date.now(),
+                });
+                await setSessionCache(currentCache);
+              }
+            })();
           });
         }
 
-        const updatedCache = getSessionCache();
+        const updatedCache = await getSessionCache();
         updatedCache.set(userFid, {
           userData,
           nfts: nftsWithLikeStatus,
           likedNFTs,
           timestamp: Date.now(),
         });
-        setSessionCache(updatedCache);
+        void setSessionCache(updatedCache); // fire-and-forget cache write
       } catch (error) {
         if (cancelled) return;
         console.error('Error loading user data:', error);

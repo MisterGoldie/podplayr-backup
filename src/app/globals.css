@@ -44,6 +44,9 @@
 }
 
 * {
+  /* Suppress the gray/blue tap flash on iOS — the single most visible
+     "not a native app" tell in Farcaster's WKWebView. */
+  -webkit-tap-highlight-color: transparent;
   scrollbar-width: none; /* Firefox */
   -ms-overflow-style: none; /* IE and Edge */
 }
