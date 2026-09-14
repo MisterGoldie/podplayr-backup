@@ -1,5 +1,10 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
+import {
+  getFirestore,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+} from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { getStorage } from 'firebase/storage';
 import { logger } from '../../utils/logger';
@@ -26,7 +31,30 @@ const firebaseConfig = {
 // (plays, likes, etc.) until a hard reload. Reuse the existing app instead.
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 export { app };
-export const db = getFirestore(app);
+
+// Enable IndexedDB-backed offline persistence so that onSnapshot queries
+// (recently played, top played) return cached data instantly on subsequent
+// app opens instead of waiting for a cold Firestore network round-trip.
+// IndexedDB is available in Farcaster's WKWebView even when Tracking
+// Prevention blocks localStorage/cookies — this is the key difference.
+// initializeFirestore must be called before getFirestore, and only once.
+// Fast Refresh re-runs this module but getApps() reuses the existing app,
+// so guard with a try/catch — the second call throws ONLY if persistence was
+// already configured (i.e., in dev Fast Refresh), which is fine to ignore.
+function createDb() {
+  try {
+    return initializeFirestore(app, {
+      localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager(),
+      }),
+    });
+  } catch {
+    // Already initialised (Fast Refresh / module re-execution) — reuse.
+    return getFirestore(app);
+  }
+}
+
+export const db = createDb();
 export const auth = getAuth(app);
 export const storage = getStorage(app);
 
