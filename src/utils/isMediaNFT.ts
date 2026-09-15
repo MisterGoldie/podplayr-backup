@@ -3,6 +3,7 @@ import {
   buildArweaveMediaFallbackUrls,
   buildIpfsFallbackUrls,
   isIpfsCorsHostileUrl,
+  isCorsProbeBlindUrl,
   extractIPFSPath,
   parseArweaveMediaPath,
   processMediaUrl,
@@ -1078,7 +1079,7 @@ export const probeMediaContentType = async (url: string): Promise<string> => {
   };
 
   const rankedProbeList = filterLivePlaybackUrls(url, Array.from(candidates)).filter(
-    (u) => !isIpfsCorsHostileUrl(u)
+    (u) => !isIpfsCorsHostileUrl(u) && !isCorsProbeBlindUrl(u)
   );
   const arweaveRawMimeProbe = rankedProbeList.filter((u) =>
     /arweave\.net\/raw\//i.test(u)

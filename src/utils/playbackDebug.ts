@@ -1,5 +1,5 @@
 /**
- * TEMP PLAYBACK DEBUG — off.
+ * TEMP PLAYBACK DEBUG — on.
  *
  * `playbackDebug()` returns before it touches the console or builds a string,
  * so the call sites throughout the player cost nothing while this is false.
@@ -14,7 +14,7 @@
  * The on-screen overlay that read this buffer has been removed; restoring it
  * means a component that subscribes via subscribePlaybackDebug.
  */
-export const PLAYBACK_DEBUG_ENABLED = false;
+export const PLAYBACK_DEBUG_ENABLED = true;
 
 const PREFIX = '[PLAYBACK DEBUG — REMOVE]';
 

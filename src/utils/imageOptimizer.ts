@@ -392,6 +392,7 @@ export function getCardThumbAlternates(
 
   const skipWsrv =
     isBrowserFriendlyCdnUrl(underlying) ||
+    isThumbProxyBlockedUrl(underlying) ||
     isVideoMediaUrl(underlying) ||
     isLikelyTokenVideoCoverUrl(underlying) ||
     knownVideoCover ||
@@ -403,10 +404,12 @@ export function getCardThumbAlternates(
 
   // OpenSea / imgur / similar: wsrv is often blocked. Direct, then our proxy,
   // then Alchemy fetch — same hops for every NFT on those CDNs.
+  // TLDs the proxy refuses outright need the same treatment: with no wsrv hop
+  // left to fall back on, the direct origin is the only candidate there is.
   if (
     underlying &&
     !isLocalOrDataUrl(underlying) &&
-    isBrowserFriendlyCdnUrl(underlying) &&
+    (isBrowserFriendlyCdnUrl(underlying) || isThumbProxyBlockedUrl(underlying)) &&
     !isVideoMediaUrl(underlying) &&
     !isLikelyTokenVideoCoverUrl(underlying)
   ) {
@@ -540,6 +543,27 @@ export function isBrowserFriendlyCdnUrl(url: string): boolean {
     return /seadn\.io|openseauserdata|cloudinary\.com|nft2?-cdn\.alchemy\.com|imgur\.com|simplehash/i.test(
       url
     );
+  }
+}
+
+/**
+ * wsrv.nl and images.weserv.nl are the same service, and it refuses whole TLDs
+ * by policy — `400 {"message":"Domain or TLD blocked by policy"}` — before it
+ * ever fetches the origin. Because both thumb-proxy hops are that one service,
+ * an affected cover failed twice and fell through to default-nft.png even though
+ * the origin image was fine (Spore's `.xyz` art is a valid PNG served at 200).
+ *
+ * Verified against the proxy rather than guessed: .xyz, .fun, .top and .club are
+ * refused; .io, .art, .wtf and other NFT-common TLDs pass.
+ */
+const THUMB_PROXY_BLOCKED_TLD = /\.(?:xyz|fun|top|club)$/i;
+
+export function isThumbProxyBlockedUrl(url: string): boolean {
+  if (!url || isLocalOrDataUrl(url)) return false;
+  try {
+    return THUMB_PROXY_BLOCKED_TLD.test(new URL(url).hostname.toLowerCase());
+  } catch {
+    return false;
   }
 }
 
@@ -723,9 +747,10 @@ export function getCardThumbUrl(
   if (alchemy) return alchemy;
 
   // OpenSea / imgur / SimpleHash already serve browser-reachable stills.
-  // wsrv.nl is frequently blocked by those CDNs (hotlink / bot checks).
+  // wsrv.nl is frequently blocked by those CDNs (hotlink / bot checks), and it
+  // refuses some TLDs outright — either way the origin has to be loaded direct.
   if (
-    isBrowserFriendlyCdnUrl(url) &&
+    (isBrowserFriendlyCdnUrl(url) || isThumbProxyBlockedUrl(url)) &&
     !isVideoMediaUrl(url) &&
     !isLikelyTokenVideoCoverUrl(url)
   ) {
@@ -764,6 +789,7 @@ export function getResizedImageUrl(url: string, size = 360): string {
     /\.svg(\?|$)/i.test(url) ||
     shouldPreserveAnimation(url) ||
     isBrowserFriendlyCdnUrl(url) ||
+    isThumbProxyBlockedUrl(url) ||
     isArweaveMediaUrl(url) ||
     isIpfsMediaUrl(url) ||
     // wsrv/_next/image cannot thumbnail MP4 covers (Nifty Island, etc.)

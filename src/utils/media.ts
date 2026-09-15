@@ -44,11 +44,36 @@ export const getCleanIPFSUrl = (url: string): string => {
 };
 
 /** Metadata often has leading spaces / C0 controls (` ipfs://…`). Next/Image throws on those. */
+const LOOPBACK_HOST_RE = /^(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]|::1)$/i;
+
+/**
+ * Some collections (Spore) minted metadata pointing at the minting machine's
+ * own dev server — `http://localhost:3000/api/images/<uuid>`. Chrome's Private
+ * Network Access blocks public → loopback outright, so those can never load for
+ * anyone but whoever is running that server. Spore serves the identical
+ * `/api/images/<uuid>` path on its public host, so recover those; any other
+ * loopback URL is unreachable and is dropped so the fallback chain moves on
+ * instead of burning a candidate slot on a guaranteed failure.
+ */
+const rehostLoopbackUrl = (url: string): string => {
+  if (!/^https?:\/\//i.test(url)) return url;
+  try {
+    const parsed = new URL(url);
+    if (!LOOPBACK_HOST_RE.test(parsed.hostname)) return url;
+    if (/^\/api\/images\//i.test(parsed.pathname)) {
+      return `https://app.spore.xyz${parsed.pathname}${parsed.search}`;
+    }
+    return '';
+  } catch {
+    return url;
+  }
+};
+
 export const sanitizeMediaUrl = (url?: string | null): string => {
   if (!url || typeof url !== 'string') return '';
   const cleaned = url.replace(/^[\s\x00-\x1f\x7f]+|[\s\x00-\x1f\x7f]+$/g, '');
   if (!cleaned || isDangerousResourceUrl(cleaned)) return '';
-  return cleaned;
+  return rehostLoopbackUrl(cleaned);
 };
 
 // Prefer gateways that currently resolve and serve NFT media reliably.
@@ -506,6 +531,30 @@ export const isIpfsCorsHostileUrl = (url: string): boolean => {
     return IPFS_CORS_HOSTILE.test(new URL(url).hostname);
   } catch {
     return /w3s\.link|nftstorage\.link|dweb\.link|(?:^|\/\/)(?:gateway\.)?ipfs\.io/i.test(url);
+  }
+};
+
+/**
+ * URLs a fetch()/HEAD probe can never succeed against, even though the bytes are
+ * perfectly reachable by <img>/<video>. Distinct from IPFS_CORS_HOSTILE above:
+ * those hosts are dropped as candidates entirely, whereas these must be KEPT for
+ * display and only skipped when probing, or the asset blanks out.
+ *
+ * - spore.xyz serves 200 with no Access-Control-Allow-Origin, so the probe throws
+ *   on a file that loads fine. It also answers `application/octet-stream`, which
+ *   the mime probe rejects anyway, so the 8s timeout per asset bought nothing.
+ * - Loopback hosts are blocked outright by Chrome's Private Network Access from
+ *   any non-local origin. sanitizeMediaUrl rewrites the ones it can, but this
+ *   candidate list is built from the raw URL and never passes through it.
+ */
+const CORS_PROBE_BLIND_HOST =
+  /^(?:(?:.+\.)?spore\.xyz|localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]|::1)$/i;
+
+export const isCorsProbeBlindUrl = (url: string): boolean => {
+  try {
+    return CORS_PROBE_BLIND_HOST.test(new URL(url).hostname);
+  } catch {
+    return /(?:^|\/\/|\.)spore\.xyz|\/\/(?:localhost|127\.0\.0\.1)/i.test(url);
   }
 };
 
