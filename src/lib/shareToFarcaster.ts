@@ -19,15 +19,23 @@ function warmNftEmbed(contract: string, tokenId: string): void {
   }
 }
 
-async function composeCastWithFallback(text: string, url: string): Promise<void> {
+function postedCastHash(result: unknown): string | null {
+  if (!result || typeof result !== 'object') return null;
+  const cast = (result as { cast?: unknown }).cast;
+  if (!cast || typeof cast !== 'object') return null;
+  const hash = (cast as { hash?: unknown }).hash;
+  return typeof hash === 'string' && /^0x[a-fA-F0-9]{8,128}$/.test(hash) ? hash : null;
+}
+
+async function composeCastWithFallback(text: string, url: string): Promise<string | null> {
   try {
     const { sdk } = await import('@farcaster/miniapp-sdk');
     if (await sdk.isInMiniApp()) {
-      await sdk.actions.composeCast({
+      const result = await sdk.actions.composeCast({
         text,
         embeds: [url],
       });
-      return;
+      return postedCastHash(result);
     }
   } catch (error) {
     console.error('composeCast failed, falling back to compose URL:', error);
@@ -37,6 +45,30 @@ async function composeCastWithFallback(text: string, url: string): Promise<void>
     `https://farcaster.xyz/~/compose?text=${encodeURIComponent(text)}` +
     `&embeds[]=${encodeURIComponent(url)}`;
   window.open(composeUrl, '_blank', 'noopener,noreferrer');
+  return null;
+}
+
+/** Fire-and-forget. Only the Quick Auth subject can be notified. */
+function thankForShare(payload: {
+  kind: 'nft' | 'profile';
+  castHash: string;
+  username?: string;
+  fid?: number;
+  contract?: string;
+  tokenId?: string;
+}): void {
+  void (async () => {
+    const { sdk } = await import('@farcaster/miniapp-sdk');
+    if (!(await sdk.isInMiniApp())) return;
+    const token = sdk.quickAuth.token || (await sdk.quickAuth.getToken()).token;
+    if (!token) return;
+    await fetch('/api/notifications/share-thanks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, ...payload }),
+      keepalive: true,
+    });
+  })().catch(() => {});
 }
 
 export async function shareProfileToFarcaster({
@@ -49,7 +81,10 @@ export async function shareProfileToFarcaster({
   const url = getProfileUrl(fid);
   const handle = username ? `@${username.replace(/^@/, '')}` : 'this profile';
   const text = `Check out ${handle} on @podplayr`;
-  await composeCastWithFallback(text, url);
+  const castHash = await composeCastWithFallback(text, url);
+  if (castHash) {
+    thankForShare({ kind: 'profile', castHash, fid, username });
+  }
 }
 
 export async function shareLiveToFarcaster(): Promise<void> {
@@ -76,5 +111,13 @@ export async function shareNftToFarcaster({
   warmNftEmbed(contract, cleanTokenId);
   const title = name ? `"${name}"` : 'this';
   const text = `Check out ${title} on @podplayr`;
-  await composeCastWithFallback(text, url);
+  const castHash = await composeCastWithFallback(text, url);
+  if (castHash) {
+    thankForShare({
+      kind: 'nft',
+      castHash,
+      contract,
+      tokenId: cleanTokenId,
+    });
+  }
 }
