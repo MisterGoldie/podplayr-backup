@@ -37,9 +37,10 @@ export const LIVE_PLAYBACK_ID = ACTIVE_STREAMER.playbackId;
 export const LIVE_HLS_URL = `https://stream.mux.com/${LIVE_PLAYBACK_ID}.m3u8`;
 
 export const LIVE_DEFAULT_POSTER_URL = '/livedefault.png';
-export const LIVE_WILL_POSTER_URL = '/sazonstream.png';
+export const LIVE_WILL_POSTER_URL = '/willstream.png';
+export const LIVE_SAZON_POSTER_URL = '/sazonstream.png';
 
-/** Fallback poster. Will’s art only while Mux is actually live. */
+/** Fallback poster. livestreamers art only while Mux is actually live. */
 export const LIVE_POSTER_URL = LIVE_DEFAULT_POSTER_URL;
 
 export function livePosterUrl({
@@ -49,7 +50,7 @@ export function livePosterUrl({
   /** Kept so callers that pass session state do not break. Poster follows `online` only. */
   showEnded?: boolean;
 }): string {
-  if (ACTIVE_STREAMER === LIVE_STREAMERS.sazon && online) return LIVE_WILL_POSTER_URL;
+  if (ACTIVE_STREAMER === LIVE_STREAMERS.sazon && online) return LIVE_SAZON_POSTER_URL;
   return LIVE_DEFAULT_POSTER_URL;
 }
 
