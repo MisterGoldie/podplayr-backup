@@ -22,19 +22,14 @@ export const LIVE_STREAMERS = {
   },
   sazon: {
     label: 'Sazon',
-    // No separate Mux "Stream ID" on hand — the playback ID doubles as the chat
-    // namespace key fine since it's already unique to this stream.
-    streamId: 'sVDSlO11WykB6zMjrm0002m01g1Q6rHwaGNI5mUhdr6tNQ',
-    playbackId: 'sVDSlO11WykB6zMjrm0002m01g1Q6rHwaGNI5mUhdr6tNQ',
+    streamId: 'XtaLVPVeOlJX2Wl01imnrGsWJm1JqMKa00GIrQefLEsd00',
+    playbackId: 'wMXjpFK3RI6bl44lkyxnq4zRMYt6g6srTLVEeUOTXxQ',
     rtmpUrl: 'rtmps://global-live.mux.com:443/app',
-    // Stream key intentionally not stored here — it lives in the Mux dashboard
-    // and goes straight into the streamer's OBS/Restream config. The app never
-    // needs it; only `playbackId` is required to play the stream.
   },
 } as const satisfies Record<string, LiveStreamerConfig>;
 
 /** Change this to switch which streamer's feed the whole app plays/chats around. */
-const ACTIVE_STREAMER = LIVE_STREAMERS.will;
+const ACTIVE_STREAMER = LIVE_STREAMERS.sazon;
 
 export const LIVE_STREAM_ID = ACTIVE_STREAMER.streamId;
 export const LIVE_PLAYBACK_ID = ACTIVE_STREAMER.playbackId;
@@ -42,7 +37,7 @@ export const LIVE_PLAYBACK_ID = ACTIVE_STREAMER.playbackId;
 export const LIVE_HLS_URL = `https://stream.mux.com/${LIVE_PLAYBACK_ID}.m3u8`;
 
 export const LIVE_DEFAULT_POSTER_URL = '/livedefault.png';
-export const LIVE_WILL_POSTER_URL = '/willstream.png';
+export const LIVE_WILL_POSTER_URL = '/sazonstream.png';
 
 /** Fallback poster. Will’s art only while Mux is actually live. */
 export const LIVE_POSTER_URL = LIVE_DEFAULT_POSTER_URL;
@@ -54,7 +49,7 @@ export function livePosterUrl({
   /** Kept so callers that pass session state do not break. Poster follows `online` only. */
   showEnded?: boolean;
 }): string {
-  if (ACTIVE_STREAMER === LIVE_STREAMERS.will && online) return LIVE_WILL_POSTER_URL;
+  if (ACTIVE_STREAMER === LIVE_STREAMERS.sazon && online) return LIVE_WILL_POSTER_URL;
   return LIVE_DEFAULT_POSTER_URL;
 }
 
