@@ -6,7 +6,7 @@ import { setupArweaveUrlInterceptor } from "../utils/networkErrorHandler";
 import { useMiniKit } from '@coinbase/onchainkit/minikit';
 
 /** Upper bound on how long the splash may cover a deep-link resolve. */
-const SPLASH_DEEP_LINK_MAX_WAIT_MS = 3000;
+const SPLASH_DEEP_LINK_MAX_WAIT_MS = 15000;
 
 function hideFarcasterSplash() {
   let cancelled = false;
@@ -52,9 +52,16 @@ const App: React.FC = () => {
   const { setFrameReady, isFrameReady } = useMiniKit();
 
   useEffect(() => {
-    if (!isFrameReady) {
-      setFrameReady();
-    }
+    if (isFrameReady) return;
+    let cancelled = false;
+    void (async () => {
+      const { waitForDeepLinkSettled } = await import('../lib/deepLinkReady');
+      await waitForDeepLinkSettled(SPLASH_DEEP_LINK_MAX_WAIT_MS);
+      if (!cancelled) setFrameReady();
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [isFrameReady, setFrameReady]);
 
   useEffect(() => {

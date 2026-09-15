@@ -41,7 +41,9 @@ const HIT_REDIS_TTL_SECONDS = 60 * 60 * 6; // 6 hours
 const MISS_REDIS_TTL_SECONDS = 60 * 5; // 5 minutes
 
 /** Bump when the resolved shape changes so old entries age out instead of serving stale. */
-const CACHE_SCHEMA_VERSION = 'v1';
+// v3: Thirdweb `data:application/json;base64` tokenURIs are parsed, so tokens
+// previously cached as "not playable" (empty animation_url) must not stick.
+const CACHE_SCHEMA_VERSION = 'v3';
 
 function embedCacheKey(contract: string, tokenId: string): string {
   return `PODPLAYR:nft-embed:${CACHE_SCHEMA_VERSION}:${contract.toLowerCase()}:${tokenId.trim()}`;

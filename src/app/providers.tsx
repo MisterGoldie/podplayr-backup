@@ -70,8 +70,9 @@ export interface FarcasterLocationContext {
   /** The embed URL that triggered this launch (present when type === 'cast_embed'). */
   embed?: string;
   cast?: {
-    fid: number;
-    hash: string;
+    fid?: number;
+    hash?: string;
+    embeds?: unknown;
   };
   notification?: {
     notificationId?: string;
@@ -167,9 +168,25 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
           // first time) the host can easily take longer than the timeout to
           // deliver context, and losing it means losing location.embed too,
           // which is what deep-link routing falls back on.
+          const applyLocation = (context: Awaited<typeof sdk.context> | null) => {
+            // Always record that host context landed — even with no FID and
+            // even on Base — so NFT deep links in location.embed are not
+            // dropped, and Demo can tell "context not here yet" from "no embed".
+            const sdkLocation = (context as { location?: FarcasterLocationContext | null } | null)
+              ?.location;
+            setLocationContext({
+              type: sdkLocation?.type || 'default',
+              embed: sdkLocation?.embed,
+              cast: sdkLocation?.cast,
+              notification: sdkLocation?.notification,
+            });
+          };
+
           const applyContext = (context: Awaited<typeof sdk.context> | null) => {
             const clientFid = context?.client?.clientFid;
             const hostedByBase = isCoinbaseWalletClientFid(clientFid) || isBaseAppBrowser();
+
+            applyLocation(context);
 
             if (hostedByBase) {
               setIsFarcaster(false);
@@ -201,16 +218,6 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
                   added: context.client.added,
                   safeAreaInsets: context.client.safeAreaInsets,
                   notificationDetails: context.client.notificationDetails
-                });
-              }
-
-              if (context.location) {
-                const sdkLocation = context.location as any;
-                setLocationContext({
-                  type: sdkLocation.type,
-                  embed: sdkLocation.embed,
-                  cast: sdkLocation.cast,
-                  notification: sdkLocation.notification,
                 });
               }
             } else if (context) {
@@ -246,6 +253,14 @@ function InnerProviders({ children }: { children: React.ReactNode }) {
           setIsMiniKit(true);
           setEnvironment('coinbase');
           applyMiniKitUser();
+          const miniLocation = (miniKitContext as { location?: FarcasterLocationContext } | undefined)
+            ?.location;
+          setLocationContext({
+            type: miniLocation?.type || 'default',
+            embed: miniLocation?.embed,
+            cast: miniLocation?.cast,
+            notification: miniLocation?.notification,
+          });
           setIsFidReady(true);
           return;
         }

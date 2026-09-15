@@ -26,7 +26,7 @@ import { UserImageProvider } from '../contexts/UserImageContext';
 import { BaseAppSignIn } from './auth/BaseAppSignIn';
 import { WebPrivyController } from './auth/WebPrivyController';
 import { hasPrivyAppId } from './providers/PrivyAppProvider';
-import { parseProfileFid, parseNftDeepLink, isLivePath, isLiveLaunch } from '../lib/miniapp';
+import { parseProfileFid, parseNftDeepLinkFromLaunch, isLivePath, isLiveLaunch } from '../lib/miniapp';
 import { markDeepLinkSettled } from '../lib/deepLinkReady';
 import { emitLikeCountBump } from '../lib/likeCountEvents';
 import { LivePlayer } from './live/LivePlayer';
@@ -60,15 +60,6 @@ const HOME_PAGE: PageState = {
   isProfile: false,
   isUserProfile: false
 };
-
-/** requestIdleCallback where available, short timer elsewhere (Safari/iOS). */
-function whenIdle(fn: () => void): void {
-  const ric = (window as unknown as {
-    requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
-  }).requestIdleCallback;
-  if (ric) ric(fn, { timeout: 2000 });
-  else window.setTimeout(fn, 600);
-}
 
 function TabLoading() {
   return (
@@ -203,19 +194,15 @@ const DemoBase: React.FC = () => {
   }, []);
 
   const [currentPage, setCurrentPage] = useState<PageState>(() => {
-    if (typeof window === 'undefined') return HOME_PAGE;
+    if (typeof window === 'undefined') return { ...HOME_PAGE, isHome: false };
     if (parseProfileFid(window.location.pathname, window.location.search)) {
       return { ...HOME_PAGE, isHome: false, isUserProfile: true };
     }
-    // Also hold off rendering HomeView for a shared-NFT deep link — it
-    // resolves asynchronously (Alchemy fetch for real contracts), and
-    // without this the home page fully renders behind the maximized player
-    // for that gap, causing a visible flash to the home page before the
-    // player pops up.
-    if (parseNftDeepLink(window.location.pathname, window.location.search)) {
-      return { ...HOME_PAGE, isHome: false };
-    }
-    return HOME_PAGE;
+    // Never paint HomeView on first frame. Shared casts often launch at
+    // homeUrl (`/`); showing home here is the 5–10s flash before the player.
+    // Organic launches get HomeView once the deep-link effect confirms there
+    // is no embed.
+    return { ...HOME_PAGE, isHome: false };
   });
   const [navigationSource, setNavigationSource] = useState<NavigationSource>({
     fromExplore: false,
@@ -767,7 +754,9 @@ const DemoBase: React.FC = () => {
         }
       }
 
-      if (!nft && contract !== 'pending') {
+      // Bootstrap can have a cover + name without playback (the OG card still
+      // unfurls). Don't skip /api/nft in that case or the tap dies on HomeView.
+      if ((!nft || !isPlayableMediaNFT(nft)) && contract !== 'pending') {
         // URL alone doesn't carry network — race Base and Ethereum and take
         // the first playable result instead of waiting on them in series.
         const fetchNetwork = async (network: 'base' | 'ethereum'): Promise<NFT | null> => {
@@ -784,17 +773,20 @@ const DemoBase: React.FC = () => {
           }
           return null;
         };
-        nft = await firstNonNull([fetchNetwork('base'), fetchNetwork('ethereum')]);
+        const fetched = await firstNonNull([fetchNetwork('base'), fetchNetwork('ethereum')]);
+        if (fetched) nft = fetched;
       }
 
       if (!nft) {
         demoLogger.warn('No NFT found for deep link:', contract, tokenId);
+        setCurrentPage(HOME_PAGE);
         return;
       }
 
       const playable = withFeaturedPlayback(nft);
       if (!isPlayableMediaNFT(playable)) {
         demoLogger.warn('Deep-linked NFT is not playable:', contract, tokenId);
+        setCurrentPage(HOME_PAGE);
         return;
       }
 
@@ -803,18 +795,17 @@ const DemoBase: React.FC = () => {
       // tap on the play button provide the gesture instead of showing a
       // stuck/"frozen" player.
       await handlePlayAudio(playable, { autoplay: false });
+      // Home sits under the maximized player so minimize is the real app,
+      // not an empty purple shell. Do this AFTER play is queued or HomeView
+      // paints in the gap before currentPlayingNFT exists.
+      setCurrentPage(HOME_PAGE);
     } catch (error) {
       demoLogger.error('Error loading NFT from deep link:', error);
+      setCurrentPage(HOME_PAGE);
     } finally {
       // The splash is waiting on this so the cast opens straight into the
       // player — release it as soon as the player is queued.
       markDeepLinkSettled();
-      // We held HomeView back (currentPage.isHome=false, see the initial
-      // currentPage state) to avoid flashing the home page while this
-      // resolved. Restore it once the browser is idle so HomeView (live
-      // stream poll, featured rails) doesn't compete with the track's own
-      // bytes for the first stretch of the download.
-      whenIdle(() => setCurrentPage((prev) => (prev.isHome ? prev : HOME_PAGE)));
     }
   }, [handlePlayAudio]);
 
@@ -838,29 +829,28 @@ const DemoBase: React.FC = () => {
 
     // Primary source: window.location (works when Farcaster loads the app at
     // the exact embed URL, which is the spec behaviour for launch_miniapp).
-    let deepLink = parseNftDeepLink(window.location.pathname, window.location.search);
-
-    // Fallback: sdk.context.location.embed (present when the client loads the
-    // app at homeUrl but passes the embed URL via the SDK location context
-    // instead, e.g. Warpcast warm-state resume or clients that don't honour
-    // the action.url path).
-    if (!deepLink && farcasterLocation?.embed) {
-      try {
-        const embedUrl = new URL(farcasterLocation.embed);
-        deepLink = parseNftDeepLink(embedUrl.pathname, embedUrl.search);
-      } catch {
-        // malformed embed URL — ignore
-      }
-    }
+    // Fallback: sdk.context.location.embed / cast.embeds (hosts that open
+    // homeUrl and pass the shared NFT URL through launch context).
+    const deepLink = parseNftDeepLinkFromLaunch(
+      window.location.pathname,
+      window.location.search,
+      farcasterLocation
+    );
 
     if (!deepLink) {
-      // No deep link in the URL. Once the host has delivered (or given up on)
-      // its context there is no embed left to wait for, so stop holding the
-      // splash — a plain launch must not sit behind it.
-      if (isFidReady) markDeepLinkSettled();
+      // No deep link in the URL. Wait for miniapp context before giving up —
+      // a shared cast often lands at homeUrl with location.embed a beat later.
+      if (!isFidReady) return;
+      if ((environment === 'farcaster' || environment === 'coinbase') && !farcasterLocation) {
+        return;
+      }
+      setCurrentPage(HOME_PAGE);
+      markDeepLinkSettled();
       return;
     }
     deepLinkHandledRef.current = true;
+    setCurrentPage((prev) => (prev.isHome ? { ...prev, isHome: false } : prev));
+    setIsPlayerMinimized(false);
     // handlePlayAudio uses flushSync internally, which React forbids while
     // still inside a lifecycle/commit phase (this effect). Defer to a fresh
     // macrotask so it runs after React is done committing this render.
@@ -870,7 +860,7 @@ const DemoBase: React.FC = () => {
     window.setTimeout(() => {
       void loadNftFromDeepLinkRef.current(deepLink!.contract, deepLink!.tokenId);
     }, 0);
-  }, [farcasterLocation, isFidReady]);
+  }, [farcasterLocation, isFidReady, environment]);
 
   useEffect(() => {
     if (liveLaunchHandledRef.current) return;

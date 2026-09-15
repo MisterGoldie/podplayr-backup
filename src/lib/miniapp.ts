@@ -110,6 +110,50 @@ export function parseNftDeepLink(
   return null;
 }
 
+function parseNftUrlish(value: unknown): { contract: string; tokenId: string } | null {
+  if (typeof value !== 'string' || !value) return null;
+  try {
+    const url = new URL(value);
+    return parseNftDeepLink(url.pathname, url.search);
+  } catch {
+    return parseNftDeepLink(value, '');
+  }
+}
+
+/**
+ * NFT identity for a miniapp launch. Farcaster/Base often open `homeUrl` and
+ * pass the shared URL through `location.embed` or `location.cast.embeds`
+ * instead of putting `/nft/:contract/:tokenId` on window.location.
+ */
+export function parseNftDeepLinkFromLaunch(
+  pathname: string,
+  search = '',
+  location?: {
+    embed?: string;
+    cast?: { embeds?: unknown };
+  } | null
+): { contract: string; tokenId: string } | null {
+  const fromPath = parseNftDeepLink(pathname, search);
+  if (fromPath) return fromPath;
+
+  const fromEmbed = parseNftUrlish(location?.embed);
+  if (fromEmbed) return fromEmbed;
+
+  const embeds = location?.cast?.embeds;
+  if (!Array.isArray(embeds)) return null;
+  for (const embed of embeds) {
+    const url =
+      typeof embed === 'string'
+        ? embed
+        : embed && typeof embed === 'object' && 'url' in embed
+          ? (embed as { url?: unknown }).url
+          : null;
+    const parsed = parseNftUrlish(url);
+    if (parsed) return parsed;
+  }
+  return null;
+}
+
 type EmbedOptions = {
   imageUrl: string;
   buttonTitle: string;

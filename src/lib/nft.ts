@@ -657,7 +657,32 @@ async function readContractTokenMetadataUri(
   return '';
 }
 
+/**
+ * Thirdweb Drop / Open Edition `tokenURI` is often an inlined
+ * `data:application/json;base64,…` blob (shared image + animation_url).
+ * `isDangerousResourceUrl` correctly blocks generic `data:` from <img>/<video>,
+ * but we still have to *parse* that JSON or the WAV/MP4 never reaches playback.
+ */
+function parseDataJsonMetadata(uri: string): Partial<NFTMetadata> | null {
+  const trimmed = uri.trim();
+  const match = trimmed.match(
+    /^data:application\/json(?:;charset=[^;,]+)?(;base64)?,([\s\S]*)$/i
+  );
+  if (!match) return null;
+  try {
+    const body = match[1]
+      ? Buffer.from(match[2], 'base64').toString('utf8')
+      : decodeURIComponent(match[2]);
+    const data = JSON.parse(body) as Partial<NFTMetadata>;
+    return data && typeof data === 'object' ? data : null;
+  } catch {
+    return null;
+  }
+}
+
 async function fetchJsonMetadataFromUri(uri: string): Promise<Partial<NFTMetadata> | null> {
+  const fromData = parseDataJsonMetadata(uri);
+  if (fromData) return fromData;
   const url = processMediaUrlServer(uri, '', 'metadata');
   if (!url || isDangerousResourceUrl(url)) return null;
   try {

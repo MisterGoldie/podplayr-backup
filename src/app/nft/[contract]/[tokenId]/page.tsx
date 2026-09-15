@@ -1,12 +1,17 @@
 import type { Metadata } from 'next';
 import App from '~/app/app';
 import { getNftUrl, getServerAppUrl, miniAppMetadataTags } from '~/lib/miniapp';
-import { findFeaturedNftByIdentity } from '~/data/featuredNfts';
+import { findFeaturedNftByIdentity, withFeaturedPlayback } from '~/data/featuredNfts';
 import { resolvePlayableNftForEmbed } from '~/lib/resolvePlayableNft';
+import { getCachedEmbedNft } from '~/lib/nftEmbedCache';
 import { NFT_BOOTSTRAP_SCRIPT_ID, serializeNftBootstrap } from '~/lib/nftBootstrap';
 
 interface Props {
   params: Promise<{ contract: string; tokenId: string }>;
+}
+
+function ogImageUrl(appUrl: string, contract: string, tokenId: string): string {
+  return `${appUrl}/api/og?contract=${encodeURIComponent(contract)}&tokenId=${encodeURIComponent(tokenId)}&ogv=thumb7`;
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
@@ -14,31 +19,23 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const appUrl = await getServerAppUrl();
   const nftUrl = getNftUrl(contract, tokenId, appUrl);
 
-  const nft = await resolvePlayableNftForEmbed(contract, tokenId);
-  if (!nft) {
-    return {
-      title: 'PODPLAYR',
-      other: miniAppMetadataTags({
-        imageUrl: `${appUrl}/image.png`,
-        buttonTitle: 'Enter PODPLAYR',
-        launchUrl: appUrl,
-      }),
-    };
-  }
+  const featured = findFeaturedNftByIdentity(contract, tokenId);
+  const cached = featured ? null : (await getCachedEmbedNft(contract, tokenId))?.nft;
+  const nft = featured ? withFeaturedPlayback(featured) : cached;
 
   const resolveOgImage = (img: string) =>
     img.startsWith('/') ? `${appUrl}${img}` : img;
 
-  const isFeatured = Boolean(findFeaturedNftByIdentity(contract, tokenId));
-  const ogImage = isFeatured
-    ? resolveOgImage(nft.image || '') || `${appUrl}/image.png`
-    : `${appUrl}/api/og?contract=${encodeURIComponent(contract)}&tokenId=${encodeURIComponent(tokenId)}&ogv=thumb7`;
+  const ogImage = featured
+    ? resolveOgImage(nft?.image || '') || `${appUrl}/image.png`
+    : ogImageUrl(appUrl, contract, tokenId);
 
-  const name = nft.name || 'PODPLAYR';
-  const description = nft.description || nft.metadata?.description || 'Listen to this NFT on PODPLAYR';
+  const name = nft?.name || 'PODPLAYR';
+  const description =
+    nft?.description || nft?.metadata?.description || 'Listen to this NFT on PODPLAYR';
 
   return {
-    title: `${name} on PODPLAYR`,
+    title: nft ? `${name} on PODPLAYR` : 'PODPLAYR',
     description,
     openGraph: {
       title: name,
@@ -48,7 +45,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     },
     other: miniAppMetadataTags({
       imageUrl: ogImage,
-      buttonTitle: '▶️ Play Now',
+      buttonTitle: nft ? '▶️ Play Now' : 'Enter PODPLAYR',
       launchUrl: nftUrl,
     }),
   };

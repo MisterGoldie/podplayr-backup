@@ -2,6 +2,10 @@ import { NextRequest } from 'next/server';
 import { ImageResponse } from 'next/og';
 import { getNFTMetadata } from '../../../lib/nft';
 import { fetchNFTDetails } from '../../../lib/firebase';
+import { getCachedEmbedNft } from '../../../lib/nftEmbedCache';
+import { getCachedNftResponse } from '../../../lib/nftResponseCache';
+import { firstNonNull } from '../../../lib/nftBootstrap';
+import type { NFT } from '../../../types/user';
 
 // Server-safe media URL processing functions (extracted from media.ts)
 const IPFS_GATEWAYS = [
@@ -109,39 +113,40 @@ export async function GET(request: NextRequest) {
     let nftImage = '';
     let nftTitle = fallbackTitle;
     let nftDescription = fallbackDescription;
-    
-    // Fetch NFT metadata if contract and tokenId are provided
+
     if (contract && tokenId) {
       try {
-        
-        // First try Firebase cache (same as main app)
-        const cachedNFT = await fetchNFTDetails(contract, tokenId);
-        if (cachedNFT?.image) {
-          nftImage = await processMediaUrlServer(cachedNFT.image);
-          nftTitle = cachedNFT.name || fallbackTitle;
-          nftDescription = cachedNFT.description || fallbackDescription;
-        } else {
-          
-          // Fallback to Alchemy with both networks (same as main app)
-          for (const network of ['ethereum', 'base'] as const) {
-            try {
-              const nft = await getNFTMetadata(contract, tokenId, network);
-              
-              
-              // Try multiple image sources with proper URL processing
-              const imageUrl = nft.image || nft.metadata?.image;
-              if (imageUrl) {
-                nftImage = await processMediaUrlServer(imageUrl);
-                // Use collection name if available, fallback to NFT name, then fallback title
-                nftTitle = nft.name || nft.metadata?.name || nft.collection?.name || fallbackTitle;
-                nftDescription = nft.description || nft.metadata?.description || fallbackDescription;
-                break;
-              }
-            } catch (error) {
+        const applyNft = async (nft: Pick<NFT, 'name' | 'description' | 'image' | 'metadata' | 'collection'> | null) => {
+          if (!nft) return false;
+          const imageUrl = nft.image || nft.metadata?.image;
+          if (!imageUrl && !nft.name) return false;
+          if (imageUrl) nftImage = await processMediaUrlServer(imageUrl);
+          nftTitle = nft.name || nft.metadata?.name || nft.collection?.name || fallbackTitle;
+          nftDescription = nft.description || nft.metadata?.description || fallbackDescription;
+          return true;
+        };
+
+        const fromEmbed = (await getCachedEmbedNft(contract, tokenId))?.nft;
+        if (!(await applyNft(fromEmbed))) {
+          const fromFirebase = await fetchNFTDetails(contract, tokenId);
+          if (!(await applyNft(fromFirebase))) {
+            const fromFullCache = await firstNonNull([
+              getCachedNftResponse(contract, tokenId, 'base'),
+              getCachedNftResponse(contract, tokenId, 'ethereum'),
+            ]);
+            if (!(await applyNft(fromFullCache))) {
+              const fromChain = await firstNonNull([
+                getNFTMetadata(contract, tokenId, 'base')
+                  .then((nft) => (nft?.image || nft?.name ? nft : null))
+                  .catch(() => null),
+                getNFTMetadata(contract, tokenId, 'ethereum')
+                  .then((nft) => (nft?.image || nft?.name ? nft : null))
+                  .catch(() => null),
+              ]);
+              await applyNft(fromChain);
             }
           }
         }
-        
       } catch (error) {
         console.error('Error fetching NFT metadata:', error);
       }
@@ -284,6 +289,9 @@ export async function GET(request: NextRequest) {
         // long titles ran into the text below them.
         width: 1200,
         height: 800,
+        headers: {
+          'Cache-Control': 'public, max-age=300, s-maxage=86400, stale-while-revalidate=86400',
+        },
       }
     );
   } catch (error) {
