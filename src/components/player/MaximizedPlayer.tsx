@@ -13,6 +13,14 @@ import { PlayerArrowHint, usePlayerArrowHint } from './PlayerArrowHint';
 import { UserFidContext } from '../../app/providers';
 import { shareNftToFarcaster } from '../../lib/shareToFarcaster';
 
+/**
+ * Duration of the player slide. Must stay in step with the `duration-300`
+ * utility on the maximized panel and the 300ms transform transition on the
+ * minimized bar — the JS timers below only decide when to unmount or park,
+ * the motion itself is CSS.
+ */
+export const PLAYER_SLIDE_MS = 300;
+
 // Fix the MaximizedPlayerProps interface to include isAnimating
 // export interface MaximizedPlayerProps {
 //   nft: NFT;
@@ -71,6 +79,46 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
 }) => {
   const { fid } = useContext(UserFidContext);
   const canLike = Boolean(onLikeToggle) && Boolean(fid) && fid !== -1;
+
+  /**
+   * `isMinimized` flips in one frame, but a CSS transition needs the panel laid
+   * out at its start position for a frame before it can travel. `slidePhase`
+   * keeps it full-size across the slide, then parks it back at the 1px footprint
+   * once the animation finishes so a full-screen layer isn't left compositing
+   * behind the page. The <video> this component owns is never unmounted in any
+   * phase — that's what the parked state has always existed to protect.
+   *
+   * Safe against the stage measurement below because that reads clientWidth /
+   * clientHeight, which CSS transforms do not affect.
+   */
+  const [slidePhase, setSlidePhase] = useState<'parked' | 'entering' | 'open' | 'leaving'>(
+    isMinimized ? 'parked' : 'entering'
+  );
+
+  useEffect(() => {
+    let rafOuter = 0;
+    let rafInner = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    if (!isMinimized) {
+      setSlidePhase((prev) => (prev === 'open' ? prev : 'entering'));
+      // Two frames: one to paint at translateY(100%), one to start the travel.
+      rafOuter = requestAnimationFrame(() => {
+        rafInner = requestAnimationFrame(() => setSlidePhase('open'));
+      });
+    } else {
+      setSlidePhase((prev) => (prev === 'parked' ? prev : 'leaving'));
+      timer = setTimeout(() => setSlidePhase('parked'), PLAYER_SLIDE_MS);
+    }
+
+    return () => {
+      cancelAnimationFrame(rafOuter);
+      cancelAnimationFrame(rafInner);
+      if (timer) clearTimeout(timer);
+    };
+  }, [isMinimized]);
+
+  const isParked = slidePhase === 'parked';
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const videoHostRef = useRef<HTMLDivElement | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -778,11 +826,15 @@ export const MaximizedPlayer: React.FC<MaximizedPlayerProps> = ({
       <div
         ref={rootRef}
         className={
-          isMinimized
+          isParked
             ? 'fixed bottom-20 left-0 z-0 w-px h-px overflow-hidden opacity-0 pointer-events-none'
-            : 'fixed inset-0 z-[100] bg-black will-change-transform flex flex-col overflow-hidden'
+            : `fixed inset-0 z-[100] bg-black will-change-transform flex flex-col overflow-hidden transform-gpu transition-transform duration-300 ease-out motion-reduce:transition-none ${
+                slidePhase === 'open'
+                  ? 'translate-y-0'
+                  : 'translate-y-full pointer-events-none'
+              }`
         }
-        style={isMinimized ? undefined : { backfaceVisibility: 'hidden' }}
+        style={isParked ? undefined : { backfaceVisibility: 'hidden' }}
         aria-hidden={isMinimized}
       >
         <div className="absolute inset-0 overflow-hidden pointer-events-none">

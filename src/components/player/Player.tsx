@@ -2,7 +2,7 @@
 // 'use client';
 import React, { useContext, useEffect, useState } from 'react';
 import { MinimizedPlayer } from './MinimizedPlayer';
-import { MaximizedPlayer } from './MaximizedPlayer';
+import { MaximizedPlayer, PLAYER_SLIDE_MS } from './MaximizedPlayer';
 import type { NFT } from '../../types/user';
 import { UserFidContext } from '../../app/providers';
 import { getNftPlaybackPlan } from '../../utils/isMediaNFT';
@@ -65,6 +65,36 @@ export const Player: React.FC<PlayerProps> = ({
     if (!isMinimized || keepVideoMounted) setHasMaximizedOnce(true);
   }, [isMinimized, keepVideoMounted]);
 
+  // The minimized bar used to appear and vanish in a single frame. Keep it
+  // mounted until its slide-out finishes, and hold it below the viewport for
+  // one frame on the way in, so both directions travel instead of popping.
+  const [renderMinimized, setRenderMinimized] = useState(isMinimized);
+  // Starts parked even on first mount so pressing an NFT card slides the bar up
+  // rather than snapping it into place.
+  const [minimizedSlidIn, setMinimizedSlidIn] = useState(false);
+
+  useEffect(() => {
+    let rafOuter = 0;
+    let rafInner = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    if (isMinimized) {
+      setRenderMinimized(true);
+      rafOuter = requestAnimationFrame(() => {
+        rafInner = requestAnimationFrame(() => setMinimizedSlidIn(true));
+      });
+    } else {
+      setMinimizedSlidIn(false);
+      timer = setTimeout(() => setRenderMinimized(false), PLAYER_SLIDE_MS);
+    }
+
+    return () => {
+      cancelAnimationFrame(rafOuter);
+      cancelAnimationFrame(rafInner);
+      if (timer) clearTimeout(timer);
+    };
+  }, [isMinimized]);
+
   return (
     <>
       {hasMaximizedOnce && (
@@ -87,7 +117,7 @@ export const Player: React.FC<PlayerProps> = ({
           onOpenArtistProfile={onOpenArtistProfile}
         />
       )}
-      {isMinimized && (
+      {renderMinimized && (
         <MinimizedPlayer
           nft={nft}
           isPlaying={isPlaying}
@@ -104,6 +134,7 @@ export const Player: React.FC<PlayerProps> = ({
           lastPosition={progress}
           isMinimized={isMinimized}
           isAnimating={false}
+          slideIn={minimizedSlidIn}
           userFid={typeof userFid === 'number' ? userFid : undefined}
           onOpenArtistProfile={onOpenArtistProfile}
         />

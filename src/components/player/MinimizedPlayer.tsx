@@ -31,6 +31,13 @@ interface MinimizedPlayerProps {
   onPictureInPicture?: () => void;
   lastPosition?: number;
   isAnimating?: boolean;
+  /**
+   * Purely visual: false parks the bar just below the viewport so it can slide
+   * into place. Deliberately separate from `isAnimating`, which also gates the
+   * expand arrow hint and a video play() side effect — driving those from a
+   * transition would suppress the hint and fire play() mid-slide.
+   */
+  slideIn?: boolean;
   userFid?: number;
   onOpenArtistProfile?: (fid: number) => void;
 }
@@ -47,6 +54,7 @@ export const MinimizedPlayer: React.FC<MinimizedPlayerProps> = ({
   onSeek,
   isMinimized,
   isAnimating,
+  slideIn = true,
   lastPosition,
   isLiked = false,
   onOpenArtistProfile,
@@ -346,11 +354,12 @@ export const MinimizedPlayer: React.FC<MinimizedPlayerProps> = ({
       <div 
         className="fixed bottom-20 left-0 right-0 bg-black/90 backdrop-blur-lg border-t border-purple-400/20 h-20 z-[100] will-change-transform overflow-visible"
         style={{
-          transform: isAnimating ? 
-            (isMinimized ? 'translateY(0)' : 'translateY(100%)') : 
-            'translateY(0)',
-          transition: 'transform 300ms cubic-bezier(0.33, 1, 0.68, 1)',
-          opacity: isAnimating && !isMinimized ? 0 : 1
+          transform: isAnimating
+            ? (isMinimized ? 'translateY(0)' : 'translateY(100%)')
+            : slideIn ? 'translateY(0)' : 'translateY(100%)',
+          transition:
+            'transform 300ms cubic-bezier(0.33, 1, 0.68, 1), opacity 300ms cubic-bezier(0.33, 1, 0.68, 1)',
+          opacity: isAnimating && !isMinimized ? 0 : slideIn ? 1 : 0,
         }}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
