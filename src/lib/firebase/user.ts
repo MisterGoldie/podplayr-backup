@@ -852,10 +852,21 @@ export const searchUsers = async (queryString: string): Promise<FarcasterUser[]>
       try {
         const userRef = doc(db, 'searchedusers', queryString);
         const userDoc = await getDoc(userRef);
-        
+
+        // Existence alone is NOT a cache hit. followUser() writes follower/
+        // following counters into this same collection with set()+merge, which
+        // creates the doc from nothing for any user who was auto-followed before
+        // they were ever searched. Those docs hold only followerCount /
+        // followingCount — no username, no pfp, no fid. Returning one skips the
+        // Neynar lookup entirely and renders a nameless, avatar-less "User",
+        // permanently, for that profile. Require real profile data before
+        // trusting it; otherwise fall through and let the API fill it in (the
+        // save below merges, so the counters survive and the doc self-heals).
         if (userDoc.exists()) {
           const userData = userDoc.data() as FarcasterUser;
-          return [userData];
+          if (userData?.username) {
+            return [userData];
+          }
         }
       } catch (firebaseError) {
         console.error('Error checking Firebase cache:', firebaseError);
