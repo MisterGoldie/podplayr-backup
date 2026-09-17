@@ -1,9 +1,8 @@
 import type { Metadata } from 'next';
 import App from '~/app/app';
 import { getNftUrl, getServerAppUrl, miniAppMetadataTags } from '~/lib/miniapp';
-import { findFeaturedNftByIdentity, withFeaturedPlayback } from '~/data/featuredNfts';
+import { findFeaturedNftByIdentity } from '~/data/featuredNfts';
 import { resolvePlayableNftForEmbed } from '~/lib/resolvePlayableNft';
-import { getCachedEmbedNft } from '~/lib/nftEmbedCache';
 import { NFT_BOOTSTRAP_SCRIPT_ID, serializeNftBootstrap } from '~/lib/nftBootstrap';
 
 interface Props {
@@ -20,8 +19,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const nftUrl = getNftUrl(contract, tokenId, appUrl);
 
   const featured = findFeaturedNftByIdentity(contract, tokenId);
-  const cached = featured ? null : (await getCachedEmbedNft(contract, tokenId))?.nft;
-  const nft = featured ? withFeaturedPlayback(featured) : cached;
+  const nft = await resolvePlayableNftForEmbed(contract, tokenId);
 
   const resolveOgImage = (img: string) =>
     img.startsWith('/') ? `${appUrl}${img}` : img;
