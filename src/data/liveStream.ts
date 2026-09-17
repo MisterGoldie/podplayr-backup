@@ -29,7 +29,7 @@ export const LIVE_STREAMERS = {
 } as const satisfies Record<string, LiveStreamerConfig>;
 
 /** Change this to switch which streamer's feed the whole app plays/chats around. */
-const ACTIVE_STREAMER = LIVE_STREAMERS.sazon;
+const ACTIVE_STREAMER = LIVE_STREAMERS.will;
 
 export const LIVE_STREAM_ID = ACTIVE_STREAMER.streamId;
 export const LIVE_PLAYBACK_ID = ACTIVE_STREAMER.playbackId;
@@ -50,7 +50,7 @@ export function livePosterUrl({
   /** Kept so callers that pass session state do not break. Poster follows `online` only. */
   showEnded?: boolean;
 }): string {
-  if (ACTIVE_STREAMER === LIVE_STREAMERS.sazon && online) return LIVE_SAZON_POSTER_URL;
+  if (ACTIVE_STREAMER === LIVE_STREAMERS.will && online) return LIVE_WILL_POSTER_URL;
   return LIVE_DEFAULT_POSTER_URL;
 }
 
