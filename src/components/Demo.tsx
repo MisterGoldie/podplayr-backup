@@ -842,7 +842,17 @@ const DemoBase: React.FC = () => {
       // a shared cast often lands at homeUrl with location.embed a beat later.
       if (!isFidReady) return;
       if ((environment === 'farcaster' || environment === 'coinbase') && !farcasterLocation) {
-        return;
+        // sdk.context can take longer than isFidReady's own timeout to
+        // resolve, or never resolve at all on some hosts. Don't hold
+        // HomeView back forever waiting for it — settle after a bounded
+        // wait; a real embed deep link arriving after this still wins
+        // (deepLinkHandledRef is still false, so the effect reruns).
+        const fallback = window.setTimeout(() => {
+          if (deepLinkHandledRef.current) return;
+          setCurrentPage(HOME_PAGE);
+          markDeepLinkSettled();
+        }, 2500);
+        return () => window.clearTimeout(fallback);
       }
       setCurrentPage(HOME_PAGE);
       markDeepLinkSettled();
