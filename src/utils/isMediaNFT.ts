@@ -52,6 +52,12 @@ const collectUrls = (candidate: MediaCandidate): string[] => {
   );
 };
 
+const AUDIO_ANIMATION_FORMAT_RE = /^(wav|wave|mp3|mpeg|ogg|oga|flac|m4a|aac|opus)$/i;
+
+export const animationDetailsLookLikeAudio = (
+  meta?: { animation_details?: { format?: string } } | null
+): boolean => AUDIO_ANIMATION_FORMAT_RE.test(String(meta?.animation_details?.format || ''));
+
 const getMimeType = (candidate: MediaCandidate): string => {
   const meta = candidate.metadata;
   const format = String(meta?.animation_details?.format || '').toLowerCase();
@@ -62,6 +68,9 @@ const getMimeType = (candidate: MediaCandidate): string => {
   if (format === 'vrm') return 'model/gltf-binary';
   if (format === 'usdz' || format === 'fbx' || format === 'obj' || format === 'stl') {
     return `model/${format}`;
+  }
+  if (AUDIO_ANIMATION_FORMAT_RE.test(format)) {
+    return format === 'wave' ? 'audio/wav' : `audio/${format}`;
   }
   return (
     meta?.mimeType ||
@@ -483,6 +492,19 @@ export const getNftPlaybackPlan = (nft: MediaCandidate | NFT): NftPlaybackPlan =
         muteVideo: true,
       };
     }
+  }
+
+  // animation_details.format is the creator's own declaration and outranks both
+  // the mimeType Alchemy stamps on it (video/mp4 on Rehash podcast WAVs) and the
+  // extensionless-URL heuristics below. Rendering audio in a <video> survives
+  // desktop Chromium but fails to load on mobile Safari/WebView.
+  if (animationDetailsLookLikeAudio(meta) && !urlLooksLikeVideo(animation || '')) {
+    return {
+      mode: 'audio-only',
+      audioUrl: audioUrl || animation || typed.audio || pickRawMediaUrl(meta) || null,
+      videoUrl: null,
+      muteVideo: true,
+    };
   }
 
   // Confirmed audio file — even if metadata stuffed it into animation_url (Late #7).

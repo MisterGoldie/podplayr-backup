@@ -24,6 +24,16 @@ function animationDetailsLookLike3d(meta?: NFTMetadata | null): boolean {
   return /^(glb|gltf|gltf-binary|vrm|usdz|fbx|obj|stl)$/i.test(format);
 }
 
+// Alchemy/OpenSea stamp mimeType: video/mp4 on plain podcast/audio uploads too
+// (Rehash episodes) — the same mislabeling animationDetailsLookLike3d already
+// works around for GLBs. A <video> element pointed at an audio-only WAV plays
+// fine on lenient desktop Chromium but silently fails to load on mobile
+// Safari/WebView, so this must win over the declared mimeType just like 3d does.
+function animationDetailsLookLikeAudio(meta?: NFTMetadata | null): boolean {
+  const format = String(meta?.animation_details?.format || '').toLowerCase();
+  return /^(wav|wave|mp3|mpeg|ogg|oga|flac|m4a|aac|opus)$/i.test(format);
+}
+
 /** Server-safe URL rewrite — do not import processMediaUrl (client module). */
 function processMediaUrlServer(
   url: string,
@@ -972,9 +982,14 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
       animationDetailsLookLike3d(rawMeta) ||
       recoveredMime.startsWith('model/') ||
       recoveredMime.includes('gltf');
+    const isAudioAnimation =
+      !is3dAnimation &&
+      (animationDetailsLookLikeAudio(effectiveMeta) || animationDetailsLookLikeAudio(rawMeta));
     const resolvedAnimType = is3dAnimation
       ? 'model/gltf-binary'
-      : alchemyAnimationLooksLikeVideo(alchemyImage.animation) ||
+      : isAudioAnimation
+        ? 'audio/wav'
+        : alchemyAnimationLooksLikeVideo(alchemyImage.animation) ||
           imageVideoType.startsWith('video/') ||
           (alchemyAnimation &&
             (alchemyAnimation.startsWith('ar://') ||
@@ -1019,11 +1034,13 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
       metadata: mergedMeta,
       // Hint video when Alchemy already classified the animation as mp4/webm
       isVideo:
-        resolvedAnimType.startsWith('video/') || recoveredMime.startsWith('video/')
+        !isAudioAnimation &&
+        (resolvedAnimType.startsWith('video/') || recoveredMime.startsWith('video/'))
           ? true
           : undefined,
       videoUrl:
-        resolvedAnimType.startsWith('video/') || recoveredMime.startsWith('video/')
+        !isAudioAnimation &&
+        (resolvedAnimType.startsWith('video/') || recoveredMime.startsWith('video/'))
           ? alchemyAnimCached || alchemyAnimation || contentUri
           : undefined,
     });
@@ -1074,9 +1091,10 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
     // Alchemy CDN URLs often lack .mp4 — trust Alchemy contentType over URL sniffing.
     // Never use broken HLS / orphan Mux as the video source.
     const isAlchemyVideo =
-      resolvedAnimType.startsWith('video/') ||
-      recoveredMime.startsWith('video/') ||
-      plan.mode !== 'audio-only';
+      !isAudioAnimation &&
+      (resolvedAnimType.startsWith('video/') ||
+        recoveredMime.startsWith('video/') ||
+        plan.mode !== 'audio-only');
     const resolvedVideoCandidate =
       videoUrl ||
       (isAlchemyVideo ? alchemyAnimCached || processMediaUrlServer(alchemyAnimation, '', 'audio') : '') ||
