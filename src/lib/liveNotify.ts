@@ -3,7 +3,6 @@ import {
   LIVE_OFFLINE_POLLS,
   LIVE_PLAYBACK_ID,
   LIVE_POLL_MS,
-  LIVE_SESSION_END_MS,
 } from '../data/liveStream';
 import { LIVE_NOTIFY_BODY, LIVE_NOTIFY_TITLE, fidsToNotify } from '../data/liveNotifications';
 import { getAppUrl, getLiveUrl } from './miniapp';
@@ -67,21 +66,6 @@ export async function syncLiveStreamState(): Promise<LiveNotifyState> {
   const prev = (await getLiveNotifyState()) ?? emptyState();
   const { status, seq } = await checkManifest();
   const now = Date.now();
-
-  // Nothing may have polled across an entire offline stretch (no server cron,
-  // and the client trigger only runs while someone has the app open), so a
-  // stored "online" state can be days stale. Treat it as offline before
-  // reacting to this poll, so a stream seen live again is a new session that
-  // actually gets notified instead of silently matching the old one.
-  if (prev.online && now - prev.seqAt >= LIVE_SESSION_END_MS) {
-    prev.online = false;
-    prev.seq = null;
-    prev.seqAt = 0;
-    prev.misses = 0;
-    prev.sessionId = null;
-    prev.notifiedSessionId = null;
-    prev.showEnded = true;
-  }
 
   let classified = status;
   if (status === 'live' && seq && prev.seq === seq && now - prev.seqAt >= LIVE_POLL_MS) {
