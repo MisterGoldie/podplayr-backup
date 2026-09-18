@@ -24,10 +24,10 @@ A modern web3-enabled media player for NFT audio content, built with Next.js and
   - Beautiful, responsive UI built with Tailwind CSS
   - User profile system with search functionality
   - Intuitive audio player controls
-  - Real-time progress tracking
+  - Real-time progress and tracking
   - Mobile-friendly design
 
-## 🛠 Tech Stack
+## 🛠 Tech Stacks
 
 - **Frontend Framework**: 
   - Next.js 15.0.3
