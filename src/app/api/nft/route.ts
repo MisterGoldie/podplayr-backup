@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getNFTMetadata, isOnChainNftIdentity } from '../../../lib/nft';
+import { getNFTMetadata, isOnChainNftIdentity, nftNeedsChainMediaEnrich } from '../../../lib/nft';
 
 export async function GET(request: NextRequest) {
   try {
@@ -23,9 +23,14 @@ export async function GET(request: NextRequest) {
     }
 
     const nftData = await getNFTMetadata(contract, tokenId, network);
-    
+
+    // True when playback still depends on a signed Mux mezzanine link or a
+    // public IPFS gateway — those genuinely expire/go down over time, so an
+    // embed resolving to one today is not guaranteed to still play tomorrow.
+    const fragile = nftNeedsChainMediaEnrich(nftData);
+
     const playbackRefresh = request.nextUrl.searchParams.get('playback') === '1';
-    return NextResponse.json(nftData, {
+    return NextResponse.json({ ...nftData, fragile }, {
       headers: {
         'Cache-Control': playbackRefresh ? 'private, no-store' : 'public, max-age=3600',
         'Access-Control-Allow-Origin': '*',
