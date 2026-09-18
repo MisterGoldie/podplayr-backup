@@ -4,7 +4,7 @@ import { pollAndNotifyLive } from '~/lib/liveNotify';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
-export async function POST() {
+async function handle() {
   try {
     const result = await pollAndNotifyLive();
     return NextResponse.json({ success: true, ...result });
@@ -13,3 +13,6 @@ export async function POST() {
     return NextResponse.json({ success: false, error: 'Live notify failed' }, { status: 500 });
   }
 }
+
+export const POST = handle;
+export const GET = handle;
