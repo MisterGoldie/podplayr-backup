@@ -1,6 +1,6 @@
 import { cache } from 'react';
 import type { NFT } from '../types/user';
-import { getNFTMetadata, isOnChainNftIdentity } from './nft';
+import { getNFTMetadata, isOnChainNftIdentity, nftNeedsChainMediaEnrich } from './nft';
 import { findFeaturedNftByIdentity, withFeaturedPlayback } from '../data/featuredNfts';
 import { isPlayableMediaNFT } from '../utils/isMediaNFT';
 import { firstNonNull } from './nftBootstrap';
@@ -53,7 +53,12 @@ export const resolvePlayableNftForEmbed = cache(
     // Awaited rather than fire-and-forget: the serverless instance can be
     // frozen as soon as the response is sent, which would drop the write and
     // leave every open paying the cold path.
-    await setCachedEmbedNft(contract, normalizedTokenId, resolved);
+    await setCachedEmbedNft(
+      contract,
+      normalizedTokenId,
+      resolved,
+      nftNeedsChainMediaEnrich(resolved)
+    );
 
     return resolved;
   }

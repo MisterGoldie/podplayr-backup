@@ -87,19 +87,28 @@ export async function getCachedEmbedNft(
 export async function setCachedEmbedNft(
   contract: string,
   tokenId: string,
-  nft: NFT | null
+  nft: NFT | null,
+  /**
+   * True when `nft`'s playback still depends on a fragile field (signed Mux
+   * mezzanine link, public IPFS gateway) that can start 403ing on its own —
+   * see `nftNeedsChainMediaEnrich`. Cached on the miss TTL instead of the
+   * hours-long hit TTL so a shared embed keeps retrying instead of locking
+   * in a link that plays today and 403s tomorrow.
+   */
+  fragile = false
 ): Promise<void> {
   const key = embedCacheKey(contract, tokenId);
+  const durable = !!nft && !fragile;
   memoryCache.set(key, {
     nft,
-    expiresAt: Date.now() + (nft ? HIT_MEMORY_TTL_MS : MISS_MEMORY_TTL_MS),
+    expiresAt: Date.now() + (durable ? HIT_MEMORY_TTL_MS : MISS_MEMORY_TTL_MS),
   });
 
   const redis = getRedisClient();
   if (!redis) return;
   try {
-    await redis.set(key, { nft }, { ex: nft ? HIT_REDIS_TTL_SECONDS : MISS_REDIS_TTL_SECONDS });
-    console.log('[podplayr:redis] nft-embed SET ok', { key, playable: !!nft });
+    await redis.set(key, { nft }, { ex: durable ? HIT_REDIS_TTL_SECONDS : MISS_REDIS_TTL_SECONDS });
+    console.log('[podplayr:redis] nft-embed SET ok', { key, playable: !!nft, durable });
   } catch (error) {
     console.warn('[podplayr:redis] nft-embed SET failed', { key, error });
   }

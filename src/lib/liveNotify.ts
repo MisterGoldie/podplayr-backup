@@ -66,6 +66,7 @@ export async function syncLiveStreamState(): Promise<LiveNotifyState> {
   const prev = (await getLiveNotifyState()) ?? emptyState();
   const { status, seq } = await checkManifest();
   const now = Date.now();
+
   let classified = status;
   if (status === 'live' && seq && prev.seq === seq && now - prev.seqAt >= LIVE_POLL_MS) {
     classified = 'ended';
