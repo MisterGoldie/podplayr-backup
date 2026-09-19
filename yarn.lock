@@ -12312,6 +12312,7 @@ __metadata:
     react: "npm:^18.2.0"
     react-dom: "npm:^18.2.0"
     react-hot-toast: "npm:^2.5.2"
+    sharp: "npm:^0.34.3"
     styled-jsx: "npm:^5.1.7"
     tailwindcss: "npm:^3.4.17"
     ts-node: "npm:^10.9.2"

@@ -446,7 +446,10 @@ export const NFTImage: React.FC<NFTImageProps> = ({
     // decoded successfully, a re-resolve (e.g. metadataImage filling in) must NOT
     // set imgLoading=true. Same src won't re-fire onLoad → false arweave hang hops.
     let nextDisplayUrl = '';
-    const rememberedDisplay = nft ? getRememberedNftDisplayCover(nft) : '';
+    // A previously decoded thumbnail is still static; it must not override
+    // newly recovered GIF/APNG artwork when opening the shared player.
+    const preserveAnimatedCover = nftHasAnimatedCover(nft);
+    const rememberedDisplay = nft && !preserveAnimatedCover ? getRememberedNftDisplayCover(nft) : '';
     if (rememberedDisplay) {
       nextDisplayUrl = useCardThumb
         ? rememberedDisplay
@@ -497,7 +500,7 @@ export const NFTImage: React.FC<NFTImageProps> = ({
       // Check if we've already processed this URL
       const cacheKey = nft ? `${nft.contract}-${nft.tokenId}` : derivedSrc;
       const cached = processedUrlCache.current[cacheKey];
-      const rememberedHit = nft ? getRememberedNftDisplayCover(nft) : '';
+      const rememberedHit = nft && !preserveAnimatedCover ? getRememberedNftDisplayCover(nft) : '';
       const effectiveSrc = derivedSrc;
       const isFragileUrl = (url?: string | null) => {
         const u = sanitizeMediaUrl(url);
@@ -610,6 +613,13 @@ export const NFTImage: React.FC<NFTImageProps> = ({
         resolvedForLog = sizedHit;
         setImgSrc(sizedHit);
         setImgLoading(sizedHit !== rememberedHit);
+      } else if (preserveAnimatedCover && effectiveSrc) {
+        resolveBranch = 'animatedCover';
+        processedUrlCache.current[cacheKey] = effectiveSrc;
+        clearNftMediaUrlCache(nft, 'image');
+        setIsVideo(false);
+        resolvedForLog = toDisplaySrc(effectiveSrc);
+        setImgSrc(resolvedForLog);
       } else if (stillSrc) {
         resolveBranch = 'stillSrc';
         processedUrlCache.current[cacheKey] = stillSrc;

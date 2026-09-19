@@ -27,6 +27,8 @@ import { getRedisClient } from './redisClient';
 /** `nft: null` is a real, cacheable answer: "this token has no playable media". */
 interface EmbedEntry {
   nft: NFT | null;
+  /** Absolute freshness deadline, shared by Redis and in-memory readers. */
+  expiresAt?: number;
 }
 
 interface MemoryEntry extends EmbedEntry {
@@ -43,7 +45,8 @@ const MISS_REDIS_TTL_SECONDS = 60 * 5; // 5 minutes
 /** Bump when the resolved shape changes so old entries age out instead of serving stale. */
 // v3: Thirdweb `data:application/json;base64` tokenURIs are parsed, so tokens
 // previously cached as "not playable" (empty animation_url) must not stick.
-const CACHE_SCHEMA_VERSION = 'v3';
+// v4: preserve GIF/APNG artwork instead of serving a cached static thumbnail.
+const CACHE_SCHEMA_VERSION = 'v4';
 
 function embedCacheKey(contract: string, tokenId: string): string {
   return `PODPLAYR:nft-embed:${CACHE_SCHEMA_VERSION}:${contract.toLowerCase()}:${tokenId.trim()}`;
@@ -72,9 +75,16 @@ export async function getCachedEmbedNft(
       playable: !!fromRedis?.nft,
     });
     if (fromRedis) {
+      // Reading Redis must not restart a fragile result's five-minute lifetime
+      // as a fresh one-hour memory hit. Legacy entries get a conservative TTL.
+      const expiresAt = fromRedis.expiresAt ?? Date.now() + MISS_MEMORY_TTL_MS;
+      if (expiresAt <= Date.now()) return null;
       memoryCache.set(key, {
         nft: fromRedis.nft,
-        expiresAt: Date.now() + (fromRedis.nft ? HIT_MEMORY_TTL_MS : MISS_MEMORY_TTL_MS),
+        expiresAt: Math.min(
+          expiresAt,
+          Date.now() + (fromRedis.nft ? HIT_MEMORY_TTL_MS : MISS_MEMORY_TTL_MS)
+        ),
       });
       return fromRedis;
     }
@@ -99,6 +109,7 @@ export async function setCachedEmbedNft(
 ): Promise<void> {
   const key = embedCacheKey(contract, tokenId);
   const durable = !!nft && !fragile;
+  const redisTtl = durable ? HIT_REDIS_TTL_SECONDS : MISS_REDIS_TTL_SECONDS;
   memoryCache.set(key, {
     nft,
     expiresAt: Date.now() + (durable ? HIT_MEMORY_TTL_MS : MISS_MEMORY_TTL_MS),
@@ -107,7 +118,7 @@ export async function setCachedEmbedNft(
   const redis = getRedisClient();
   if (!redis) return;
   try {
-    await redis.set(key, { nft }, { ex: durable ? HIT_REDIS_TTL_SECONDS : MISS_REDIS_TTL_SECONDS });
+    await redis.set(key, { nft, expiresAt: Date.now() + redisTtl * 1000 }, { ex: redisTtl });
     console.log('[podplayr:redis] nft-embed SET ok', { key, playable: !!nft, durable });
   } catch (error) {
     console.warn('[podplayr:redis] nft-embed SET failed', { key, error });

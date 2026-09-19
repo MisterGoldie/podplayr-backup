@@ -1,5 +1,6 @@
 import type { NFT, NFTMetadata } from '../types/user';
 import { Alchemy, Network } from 'alchemy-sdk';
+import { animatedCoverUrl } from '../utils/animatedCover';
 import { createHash } from 'crypto';
 import { rewriteLegacyOpenSeaMediaUrl, nftHasSeaDnVideoAnimation, isFragileSeaDnPosterUrl } from '../utils/openSeaMedia';
 import {
@@ -474,6 +475,7 @@ function pickAlchemyVisualCover(opts: {
   media?: Array<{ gateway?: string; raw?: string; format?: string }> | null;
   metaImage?: string | null;
   metaImageUrl?: string | null;
+  imageFormat?: string;
   files?: Array<{ uri?: string; url?: string; type?: string; mimeType?: string }> | null;
   collectionImage?: string | null;
   /** Last-resort card cover when the token is video-only (Nifty Island, Food videos). */
@@ -483,6 +485,11 @@ function pickAlchemyVisualCover(opts: {
   const type = (img?.contentType || '').toLowerCase();
   const isAudioOrVideoType = type.startsWith('audio/') || type.startsWith('video/');
   const audioFromImage = type.startsWith('audio/') ? img?.cachedUrl || '' : '';
+
+  const animatedCover = animatedCoverUrl(opts);
+  if (animatedCover && looksLikeVisualCoverUrl(animatedCover, 'image/gif')) {
+    return { cover: animatedCover, audioFromImage };
+  }
 
   // Confirmed stills. Prefer thumbnail/png; include Alchemy cachedUrl only when
   // not typed as audio/video. Collection art is LAST so it never replaces
@@ -847,6 +854,7 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
         image: alchemyImage.image,
         metaImage: rawMeta.image,
         metaImageUrl: rawMeta.image_url,
+        imageFormat: rawMeta.image_details?.format,
         files: rawMeta.properties?.files,
         collectionImage: collectionOpenSeaImage,
         videoFallbacks: [
@@ -1013,6 +1021,10 @@ export const getNFTMetadata = async (contract: string, tokenId: string, network:
     );
     const mergedMeta: NFTMetadata = {
       ...effectiveMeta,
+      image_details: effectiveMeta.image_details || rawMeta.image_details,
+      imageMimeType: alchemyImage.image?.contentType,
+      original_image_url: effectiveMeta.original_image_url || alchemyImage.image?.originalUrl || rawMeta.image,
+      display_image_url: effectiveMeta.display_image_url || alchemyImage.image?.thumbnailUrl,
       original_animation_url: effectiveMeta.original_animation_url || originAnimation || undefined,
       // Prefer Alchemy CDN for the first hop; keep the origin for failover.
       animation_url:
@@ -1880,6 +1892,7 @@ export const fetchOwnedNftsFromAlchemy = async (address: string): Promise<NFT[]>
           media: nft.media,
           metaImage: meta.image,
           metaImageUrl: meta.image_url,
+          imageFormat: (meta as NFTMetadata).image_details?.format,
           files: meta.properties?.files,
           collectionImage,
           videoFallbacks: [
@@ -1907,6 +1920,10 @@ export const fetchOwnedNftsFromAlchemy = async (address: string): Promise<NFT[]>
         );
         const mergedMeta = {
           ...meta,
+          image_details: (meta as NFTMetadata).image_details,
+          imageMimeType: nft.image?.contentType,
+          original_image_url: (meta as NFTMetadata).original_image_url || nft.image?.originalUrl || meta.image,
+          display_image_url: (meta as NFTMetadata).display_image_url || nft.image?.thumbnailUrl,
           original_animation_url:
             (meta as NFTMetadata).original_animation_url || originAnimation || undefined,
           animation_url:

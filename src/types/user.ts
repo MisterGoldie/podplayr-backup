@@ -47,6 +47,8 @@ export interface FollowedUser {
 }
 
 export interface NFTMetadata {
+  imageMimeType?: string;
+  image_details?: { format?: string; [key: string]: unknown };
   name?: string;
   description?: string;
   image?: string;

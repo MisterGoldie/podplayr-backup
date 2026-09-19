@@ -41,7 +41,8 @@ const REDIS_TTL_SECONDS = 60 * 60 * 24; // 24 hours — media is durable, but re
 // must not be cached as playable — fall through to original_animation_url.
 // v7: parse Thirdweb `data:application/json;base64` tokenURIs so shared
 // animation_url (WAV/MP4) is not dropped.
-const CACHE_SCHEMA_VERSION = 'v7';
+// v8: preserve animated artwork and its image MIME separately from audio MIME.
+const CACHE_SCHEMA_VERSION = 'v8';
 
 function responseCacheKey(contract: string, tokenId: string, network: 'base' | 'ethereum'): string {
   return `PODPLAYR:nft-full:${CACHE_SCHEMA_VERSION}:${network}:${contract.toLowerCase()}:${tokenId.trim()}`;

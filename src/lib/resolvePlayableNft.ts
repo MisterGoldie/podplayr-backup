@@ -15,13 +15,9 @@ async function playableOnNetwork(
   tokenId: string,
   network: 'base' | 'ethereum'
 ): Promise<NFT | null> {
-  try {
-    const nft = await getNFTMetadata(contract, tokenId, network);
-    const enriched = withFeaturedPlayback(nft);
-    if (nft?.contract && isPlayableMediaNFT(enriched)) return enriched;
-  } catch {
-    // wrong chain / empty metadata
-  }
+  const nft = await getNFTMetadata(contract, tokenId, network);
+  const enriched = withFeaturedPlayback(nft);
+  if (nft?.contract && isPlayableMediaNFT(enriched)) return enriched;
   return null;
 }
 
@@ -45,10 +41,19 @@ export const resolvePlayableNftForEmbed = cache(
     const cached = await getCachedEmbedNft(contract, normalizedTokenId);
     if (cached) return cached.nft;
 
-    const resolved = await firstNonNull([
-      playableOnNetwork(contract, normalizedTokenId, 'base'),
-      playableOnNetwork(contract, normalizedTokenId, 'ethereum'),
-    ]);
+    let lookupFailed = false;
+    const resolved = await firstNonNull(
+      (['base', 'ethereum'] as const).map((network) =>
+        playableOnNetwork(contract, normalizedTokenId, network).catch(() => {
+          lookupFailed = true;
+          return null;
+        })
+      )
+    );
+
+    // An upstream outage is not proof that the NFT has no media. Leave a
+    // failed lookup retryable on the next open instead of caching a miss.
+    if (!resolved && lookupFailed) return null;
 
     // Awaited rather than fire-and-forget: the serverless instance can be
     // frozen as soon as the response is sent, which would drop the write and

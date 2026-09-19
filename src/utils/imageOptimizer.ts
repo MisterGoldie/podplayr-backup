@@ -1,6 +1,7 @@
 import { isOpenSeaCdnHost, toOpenSeaCdnProxyUrl } from './openSeaMedia';
 import { sanitizeMediaUrl } from './media';
 import { urlLooksLikeExtensionlessVideo } from './ipfsExtensionlessMedia';
+import { isAnimatedImage } from './animatedCover';
 
 interface OptimizedImage {
   file: File;
@@ -476,6 +477,8 @@ type AnimatedCoverNft = {
   mimeType?: string | null;
   collection?: { image?: string | null } | null;
   metadata?: {
+    imageMimeType?: string | null;
+    image_details?: { format?: string } | null;
     image?: string | null;
     image_url?: string | null;
     mimeType?: string | null;
@@ -496,6 +499,8 @@ type AnimatedCoverNft = {
 /** True when any cover field/mime says GIF/APNG — ignore Featured stills. */
 export function nftHasAnimatedCover(nft?: AnimatedCoverNft | null): boolean {
   if (!nft) return false;
+  if (isAnimatedImage(nft.metadata?.imageMimeType) ||
+      isAnimatedImage(nft.metadata?.image_details?.format)) return true;
   const mimes = [
     nft.mimeType,
     nft.metadata?.mimeType,
